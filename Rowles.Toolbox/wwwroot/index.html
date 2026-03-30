@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rowles.Toolbox</title>
+    <base href="/" />
+    <link rel="preload" id="webassembly" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link href="Rowles.Toolbox.styles.css" rel="stylesheet" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="manifest.webmanifest" rel="manifest" />
+    <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
+    <script type="importmap"></script>
+    <style>
+        .loading-progress {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 120px;
+            height: 120px;
+            transform: translate(-50%, -50%);
+        }
+        .loading-progress circle {
+            fill: none;
+            stroke-width: 4px;
+            transform-origin: 50% 50%;
+        }
+        .loading-progress circle:first-child {
+            stroke: #e5e7eb;
+        }
+        .loading-progress circle:last-child {
+            stroke: #3b82f6;
+            stroke-dasharray: calc(3.14 * 80%);
+            animation: loading-spin 1.2s linear infinite;
+        }
+        .loading-progress-text {
+            position: fixed;
+            top: calc(50% + 70px);
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: system-ui, sans-serif;
+            font-size: 0.75rem;
+            color: #6b7280;
+        }
+        .loading-progress-text:after {
+            content: var(--blazor-load-percentage-text, "Loading…");
+        }
+        @keyframes loading-spin {
+            to { transform: rotate(360deg); }
+        }
+        #blazor-error-ui {
+            color-scheme: light only;
+            background: lightyellow;
+            bottom: 0;
+            box-shadow: 0 -1px 2px rgba(0,0,0,0.2);
+            display: none;
+            left: 0;
+            padding: 0.6rem 1.25rem 0.7rem;
+            position: fixed;
+            width: 100%;
+            z-index: 1000;
+        }
+        #blazor-error-ui .dismiss {
+            cursor: pointer;
+            position: absolute;
+            right: 0.75rem;
+            top: 0.5rem;
+        }
+    </style>
+    <script>
+        (function () {
+            var t = localStorage.getItem('theme');
+            if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches))
+                document.documentElement.classList.add('dark');
+            var s = localStorage.getItem('textSize') || 'small';
+            document.documentElement.setAttribute('data-text-size', s);
+        })();
+        function toggleTheme() {
+            document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+        }
+        function setTextSize(size) {
+            document.documentElement.setAttribute('data-text-size', size);
+            localStorage.setItem('textSize', size);
+        }
+        function getTextSize() {
+            return localStorage.getItem('textSize') || 'small';
+        }
+    </script>
+    <style>
+        html[data-text-size="small"]  { font-size: 16px; }
+        html[data-text-size="medium"] { font-size: 18px; }
+        html[data-text-size="large"]  { font-size: 20px; }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+</body>
+
+</html>

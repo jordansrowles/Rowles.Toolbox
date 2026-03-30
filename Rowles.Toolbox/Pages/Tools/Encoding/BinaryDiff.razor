@@ -1,0 +1,628 @@
+@page "/tools/encoding/binary-diff"
+
+@using Rowles.Toolbox.Core.Encoding
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Binary Diff - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Binary Diff" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-file-diff mr-1"></i> Byte-level file comparison</span>
+    </Actions>
+</PageHeader>
+
+@* Input mode tabs *@
+<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-4">
+    <button class="px-4 py-2 text-sm font-medium @GetTabClass(_inputMode == InputMode.FileUpload)"
+            @onclick="() => SetInputMode(InputMode.FileUpload)">
+        <i class="ti ti-upload mr-1"></i> File Upload
+    </button>
+    <button class="px-4 py-2 text-sm font-medium @GetTabClass(_inputMode == InputMode.HexPaste)"
+            @onclick="() => SetInputMode(InputMode.HexPaste)">
+        <i class="ti ti-code mr-1"></i> Hex String
+    </button>
+</div>
+
+@if (_inputMode == InputMode.FileUpload)
+{
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        @* File A *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-2"><i class="ti ti-file mr-1"></i> File A</label>
+            <InputFile OnChange="OnFileASelected"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 cursor-pointer" />
+            @if (_fileAName is not null)
+            {
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <i class="ti ti-check text-green-500 mr-0.5"></i>
+                    @_fileAName (@FormatSize(_bytesA!.Length))
+                </p>
+            }
+        </div>
+
+        @* File B *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-2"><i class="ti ti-file mr-1"></i> File B</label>
+            <InputFile OnChange="OnFileBSelected"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 cursor-pointer" />
+            @if (_fileBName is not null)
+            {
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <i class="ti ti-check text-green-500 mr-0.5"></i>
+                    @_fileBName (@FormatSize(_bytesB!.Length))
+                </p>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        @* Hex A *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-2"><i class="ti ti-code mr-1"></i> Hex String A</label>
+            <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="e.g. 48656C6C6F or 48 65 6C 6C 6F"
+                      @bind="_hexInputA" @bind:after="SaveState"></textarea>
+        </div>
+
+        @* Hex B *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-2"><i class="ti ti-code mr-1"></i> Hex String B</label>
+            <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="e.g. 48656D6C6F or 48 65 6D 6C 6F"
+                      @bind="_hexInputB" @bind:after="SaveState"></textarea>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="mb-4 p-3 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+        <i class="ti ti-alert-triangle mr-1"></i> @_error
+    </div>
+}
+
+@if (_isProcessing)
+{
+    <div class="mb-4 text-sm text-blue-600 dark:text-blue-400">
+        <i class="ti ti-loader-2 animate-spin mr-1"></i> Comparing files...
+    </div>
+}
+
+@* Action buttons *@
+<div class="flex flex-wrap items-center gap-2 mb-4">
+    <button class="bg-blue-600 text-white px-4 py-2 text-sm font-medium rounded hover:bg-blue-700 cursor-pointer border-none inline-flex items-center gap-1.5"
+            @onclick="RunComparison">
+        <i class="ti ti-git-compare"></i> Compare
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-2 text-sm font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer border-none inline-flex items-center gap-1.5"
+            @onclick="ClearAll">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+
+    @if (_diffResult is not null)
+    {
+        <button class="bg-green-600 text-white px-3 py-2 text-sm font-medium rounded hover:bg-green-700 cursor-pointer border-none inline-flex items-center gap-1.5"
+                @onclick="CopyReport">
+            <i class="ti @(_copiedReport ? "ti-check" : "ti-clipboard-copy")"></i> Copy Report
+        </button>
+    }
+</div>
+
+@if (_diffResult is not null)
+{
+    @* Summary panel *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-3">
+            <i class="ti ti-report-analytics mr-1"></i> Summary
+        </h3>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide">File A Size</div>
+                <div class="text-sm font-semibold mt-0.5">@FormatSize(_diffResult.SizeA)</div>
+            </div>
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide">File B Size</div>
+                <div class="text-sm font-semibold mt-0.5">@FormatSize(_diffResult.SizeB)</div>
+            </div>
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide">Size Diff</div>
+                <div class="text-sm font-semibold mt-0.5 @(_diffResult.SizeDifference == 0 ? "text-green-600" : "text-yellow-600")">
+                    @FormatSizeDifference(_diffResult.SizeDifference)
+                </div>
+            </div>
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide">Bytes Differ</div>
+                <div class="text-sm font-semibold mt-0.5 @(_diffResult.DifferingByteCount == 0 ? "text-green-600" : "text-red-600")">
+                    @_diffResult.DifferingByteCount.ToString("N0")
+                </div>
+            </div>
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide">Match</div>
+                <div class="text-sm font-semibold mt-0.5 @(_diffResult.MatchPercentage >= 100.0 ? "text-green-600" : _diffResult.MatchPercentage >= 90.0 ? "text-yellow-600" : "text-red-600")">
+                    @_diffResult.MatchPercentage.ToString("F2")%
+                </div>
+            </div>
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide">First Diff</div>
+                <div class="text-sm font-semibold font-mono mt-0.5">
+                    @(_diffResult.FirstDiffOffset >= 0 ? "0x" + _diffResult.FirstDiffOffset.ToString("X") : "None")
+                </div>
+            </div>
+        </div>
+
+        @if (_diffResult.DifferingByteCount == 0 && _diffResult.SizeDifference == 0)
+        {
+            <div class="mt-3 p-2 text-sm bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-300 dark:border-green-700 rounded">
+                <i class="ti ti-circle-check mr-1"></i> Files are identical.
+            </div>
+        }
+    </div>
+
+    @* Controls *@
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+            <input type="checkbox" class="rounded" @bind="_showOnlyDiffs" />
+            Show only differences
+        </label>
+
+        @* View mode *@
+        <div class="flex items-center gap-2">
+            <label class="text-xs text-gray-500">View:</label>
+            <button class="@GetViewBtnClass(_viewMode == DiffViewMode.Table) px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                    @onclick="() => SetViewMode(DiffViewMode.Table)">
+                <i class="ti ti-table mr-0.5"></i> Table
+            </button>
+            <button class="@GetViewBtnClass(_viewMode == DiffViewMode.HexDump) px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                    @onclick="() => SetViewMode(DiffViewMode.HexDump)">
+                <i class="ti ti-binary-tree mr-0.5"></i> Hex Dump
+            </button>
+        </div>
+
+        @if (_diffResult.Differences.Count > 0)
+        {
+            <div class="flex items-center gap-1">
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer border-none"
+                        @onclick="JumpPreviousDiff">
+                    <i class="ti ti-chevron-left"></i> Prev
+                </button>
+                <span class="text-xs text-gray-500 mx-1">
+                    @(_currentDiffIndex + 1) / @_diffResult.Differences.Count
+                </span>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer border-none"
+                        @onclick="JumpNextDiff">
+                    Next <i class="ti ti-chevron-right"></i>
+                </button>
+            </div>
+        }
+    </div>
+
+    @if (_viewMode == DiffViewMode.Table)
+    {
+        @* Diff table *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden mb-4">
+            <div class="bg-gray-50 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <span class="text-xs font-semibold text-gray-500">
+                    <i class="ti ti-table mr-1"></i> Diff Table
+                    @if (_diffResult.Differences.Count > MaxDisplayDiffs)
+                    {
+                        <span class="text-yellow-500 ml-1">(showing first @MaxDisplayDiffs of @_diffResult.Differences.Count)</span>
+                    }
+                </span>
+            </div>
+
+            <div class="max-h-[500px] overflow-y-auto">
+                <table class="w-full text-xs font-mono">
+                    <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                        <tr>
+                            <th class="px-3 py-1.5 text-left text-gray-500 font-medium">#</th>
+                            <th class="px-3 py-1.5 text-left text-gray-500 font-medium">Offset</th>
+                            <th class="px-3 py-1.5 text-left text-gray-500 font-medium">File A (Hex)</th>
+                            <th class="px-3 py-1.5 text-left text-gray-500 font-medium">File B (Hex)</th>
+                            <th class="px-3 py-1.5 text-left text-gray-500 font-medium">A (ASCII)</th>
+                            <th class="px-3 py-1.5 text-left text-gray-500 font-medium">B (ASCII)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int idx = 0; idx < GetDisplayDiffCount(); idx++)
+                        {
+                            BinaryDiffCore.DiffEntry entry = _diffResult.Differences[idx];
+                            bool isSelected = idx == _currentDiffIndex;
+                            <tr class="@(isSelected ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800/50") border-b border-gray-100 dark:border-gray-800">
+                                <td class="px-3 py-1 text-gray-400">@(idx + 1)</td>
+                                <td class="px-3 py-1 text-blue-600 dark:text-blue-400">@entry.Offset.ToString("X8")</td>
+                                <td class="px-3 py-1 text-red-600 dark:text-red-400 font-semibold">@FormatByteCellHex(entry.ByteA)</td>
+                                <td class="px-3 py-1 text-green-600 dark:text-green-400 font-semibold">@FormatByteCellHex(entry.ByteB)</td>
+                                <td class="px-3 py-1 text-red-600 dark:text-red-400">@FormatByteAscii(entry.ByteA)</td>
+                                <td class="px-3 py-1 text-green-600 dark:text-green-400">@FormatByteAscii(entry.ByteB)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* Side-by-side hex dump *@
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+            @* File A hex dump *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+                <div class="bg-gray-50 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                    <span class="text-xs font-semibold text-gray-500">
+                        <i class="ti ti-file mr-1"></i> File A
+                    </span>
+                </div>
+                <div class="max-h-[500px] overflow-y-auto">
+                    @for (int row = 0; row < GetHexDumpRowCount(_bytesA!); row++)
+                    {
+                        int offset = row * 16;
+                        int bytesInRow = Math.Min(16, _bytesA!.Length - offset);
+                        <div class="flex px-3 py-0.5 border-b border-gray-100 dark:border-gray-800 font-mono text-[11px]">
+                            <span class="w-20 shrink-0 text-gray-400">@offset.ToString("X8")</span>
+                            <span class="flex-1 flex flex-wrap gap-x-0.5">
+                                @for (int i = 0; i < 16; i++)
+                                {
+                                    if (i == 8)
+                                    {
+                                        <span class="w-1"></span>
+                                    }
+                                    if (i < bytesInRow)
+                                    {
+                                        int absIdx = offset + i;
+                                        bool isDiff = IsByteOffsetDifferent(absIdx);
+                                        bool shouldHide = _showOnlyDiffs && !isDiff;
+                                        <span class="@(isDiff ? "text-red-600 dark:text-red-400 font-bold bg-red-50 dark:bg-red-900/20 rounded px-0.5" : shouldHide ? "text-gray-300 dark:text-gray-700" : "text-gray-600 dark:text-gray-400")">@_bytesA![absIdx].ToString("X2")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-transparent">  </span>
+                                    }
+                                }
+                            </span>
+                            <span class="w-36 shrink-0 text-right">
+                                @for (int i = 0; i < bytesInRow; i++)
+                                {
+                                    int absIdx = offset + i;
+                                    bool isDiff = IsByteOffsetDifferent(absIdx);
+                                    byte b = _bytesA![absIdx];
+                                    <span class="@(isDiff ? "text-red-600 dark:text-red-400 font-bold" : "text-green-700 dark:text-green-400")">@BinaryDiffCore.ToAsciiChar(b)</span>
+                                }
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* File B hex dump *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+                <div class="bg-gray-50 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                    <span class="text-xs font-semibold text-gray-500">
+                        <i class="ti ti-file mr-1"></i> File B
+                    </span>
+                </div>
+                <div class="max-h-[500px] overflow-y-auto">
+                    @for (int row = 0; row < GetHexDumpRowCount(_bytesB!); row++)
+                    {
+                        int offset = row * 16;
+                        int bytesInRow = Math.Min(16, _bytesB!.Length - offset);
+                        <div class="flex px-3 py-0.5 border-b border-gray-100 dark:border-gray-800 font-mono text-[11px]">
+                            <span class="w-20 shrink-0 text-gray-400">@offset.ToString("X8")</span>
+                            <span class="flex-1 flex flex-wrap gap-x-0.5">
+                                @for (int i = 0; i < 16; i++)
+                                {
+                                    if (i == 8)
+                                    {
+                                        <span class="w-1"></span>
+                                    }
+                                    if (i < bytesInRow)
+                                    {
+                                        int absIdx = offset + i;
+                                        bool isDiff = IsByteOffsetDifferent(absIdx);
+                                        bool shouldHide = _showOnlyDiffs && !isDiff;
+                                        <span class="@(isDiff ? "text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/20 rounded px-0.5" : shouldHide ? "text-gray-300 dark:text-gray-700" : "text-gray-600 dark:text-gray-400")">@_bytesB![absIdx].ToString("X2")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-transparent">  </span>
+                                    }
+                                }
+                            </span>
+                            <span class="w-36 shrink-0 text-right">
+                                @for (int i = 0; i < bytesInRow; i++)
+                                {
+                                    int absIdx = offset + i;
+                                    bool isDiff = IsByteOffsetDifferent(absIdx);
+                                    byte b = _bytesB![absIdx];
+                                    <span class="@(isDiff ? "text-green-600 dark:text-green-400 font-bold" : "text-green-700 dark:text-green-400")">@BinaryDiffCore.ToAsciiChar(b)</span>
+                                }
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@if (_copiedReport)
+{
+    <div class="fixed bottom-4 right-4 px-3 py-2 rounded text-xs bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-400 shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> Report copied to clipboard
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/binary-diff" OnRestore="RestoreState" />
+
+@code {
+    const int MaxFileSize = 10 * 1024 * 1024;
+    const int MaxDisplayDiffs = 500;
+    const int MaxHexDumpBytes = 1024;
+
+    enum InputMode { FileUpload, HexPaste }
+    enum DiffViewMode { Table, HexDump }
+
+    InputMode _inputMode = InputMode.FileUpload;
+    DiffViewMode _viewMode = DiffViewMode.Table;
+
+    string? _fileAName;
+    string? _fileBName;
+    byte[]? _bytesA;
+    byte[]? _bytesB;
+    string _hexInputA = string.Empty;
+    string _hexInputB = string.Empty;
+
+    string? _error;
+    bool _isProcessing;
+    bool _showOnlyDiffs;
+    bool _copiedReport;
+    int _currentDiffIndex;
+    BinaryDiffCore.DiffResult? _diffResult;
+    HashSet<int> _diffOffsetSet = new();
+    RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string HexInputA, string HexInputB, string InputMode);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/binary-diff");
+            if (state is not null)
+            {
+                _hexInputA = state.HexInputA;
+                _hexInputB = state.HexInputB;
+                if (Enum.TryParse<InputMode>(state.InputMode, out InputMode mode))
+                    _inputMode = mode;
+                StateHasChanged();
+            }
+        }
+    }
+
+    async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/binary-diff", new ToolState(_hexInputA, _hexInputB, _inputMode.ToString()));
+    }
+
+    async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _hexInputA = state.HexInputA;
+            _hexInputB = state.HexInputB;
+            if (Enum.TryParse<InputMode>(state.InputMode, out InputMode mode))
+                _inputMode = mode;
+            StateHasChanged();
+        }
+    }
+
+    async Task SetInputMode(InputMode mode)
+    {
+        _inputMode = mode;
+        await SaveState();
+    }
+
+    void SetViewMode(DiffViewMode mode)
+    {
+        _viewMode = mode;
+    }
+
+    string GetTabClass(bool isActive)
+    {
+        return isActive
+            ? "border-b-2 border-blue-500 text-blue-600 dark:text-blue-400"
+            : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300";
+    }
+
+    string GetViewBtnClass(bool isActive)
+    {
+        return isActive
+            ? "bg-blue-600 text-white"
+            : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+    }
+
+    async Task OnFileASelected(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        try
+        {
+            IBrowserFile file = e.File;
+            if (file.Size > MaxFileSize)
+            {
+                _error = $"File A is too large ({FormatSize(file.Size)}). Maximum allowed is {FormatSize(MaxFileSize)}.";
+                return;
+            }
+
+            using MemoryStream ms = new();
+            await file.OpenReadStream(maxAllowedSize: MaxFileSize).CopyToAsync(ms);
+            _bytesA = ms.ToArray();
+            _fileAName = file.Name;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to read File A: {ex.Message}";
+        }
+    }
+
+    async Task OnFileBSelected(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        try
+        {
+            IBrowserFile file = e.File;
+            if (file.Size > MaxFileSize)
+            {
+                _error = $"File B is too large ({FormatSize(file.Size)}). Maximum allowed is {FormatSize(MaxFileSize)}.";
+                return;
+            }
+
+            using MemoryStream ms = new();
+            await file.OpenReadStream(maxAllowedSize: MaxFileSize).CopyToAsync(ms);
+            _bytesB = ms.ToArray();
+            _fileBName = file.Name;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to read File B: {ex.Message}";
+        }
+    }
+
+    async Task RunComparison()
+    {
+        _error = null;
+        _diffResult = null;
+        _diffOffsetSet.Clear();
+        _currentDiffIndex = 0;
+
+        if (_inputMode == InputMode.HexPaste)
+        {
+            byte[]? parsedA = BinaryDiffCore.ParseHexString(_hexInputA, out string? errorA);
+            if (parsedA is null) { _error = errorA; return; }
+            byte[]? parsedB = BinaryDiffCore.ParseHexString(_hexInputB, out string? errorB);
+            if (parsedB is null) { _error = errorB; return; }
+            _bytesA = parsedA;
+            _bytesB = parsedB;
+            _fileAName = "Hex Input A";
+            _fileBName = "Hex Input B";
+        }
+
+        if (_bytesA is null || _bytesB is null)
+        {
+            _error = "Please provide both files (or hex strings) before comparing.";
+            return;
+        }
+
+        _isProcessing = true;
+        StateHasChanged();
+
+        (BinaryDiffCore.DiffResult result, HashSet<int> offsets) = BinaryDiffCore.PerformDiff(_bytesA, _bytesB, MaxDisplayDiffs);
+        _diffResult = result;
+        _diffOffsetSet = offsets;
+
+        _isProcessing = false;
+
+        await SaveState();
+        string label = _inputMode == InputMode.HexPaste ? "Hex diff comparison" : $"File diff: {_fileAName} vs {_fileBName}";
+        await Storage.AddRecentAsync("tools/encoding/binary-diff", label, new ToolState(_hexInputA, _hexInputB, _inputMode.ToString()));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    bool IsByteOffsetDifferent(int offset)
+    {
+        return _diffOffsetSet.Contains(offset);
+    }
+
+    int GetDisplayDiffCount()
+    {
+        if (_diffResult is null) return 0;
+        return Math.Min(_diffResult.Differences.Count, MaxDisplayDiffs);
+    }
+
+    int GetHexDumpRowCount(byte[] data)
+    {
+        int displayLen = Math.Min(data.Length, MaxHexDumpBytes);
+        return (displayLen + 15) / 16;
+    }
+
+    void JumpNextDiff()
+    {
+        if (_diffResult is null || _diffResult.Differences.Count == 0) return;
+        _currentDiffIndex = (_currentDiffIndex + 1) % _diffResult.Differences.Count;
+    }
+
+    void JumpPreviousDiff()
+    {
+        if (_diffResult is null || _diffResult.Differences.Count == 0) return;
+        _currentDiffIndex = _currentDiffIndex <= 0
+            ? _diffResult.Differences.Count - 1
+            : _currentDiffIndex - 1;
+    }
+
+    async Task CopyReport()
+    {
+        if (_diffResult is null) return;
+
+        System.Text.StringBuilder sb = new();
+        sb.AppendLine("Binary Diff Report");
+        sb.AppendLine(new string('=', 50));
+        sb.AppendLine($"File A: {_fileAName ?? "Unknown"} ({BinaryDiffCore.FormatSize(_diffResult.SizeA)})");
+        sb.AppendLine($"File B: {_fileBName ?? "Unknown"} ({BinaryDiffCore.FormatSize(_diffResult.SizeB)})");
+        sb.AppendLine($"Size Difference: {BinaryDiffCore.FormatSizeDifference(_diffResult.SizeDifference)}");
+        sb.AppendLine($"Differing Bytes: {_diffResult.DifferingByteCount:N0}");
+        sb.AppendLine($"Match: {_diffResult.MatchPercentage:F2}%");
+        sb.AppendLine($"First Difference: {(_diffResult.FirstDiffOffset >= 0 ? "0x" + _diffResult.FirstDiffOffset.ToString("X") : "None")}");
+        sb.AppendLine();
+        sb.AppendLine("Offset      File A  File B  A(ASCII)  B(ASCII)");
+        sb.AppendLine(new string('-', 55));
+
+        int reportCount = Math.Min(_diffResult.Differences.Count, MaxDisplayDiffs);
+        for (int i = 0; i < reportCount; i++)
+        {
+            BinaryDiffCore.DiffEntry entry = _diffResult.Differences[i];
+            string hexA = entry.ByteA.HasValue ? entry.ByteA.Value.ToString("X2") : "--";
+            string hexB = entry.ByteB.HasValue ? entry.ByteB.Value.ToString("X2") : "--";
+            string ascA = entry.ByteA.HasValue ? BinaryDiffCore.ToAsciiChar(entry.ByteA.Value) : " ";
+            string ascB = entry.ByteB.HasValue ? BinaryDiffCore.ToAsciiChar(entry.ByteB.Value) : " ";
+            sb.AppendLine($"0x{entry.Offset.ToString("X8")}  {hexA}      {hexB}      {ascA}         {ascB}");
+        }
+
+        if (_diffResult.Differences.Count > MaxDisplayDiffs)
+        {
+            sb.AppendLine($"... and {_diffResult.Differences.Count - MaxDisplayDiffs} more differences");
+        }
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", sb.ToString());
+        _copiedReport = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _copiedReport = false;
+        StateHasChanged();
+    }
+
+    void ClearAll()
+    {
+        _bytesA = null;
+        _bytesB = null;
+        _fileAName = null;
+        _fileBName = null;
+        _hexInputA = string.Empty;
+        _hexInputB = string.Empty;
+        _error = null;
+        _diffResult = null;
+        _diffOffsetSet.Clear();
+        _currentDiffIndex = 0;
+        _copiedReport = false;
+    }
+
+    static string FormatByteCellHex(byte? b) => BinaryDiffCore.FormatByteCellHex(b);
+
+    static string FormatByteAscii(byte? b) => BinaryDiffCore.FormatByteAscii(b);
+
+    static string FormatSize(long bytes) => BinaryDiffCore.FormatSize(bytes);
+
+    static string FormatSizeDifference(int diff) => BinaryDiffCore.FormatSizeDifference(diff);
+}

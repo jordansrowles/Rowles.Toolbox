@@ -1,0 +1,363 @@
+@page "/tools/data/messagepack"
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>MessagePack Visualiser - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="MessagePack Visualiser" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary-tree mr-1"></i> Decode and inspect MessagePack binary data</span>
+    </Actions>
+</PageHeader>
+
+@* -- Input Controls -- *@
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-500">Format:</label>
+        <button class="@(_inputFormat == "hex" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick='() => SetInputFormat("hex")'>
+            Hex
+        </button>
+        <button class="@(_inputFormat == "base64" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick='() => SetInputFormat("base64")'>
+            Base64
+        </button>
+    </div>
+
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="Clear">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+</div>
+
+@* -- Textarea -- *@
+<div class="mb-3">
+    <label class="block text-sm font-medium mb-1">MessagePack Data</label>
+    <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="@(_inputFormat == "hex" ? "Paste hex bytes, e.g. 82 A4 6E 61 6D 65 ..." : "Paste base64-encoded MessagePack data...")"
+              @bind="_input"
+              @bind:event="oninput"
+              @bind:after="OnInputChanged"></textarea>
+</div>
+
+@* -- Sample Data Buttons -- *@
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <label class="text-xs text-gray-500">Samples:</label>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            @onclick='() => LoadSample("simple")'>
+        <i class="ti ti-braces mr-0.5"></i> Simple Object
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            @onclick='() => LoadSample("nested")'>
+        <i class="ti ti-brackets-contain mr-0.5"></i> Nested Array
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            @onclick='() => LoadSample("mixed")'>
+        <i class="ti ti-list-tree mr-0.5"></i> Mixed Types
+    </button>
+</div>
+
+@* -- Error Display -- *@
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@* -- Results -- *@
+@if (_root is not null && _bytes is not null)
+{
+    <div class="text-xs text-gray-400 mb-2">
+        @_bytes.Length byte@(_bytes.Length == 1 ? "" : "s") decoded
+        @if (_trailingBytes > 0)
+        {
+            <span class="text-amber-500 ml-1">(@_trailingBytes trailing byte@(_trailingBytes == 1 ? "" : "s") not consumed)</span>
+        }
+    </div>
+
+    @* -- Tab Buttons -- *@
+    <div class="flex items-center gap-1 mb-3">
+        <button class="@(_activeTab == "tree" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick='() => _activeTab = "tree"'>
+            <i class="ti ti-binary-tree mr-0.5"></i> Tree View
+        </button>
+        <button class="@(_activeTab == "json" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick='() => _activeTab = "json"'>
+            <i class="ti ti-braces mr-0.5"></i> JSON
+        </button>
+        <button class="@(_activeTab == "hex" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick='() => _activeTab = "hex"'>
+            <i class="ti ti-file-digit mr-0.5"></i> Hex Dump
+        </button>
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+
+        @* -- Tree View Tab -- *@
+        @if (_activeTab == "tree")
+        {
+            <div class="max-h-[600px] overflow-y-auto p-2">
+                @foreach (var line in _treeLines)
+                {
+                    <div class="flex items-baseline gap-1.5 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded"
+                         style="padding-left: @(line.Depth * 20)px">
+                        @if (!string.IsNullOrEmpty(line.Prefix))
+                        {
+                            <span class="text-gray-500 dark:text-gray-400 text-xs font-mono shrink-0">@line.Prefix</span>
+                        }
+                        <span class="@MessagePackVisualizerCore.GetBadgeColor(line.Category) text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 font-semibold">@line.Format</span>
+                        <span class="text-sm font-mono truncate">@line.DisplayValue</span>
+                        <span class="text-[10px] text-gray-400 ml-auto shrink-0 font-mono">@MessagePackVisualizerCore.FormatByteRange(line.Offset, line.ByteLength)</span>
+                    </div>
+                }
+            </div>
+        }
+
+        @* -- JSON Tab -- *@
+        else if (_activeTab == "json")
+        {
+            <div class="relative">
+                <button class="absolute top-2 right-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 text-[10px] font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                        @onclick="() => CopyToClipboard(_jsonOutput)">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+                <pre class="max-h-[600px] overflow-y-auto p-3 text-sm font-mono bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">@_jsonOutput</pre>
+            </div>
+        }
+
+        @* -- Hex Dump Tab -- *@
+        else
+        {
+            <div class="bg-gray-50 dark:bg-gray-800 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 font-mono text-[10px] text-gray-400 flex">
+                <span class="w-20 shrink-0">Offset</span>
+                <span class="flex-1">Hex</span>
+                <span class="w-44 shrink-0 text-right">ASCII</span>
+            </div>
+            <div class="max-h-[600px] overflow-y-auto">
+                @for (int row = 0; row < (_bytes.Length + 15) / 16; row++)
+                {
+                    int offset = row * 16;
+                    int bytesInRow = Math.Min(16, _bytes.Length - offset);
+
+                    <div class="flex px-3 py-0.5 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 font-mono text-[11px]">
+                        <span class="w-20 shrink-0 text-gray-400">@offset.ToString("X8")</span>
+                        <span class="flex-1 flex flex-wrap gap-x-0.5">
+                            @for (int i = 0; i < 16; i++)
+                            {
+                                if (i == 8)
+                                {
+                                    <span class="w-1"></span>
+                                }
+                                if (i < bytesInRow)
+                                {
+                                    byte b = _bytes[offset + i];
+                                    <span class="@MessagePackVisualizerCore.GetByteColor(b)">@b.ToString("X2")</span>
+                                }
+                                else
+                                {
+                                    <span class="text-transparent">  </span>
+                                }
+                            }
+                        </span>
+                        <span class="w-44 shrink-0 text-right">
+                            @for (int i = 0; i < bytesInRow; i++)
+                            {
+                                byte b = _bytes[offset + i];
+                                if (b >= 32 && b <= 126)
+                                {
+                                    <span class="text-green-700 dark:text-green-400">@((char)b)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-gray-300 dark:text-gray-600">.</span>
+                                }
+                            }
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    @* -- Legend -- *@
+    <div class="mt-3 flex flex-wrap gap-3 text-[10px]">
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700"></span>
+            <span class="text-gray-500">Integer</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700"></span>
+            <span class="text-gray-500">String</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-indigo-100 dark:bg-indigo-900/30 border border-indigo-300 dark:border-indigo-700"></span>
+            <span class="text-gray-500">Map</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-orange-100 dark:bg-orange-900/30 border border-orange-300 dark:border-orange-700"></span>
+            <span class="text-gray-500">Array</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-purple-100 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700"></span>
+            <span class="text-gray-500">Bool</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-teal-100 dark:bg-teal-900/30 border border-teal-300 dark:border-teal-700"></span>
+            <span class="text-gray-500">Float</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600"></span>
+            <span class="text-gray-500">Nil</span>
+        </span>
+    </div>
+}
+else if (string.IsNullOrEmpty(_error) && string.IsNullOrEmpty(_input))
+{
+    <div class="text-xs text-gray-400 italic p-4 border border-dashed border-gray-300 dark:border-gray-600 rounded">
+        Enter hex or base64-encoded MessagePack data to decode. Try a sample to get started.
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/messagepack" OnRestore="RestoreState" />
+
+@code {
+    private string _input = string.Empty;
+    private string _inputFormat = "hex";
+    private string? _error;
+    private byte[]? _bytes;
+    private MessagePackVisualizerCore.MsgPackNode? _root;
+    private List<MessagePackVisualizerCore.TreeLine> _treeLines = [];
+    private string _jsonOutput = string.Empty;
+    private string _activeTab = "tree";
+    private int _trailingBytes;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Input, string InputFormat);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/messagepack");
+            if (state is not null)
+            {
+                _input = state.Input;
+                _inputFormat = state.InputFormat;
+                DecodeInput();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/messagepack", new ToolState(_input, _inputFormat));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _input = state.Input;
+            _inputFormat = state.InputFormat;
+            DecodeInput();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnInputChanged()
+    {
+        DecodeInput();
+        await SaveState();
+        if (_root is not null)
+        {
+            string label = _input.Length > 50 ? _input[..50] + "..." : _input;
+            await Storage.AddRecentAsync("tools/data/messagepack", label, new ToolState(_input, _inputFormat));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task SetInputFormat(string format)
+    {
+        _inputFormat = format;
+        await SaveState();
+    }
+
+    private void DecodeInput()
+    {
+        _error = null;
+        _root = null;
+        _treeLines = [];
+        _jsonOutput = string.Empty;
+        _trailingBytes = 0;
+        _bytes = null;
+
+        if (string.IsNullOrWhiteSpace(_input))
+            return;
+
+        try
+        {
+            _bytes = _inputFormat == "base64"
+                ? Convert.FromBase64String(_input.Trim())
+                : MessagePackVisualizerCore.ParseHex(_input);
+
+            if (_bytes.Length == 0)
+            {
+                _error = "No data to decode.";
+                _bytes = null;
+                return;
+            }
+
+            int offset = 0;
+            _root = MessagePackVisualizerCore.Decode(_bytes, ref offset, 0);
+            _trailingBytes = _bytes.Length - offset;
+
+            MessagePackVisualizerCore.Flatten(_root, 0, "", _treeLines);
+
+            var sb = new System.Text.StringBuilder();
+            MessagePackVisualizerCore.AppendJson(_root, sb, 0);
+            _jsonOutput = sb.ToString();
+        }
+        catch (FormatException ex)
+        {
+            _error = ex.Message;
+            _root = null;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Decode error: {ex.Message}";
+            _root = null;
+        }
+    }
+
+    private void LoadSample(string key)
+    {
+        if (MessagePackVisualizerCore.Samples.TryGetValue(key, out string? hex))
+        {
+            _inputFormat = "hex";
+            _input = hex;
+            DecodeInput();
+        }
+    }
+
+    private void Clear()
+    {
+        _input = string.Empty;
+        _error = null;
+        _bytes = null;
+        _root = null;
+        _treeLines = [];
+        _jsonOutput = string.Empty;
+        _trailingBytes = 0;
+        _activeTab = "tree";
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+}

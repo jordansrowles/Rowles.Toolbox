@@ -1,0 +1,306 @@
+@page "/tools/generators/svg-gradient"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+
+<PageTitle>SVG Gradient Generator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="SVG Gradient Generator" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-palette mr-1"></i> Create linear &amp; radial SVG gradients with live preview</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Gradient Type</h3>
+            <div class="flex gap-2 mb-3">
+                <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @(_isRadial ? "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300" : "bg-blue-600 text-white")"
+                        @onclick="async () => { _isRadial = false; await SaveState(); }">
+                    <i class="ti ti-arrow-right mr-0.5"></i> Linear
+                </button>
+                <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @(_isRadial ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                        @onclick="async () => { _isRadial = true; await SaveState(); }">
+                    <i class="ti ti-circle mr-0.5"></i> Radial
+                </button>
+            </div>
+
+            @if (!_isRadial)
+            {
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                        <label class="font-medium">x1 (%)</label>
+                        <input type="range" min="0" max="100" class="w-full" @bind="_x1" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-gray-400">@_x1%</span>
+                    </div>
+                    <div>
+                        <label class="font-medium">y1 (%)</label>
+                        <input type="range" min="0" max="100" class="w-full" @bind="_y1" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-gray-400">@_y1%</span>
+                    </div>
+                    <div>
+                        <label class="font-medium">x2 (%)</label>
+                        <input type="range" min="0" max="100" class="w-full" @bind="_x2" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-gray-400">@_x2%</span>
+                    </div>
+                    <div>
+                        <label class="font-medium">y2 (%)</label>
+                        <input type="range" min="0" max="100" class="w-full" @bind="_y2" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-gray-400">@_y2%</span>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                        <label class="font-medium">cx (%)</label>
+                        <input type="range" min="0" max="100" class="w-full" @bind="_cx" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-gray-400">@_cx%</span>
+                    </div>
+                    <div>
+                        <label class="font-medium">cy (%)</label>
+                        <input type="range" min="0" max="100" class="w-full" @bind="_cy" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-gray-400">@_cy%</span>
+                    </div>
+                    <div>
+                        <label class="font-medium">r (%)</label>
+                        <input type="range" min="1" max="100" class="w-full" @bind="_r" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-gray-400">@_r%</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-color-swatch mr-1"></i> Colour Stops</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="AddStopAsync" disabled="@(_stops.Count >= 10)">
+                    <i class="ti ti-plus mr-0.5"></i> Add stop
+                </button>
+            </div>
+            <div class="space-y-2">
+                @for (int i = 0; i < _stops.Count; i++)
+                {
+                    int idx = i;
+                    <div class="flex items-center gap-2">
+                        <input type="color" class="w-8 h-8 rounded cursor-pointer border border-gray-300 dark:border-gray-600"
+                               value="@_stops[idx].Colour"
+                               @onchange="(e) => UpdateStopColourAsync(idx, e)" />
+                        <input type="text" class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_stops[idx].Colour"
+                               @onchange="(e) => UpdateStopColourAsync(idx, e)" />
+                        <input type="range" min="0" max="100" class="flex-1"
+                               value="@_stops[idx].Offset"
+                               @oninput="(e) => UpdateStopOffsetAsync(idx, e)" />
+                        <span class="text-xs text-gray-400 w-10 text-right">@(_stops[idx].Offset)%</span>
+                        @if (_stops.Count > 2)
+                        {
+                            <button class="text-red-400 hover:text-red-600 cursor-pointer border-none bg-transparent"
+                                    @onclick="() => RemoveStopAsync(idx)">
+                                <i class="ti ti-x text-xs"></i>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (SvgGradientGeneratorCore.GradientPreset preset in _presets)
+                {
+                    <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="() => ApplyPresetAsync(preset)">
+                        @preset.Name
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-eye mr-1"></i> Preview</h3>
+            <div class="rounded overflow-hidden">
+                @((MarkupString)GenerateSvg())
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> SVG Code</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="CopySvg">
+                    <i class="ti ti-copy mr-0.5"></i> Copy
+                </button>
+            </div>
+            <textarea readonly
+                      class="w-full h-48 p-2 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-900/30 text-xs font-mono text-gray-900 dark:text-gray-100 resize-y"
+                      >@GenerateSvg()</textarea>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/svg-gradient" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private bool _isRadial;
+    private int _x1, _y1, _x2 = 100, _y2 = 100;
+    private int _cx = 50, _cy = 50, _r = 50;
+    private string? _statusMessage;
+
+    private List<SvgGradientGeneratorCore.ColourStop> _stops =
+    [
+        new() { Colour = "#ff6b6b", Offset = 0 },
+        new() { Colour = "#4ecdc4", Offset = 100 }
+    ];
+
+    sealed record ToolState(
+        bool IsRadial,
+        int X1, int Y1, int X2, int Y2,
+        int Cx, int Cy, int R,
+        List<SvgGradientGeneratorCore.ColourStop> Stops
+    );
+
+    private readonly List<SvgGradientGeneratorCore.GradientPreset> _presets =
+    [
+        new("Sunset", [("#ff6b6b", 0), ("#feca57", 50), ("#ff9ff3", 100)]),
+        new("Ocean", [("#0052d4", 0), ("#4364f7", 50), ("#6fb1fc", 100)]),
+        new("Forest", [("#134e5e", 0), ("#71b280", 100)]),
+        new("Flame", [("#f12711", 0), ("#f5af19", 100)]),
+        new("Night Sky", [("#0f0c29", 0), ("#302b63", 50), ("#24243e", 100)]),
+        new("Peach", [("#ffecd2", 0), ("#fcb69f", 100)]),
+        new("Aurora", [("#00c9ff", 0), ("#92fe9d", 100)]),
+        new("Berry", [("#8e2de2", 0), ("#4a00e0", 100)])
+    ];
+
+    protected override void OnInitialized()
+    {
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/generators/svg-gradient");
+            if (state is not null)
+            {
+                _isRadial = state.IsRadial;
+                _x1 = state.X1;
+                _y1 = state.Y1;
+                _x2 = state.X2;
+                _y2 = state.Y2;
+                _cx = state.Cx;
+                _cy = state.Cy;
+                _r = state.R;
+                _stops = state.Stops;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/generators/svg-gradient", new ToolState(
+            _isRadial, _x1, _y1, _x2, _y2, _cx, _cy, _r, _stops
+        ));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _isRadial = state.IsRadial;
+            _x1 = state.X1;
+            _y1 = state.Y1;
+            _x2 = state.X2;
+            _y2 = state.Y2;
+            _cx = state.Cx;
+            _cy = state.Cy;
+            _r = state.R;
+            _stops = state.Stops;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddStopAsync()
+    {
+        if (_stops.Count >= 10) return;
+        int offset = _stops.Count > 0 ? Math.Min(_stops[^1].Offset + 10, 100) : 50;
+        _stops.Add(new SvgGradientGeneratorCore.ColourStop { Colour = "#888888", Offset = offset });
+        await SaveState();
+    }
+
+    private async Task RemoveStopAsync(int index)
+    {
+        if (_stops.Count > 2 && index >= 0 && index < _stops.Count)
+        {
+            _stops.RemoveAt(index);
+            await SaveState();
+        }
+    }
+
+    private async Task UpdateStopColourAsync(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < _stops.Count)
+        {
+            _stops[index].Colour = e.Value?.ToString() ?? "#000000";
+            await SaveState();
+        }
+    }
+
+    private async Task UpdateStopOffsetAsync(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < _stops.Count && int.TryParse(e.Value?.ToString(), out int offset))
+        {
+            _stops[index].Offset = Math.Clamp(offset, 0, 100);
+            await SaveState();
+        }
+    }
+
+    private async Task ApplyPreset(SvgGradientGeneratorCore.GradientPreset preset)
+    {
+        _stops.Clear();
+        foreach ((string colour, int offset) in preset.Stops)
+        {
+            _stops.Add(new SvgGradientGeneratorCore.ColourStop { Colour = colour, Offset = offset });
+        }
+        await SaveState();
+    }
+
+    private async Task ApplyPresetAsync(SvgGradientGeneratorCore.GradientPreset preset)
+    {
+        await ApplyPreset(preset);
+    }
+
+    private string GenerateSvg() =>
+        SvgGradientGeneratorCore.GenerateSvg(_isRadial, _x1, _y1, _x2, _y2, _cx, _cy, _r, _stops);
+
+    private async Task CopySvg()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GenerateSvg());
+        _statusMessage = "SVG copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+        
+        string label = $"SVG {(_isRadial ? "radial" : "linear")} gradient ({_stops.Count} stops)";
+        await Storage.AddRecentAsync("tools/generators/svg-gradient", label, new ToolState(
+            _isRadial, _x1, _y1, _x2, _y2, _cx, _cy, _r, _stops
+        ));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+}

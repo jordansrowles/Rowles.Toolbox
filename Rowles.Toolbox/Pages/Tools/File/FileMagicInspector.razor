@@ -1,0 +1,208 @@
+@page "/tools/file/magic"
+@using Rowles.Toolbox.Core.File
+@using System.Text.Json
+@inject LocalStorageService Storage
+
+<PageTitle>File Magic Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="File Magic Inspector" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-file-search mr-1"></i> Identify file types by magic bytes / file signatures</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    @* -- Upload -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-6">
+        <label class="block text-sm font-medium mb-2">Upload Any File</label>
+        <InputFile OnChange="HandleFileUpload"
+                   class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+    </div>
+
+    @if (_magicBytes is not null)
+    {
+        @* -- Results -- *@
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            @* File Info *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-info mr-1"></i> File Info</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">File Name</span>
+                        <span class="font-mono font-medium">@_fileName</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">File Size</span>
+                        <span class="font-mono">@FileMagicInspectorCore.FormatBytes(_fileSize)</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Extension</span>
+                        <span class="font-mono">@_fileExtension</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Last Modified</span>
+                        <span class="font-mono text-xs">@_lastModified</span>
+                    </div>
+                </div>
+            </div>
+
+            @* Detection Result *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-wand mr-1"></i> Detection</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-500">Detected Type</span>
+                        <span class="font-semibold text-blue-600 dark:text-blue-400">@(_detectedType ?? "Unknown")</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-500">Expected Extensions</span>
+                        <span class="font-mono text-xs">@(_expectedExtensions ?? "—")</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-500">Extension Match</span>
+                        @if (_detectedType is null)
+                        {
+                            <span class="px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-500">Unknown signature</span>
+                        }
+                        else if (_extensionMatches)
+                        {
+                            <span class="px-2 py-0.5 rounded text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                                <i class="ti ti-check mr-0.5"></i> Match
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="px-2 py-0.5 rounded text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                                <i class="ti ti-alert-triangle mr-0.5"></i> Mismatch
+                            </span>
+                        }
+                    </div>
+                    @if (!_extensionMatches && _detectedType is not null)
+                    {
+                        <div class="p-2 rounded bg-amber-50 dark:bg-amber-900/20 text-xs text-amber-700 dark:text-amber-400">
+                            <i class="ti ti-alert-triangle mr-1"></i>
+                            File extension <code>@_fileExtension</code> doesn't match detected type <strong>@_detectedType</strong>.
+                            @if (_detectedType == "ZIP" && (_fileExtension == ".docx" || _fileExtension == ".xlsx" || _fileExtension == ".pptx" || _fileExtension == ".jar" || _fileExtension == ".apk"))
+                            {
+                                <br /><span class="text-gray-500">Note: @_fileExtension files are ZIP-based containers — this is expected.</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* -- Magic Bytes -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-binary mr-1"></i> Magic Bytes (first @_magicBytes.Length bytes)</h3>
+            <div class="font-mono text-xs bg-gray-50 dark:bg-gray-800 p-3 rounded overflow-x-auto">
+                <div class="flex flex-wrap gap-1">
+                    @for (int i = 0; i < _magicBytes.Length; i++)
+                    {
+                        bool isSignature = i < _matchLength;
+                        <span class="px-1 py-0.5 rounded @(isSignature ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 font-semibold" : "text-gray-600 dark:text-gray-400")">
+                            @_magicBytes[i].ToString("X2")
+                        </span>
+                    }
+                </div>
+                <div class="mt-2 text-gray-400 flex flex-wrap gap-1">
+                    @for (int i = 0; i < _magicBytes.Length; i++)
+                    {
+                        char c = (char)_magicBytes[i];
+                        bool printable = c >= 32 && c < 127;
+                        <span class="px-1 py-0.5 w-7 text-center">@(printable ? c : '.')</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* -- Signature Reference -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-book mr-1"></i> Signature Database</h3>
+            <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                        <tr>
+                            <th class="p-2 text-left font-medium text-gray-500">Type</th>
+                            <th class="p-2 text-left font-medium text-gray-500">Extensions</th>
+                            <th class="p-2 text-left font-medium text-gray-500">Signature (hex)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (FileMagicInspectorCore.FileSignature sig in FileMagicInspectorCore.Signatures)
+                        {
+                            bool isMatch = _detectedType == sig.Name;
+                            <tr class="border-t border-gray-100 dark:border-gray-800 @(isMatch ? "bg-blue-50 dark:bg-blue-900/20" : "")">
+                                <td class="p-2 font-medium @(isMatch ? "text-blue-600 dark:text-blue-400" : "")">@sig.Name</td>
+                                <td class="p-2 font-mono text-gray-500">@sig.Extensions</td>
+                                <td class="p-2 font-mono text-gray-500">@sig.HexDisplay</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="file-magic-inspector" OnRestore="RestoreState" />
+
+@code {
+    private byte[]? _magicBytes;
+    private string _fileName = string.Empty;
+    private string _fileExtension = string.Empty;
+    private long _fileSize;
+    private string _lastModified = string.Empty;
+    private string? _detectedType;
+    private string? _expectedExtensions;
+    private bool _extensionMatches;
+    private int _matchLength;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // No state to restore for this tool - it only processes files
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        IBrowserFile file = e.File;
+        _fileName = file.Name;
+        _fileSize = file.Size;
+        _fileExtension = Path.GetExtension(file.Name).ToLowerInvariant();
+        _lastModified = file.LastModified.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+
+        using Stream stream = file.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024);
+        byte[] buffer = new byte[32];
+        int bytesRead = await stream.ReadAsync(buffer.AsMemory(0, 32));
+        _magicBytes = buffer[..bytesRead];
+
+        DetectFileType();
+        
+        if (_detectedType is not null)
+            await Storage.AddRecentAsync("file-magic-inspector", 
+                $"{_fileName} → {_detectedType}", new ToolState());
+    }
+
+    private void DetectFileType()
+    {
+        if (_magicBytes is null || _magicBytes.Length == 0)
+        {
+            _detectedType = null; _expectedExtensions = null; _extensionMatches = false; _matchLength = 0;
+            return;
+        }
+        (_detectedType, _expectedExtensions, _extensionMatches, _matchLength) =
+            FileMagicInspectorCore.DetectFileType(_magicBytes, _fileExtension);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        // No state to restore for this tool - it only processes files
+        await _recentPanel?.RefreshAsync()!;
+    }
+}

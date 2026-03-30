@@ -1,0 +1,179 @@
+@page "/tools/web/http-status"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject LocalStorageService Storage
+
+<PageTitle>HTTP Status Lookup - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="HTTP Status Lookup" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-http-get mr-1"></i> HTTP status codes &amp; MIME types reference</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="flex flex-wrap gap-2 items-center">
+        <div class="flex-1 min-w-[200px]">
+            <input type="text" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Search by code, name, or description…"
+                   @bind="_searchTerm"
+                   @bind:after="SaveState" />
+        </div>
+        <div class="flex gap-1">
+            <button type="button" class="@TabClass(_activeTab == "status")" @onclick='async () => { _activeTab = "status"; await SaveState(); }'>
+                <i class="ti ti-http-get mr-1"></i> Status Codes
+            </button>
+            <button type="button" class="@TabClass(_activeTab == "mime")" @onclick='async () => { _activeTab = "mime"; await SaveState(); }'>
+                <i class="ti ti-file-type-html mr-1"></i> MIME Types
+            </button>
+        </div>
+    </div>
+
+    @if (_activeTab == "status")
+    {
+        <div class="flex flex-wrap gap-1 text-xs">
+            <button type="button" class="@CategoryBtnClass(null)" @onclick="async () => { _categoryFilter = null; await SaveState(); }">All</button>
+            <button type="button" class="@CategoryBtnClass("1xx")" @onclick='async () => { _categoryFilter = "1xx"; await SaveState(); }'>1xx Info</button>
+            <button type="button" class="@CategoryBtnClass("2xx")" @onclick='async () => { _categoryFilter = "2xx"; await SaveState(); }'>2xx Success</button>
+            <button type="button" class="@CategoryBtnClass("3xx")" @onclick='async () => { _categoryFilter = "3xx"; await SaveState(); }'>3xx Redirect</button>
+            <button type="button" class="@CategoryBtnClass("4xx")" @onclick='async () => { _categoryFilter = "4xx"; await SaveState(); }'>4xx Client Error</button>
+            <button type="button" class="@CategoryBtnClass("5xx")" @onclick='async () => { _categoryFilter = "5xx"; await SaveState(); }'>5xx Server Error</button>
+        </div>
+
+        @foreach (IGrouping<string, HttpStatusLookupCore.HttpStatus> group in FilteredStatuses.GroupBy(s => s.Category))
+        {
+            <div>
+                <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-tag mr-1"></i> @group.Key</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    @foreach (HttpStatusLookupCore.HttpStatus status in group)
+                    {
+                        <div class="border border-gray-200 dark:border-gray-700 rounded p-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                            <div class="flex items-center gap-2">
+                                <span class="@HttpStatusLookupCore.StatusBadgeClass(status.Code) px-2 py-0.5 rounded text-xs font-bold">@status.Code</span>
+                                <span class="text-sm font-medium">@status.Name</span>
+                            </div>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">@status.Description</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            @foreach (HttpStatusLookupCore.MimeEntry mime in FilteredMimeTypes)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    <div class="text-sm font-mono font-medium text-blue-600 dark:text-blue-400">@mime.Type</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">@mime.Description</div>
+                    @if (!string.IsNullOrEmpty(mime.Extensions))
+                    {
+                        <div class="text-xs text-gray-400 mt-0.5"><i class="ti ti-file mr-1"></i>@mime.Extensions</div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/http-status" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _searchTerm = string.Empty;
+    private string _activeTab = "status";
+    private string? _categoryFilter;
+
+    sealed record ToolState(
+        string SearchTerm,
+        string ActiveTab,
+        string? CategoryFilter
+    );
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/http-status");
+        if (state is not null)
+        {
+            _searchTerm = state.SearchTerm;
+            _activeTab = state.ActiveTab;
+            _categoryFilter = state.CategoryFilter;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_searchTerm, _activeTab, _categoryFilter);
+        await Storage.SaveStateAsync("tools/web/http-status", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _searchTerm = state.SearchTerm;
+                _activeTab = state.ActiveTab;
+                _categoryFilter = state.CategoryFilter;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private string TabClass(bool active) =>
+        active
+            ? "px-3 py-1.5 rounded text-sm font-medium bg-blue-600 text-white"
+            : "px-3 py-1.5 rounded text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+
+    private string CategoryBtnClass(string? category) =>
+        _categoryFilter == category
+            ? "px-2 py-1 rounded bg-blue-600 text-white"
+            : "px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+
+    private List<HttpStatusLookupCore.HttpStatus> FilteredStatuses
+    {
+        get
+        {
+            IEnumerable<HttpStatusLookupCore.HttpStatus> result = HttpStatusLookupCore.AllStatuses;
+            if (_categoryFilter is not null)
+                result = result.Where(s => s.Category == _categoryFilter);
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                string term = _searchTerm.Trim();
+                result = result.Where(s =>
+                    s.Code.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    s.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    s.Description.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+            return result.ToList();
+        }
+    }
+
+    private List<HttpStatusLookupCore.MimeEntry> FilteredMimeTypes
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_searchTerm))
+                return HttpStatusLookupCore.AllMimeTypes;
+            string term = _searchTerm.Trim();
+            return HttpStatusLookupCore.AllMimeTypes.Where(m =>
+                m.Type.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                m.Description.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (m.Extensions?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+            ).ToList();
+        }
+    }
+}

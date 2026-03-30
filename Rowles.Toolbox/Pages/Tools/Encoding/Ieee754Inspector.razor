@@ -1,0 +1,847 @@
+@page "/tools/encoding/ieee754"
+
+@using Rowles.Toolbox.Core.Encoding
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>IEEE 754 Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="IEEE 754 Inspector" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary-tree mr-1"></i> Visualize float/double binary representation</span>
+    </Actions>
+</PageHeader>
+
+@* Input and precision toggle *@
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Decimal Value</label>
+        <input type="text"
+               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Enter a decimal number (e.g. 3.14)"
+               @bind="_decimalInput"
+               @bind:event="oninput"
+               @onkeyup="OnDecimalInputChanged" />
+    </div>
+    <div>
+        <label class="block text-sm font-medium mb-1">Hex (IEEE 754)</label>
+        <input type="text"
+               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="@(_isDouble ? "e.g. 400921FB54442D18" : "e.g. 40490FDB")"
+               @bind="_hexInput"
+               @bind:event="oninput"
+               @onkeyup="OnHexInputChanged" />
+    </div>
+</div>
+
+<div class="flex flex-wrap items-center gap-2 mb-4">
+    <span class="text-xs font-medium text-gray-500 mr-1">Precision:</span>
+    <button type="button"
+            class="@(_isDouble ? "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300" : "bg-blue-600 text-white") px-3 py-1.5 text-xs font-medium rounded cursor-pointer border-none transition-colors"
+            @onclick="SelectFloat">
+        Float (32-bit)
+    </button>
+    <button type="button"
+            class="@(_isDouble ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300") px-3 py-1.5 text-xs font-medium rounded cursor-pointer border-none transition-colors"
+            @onclick="SelectDouble">
+        Double (64-bit)
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="mb-4 p-2 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+        <i class="ti ti-alert-triangle mr-0.5"></i> @_error
+    </div>
+}
+
+@if (_hasParsed)
+{
+    @* Bit visualizer *@
+    <div class="mb-4 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-x-auto">
+        <h3 class="text-sm font-semibold mb-2"><i class="ti ti-binary mr-1"></i> Binary Representation (@(_isDouble ? "64" : "32") bits)</h3>
+
+        @* Bit index row *@
+        <div class="flex gap-0 mb-0.5" style="min-width: max-content;">
+            @for (int idx = 0; idx < _totalBits; idx++)
+            {
+                int capture = idx;
+                <div class="w-6 h-4 flex items-center justify-center text-[9px] text-gray-400 font-mono select-none"
+                     title="@($"Bit {capture}")">
+                    @capture
+                </div>
+            }
+        </div>
+
+        @* Bit cells *@
+        <div class="flex gap-0 mb-1" style="min-width: max-content;">
+            @for (int idx = 0; idx < _totalBits; idx++)
+            {
+                int capture = idx;
+                string bg = GetBitColor(capture);
+                string borderClass = GetBitBorder(capture);
+                <button type="button"
+                        class="@($"w-6 h-8 flex items-center justify-center text-xs font-mono font-bold cursor-pointer border {borderClass} {bg} hover:opacity-80 transition-opacity")"
+                        title="@GetBitTooltip(capture)"
+                        @onclick="() => ToggleBit(capture)">
+                    @GetBit(capture)
+                </button>
+            }
+        </div>
+
+        @* Legend *@
+        <div class="flex flex-wrap gap-3 mt-2 text-xs">
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3 h-3 rounded bg-red-500/80"></span> Sign (1 bit)
+            </span>
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3 h-3 rounded bg-blue-500/80"></span> Exponent (@_exponentBits bits)
+            </span>
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3 h-3 rounded bg-green-500/80"></span> Mantissa (@_mantissaBits bits)
+            </span>
+            <span class="text-gray-400 ml-2"><i class="ti ti-click mr-0.5"></i> Click a bit to toggle</span>
+        </div>
+    </div>
+
+    @* Conversion breakdown *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div class="p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <h3 class="text-sm font-semibold mb-3"><i class="ti ti-math-function mr-1"></i> Conversion Breakdown</h3>
+
+            <div class="space-y-2 text-sm font-mono">
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Sign bit:</span>
+                    <span class="font-bold @(_signBit == 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")">
+                        @_signBit (@(_signBit == 0 ? "positive" : "negative"))
+                    </span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Exponent (bin):</span>
+                    <span>@_exponentBinary</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Exponent (biased):</span>
+                    <span>@_biasedExponent</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Exponent (unbiased):</span>
+                    <span>@_biasedExponent - @_bias = <strong>@_unbiasedExponent</strong></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Mantissa (bin):</span>
+                    <span class="break-all text-right max-w-[60%]">@_mantissaBinary</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Mantissa (fraction):</span>
+                    <span>@_mantissaFraction</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Hex:</span>
+                    <span class="font-bold">@_hexDisplay</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <h3 class="text-sm font-semibold mb-3"><i class="ti ti-calculator mr-1"></i> Formula</h3>
+
+            @if (!string.IsNullOrEmpty(_specialLabel))
+            {
+                <div class="mb-3 p-2 text-xs bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-300 dark:border-yellow-700 rounded">
+                    <i class="ti ti-alert-circle mr-0.5"></i> <strong>@_specialLabel</strong>: @_specialExplanation
+                </div>
+            }
+
+            <div class="text-sm font-mono bg-gray-50 dark:bg-gray-900 p-3 rounded border border-gray-200 dark:border-gray-700 mb-3">
+                <span class="text-red-500">(-1)^@_signBit</span>
+                <span class="text-gray-400"> x </span>
+                <span class="text-green-600 dark:text-green-400">@_implicitMantissaDisplay</span>
+                <span class="text-gray-400"> x </span>
+                <span class="text-blue-500">2^@_unbiasedExponent</span>
+            </div>
+
+            <div class="text-sm">
+                <span class="text-gray-500">Computed value:</span>
+                <span class="font-bold font-mono text-lg ml-2">@_computedValue</span>
+            </div>
+
+            <div class="flex flex-wrap gap-2 mt-3">
+                <button type="button"
+                        class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                        @onclick="CopyDecimalValue">
+                    <i class="ti ti-copy mr-0.5"></i> Copy Value
+                </button>
+                <button type="button"
+                        class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                        @onclick="CopyHexValue">
+                    <i class="ti ti-copy mr-0.5"></i> Copy Hex
+                </button>
+                <button type="button"
+                        class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                        @onclick="CopyBits">
+                    <i class="ti ti-copy mr-0.5"></i> Copy Bits
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @* Comparison view *@
+    <div class="mb-4 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <h3 class="text-sm font-semibold mb-3"><i class="ti ti-arrows-diff mr-1"></i> Float vs Double Comparison</h3>
+
+        @if (_comparisonAvailable)
+        {
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm font-mono">
+                <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
+                    <div class="text-xs font-semibold text-blue-500 mb-2">Float (32-bit)</div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-gray-500">Value:</span>
+                        <span>@_compFloat</span>
+                    </div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-gray-500">Hex:</span>
+                        <span>@_compFloatHex</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Bits:</span>
+                        <span class="break-all text-right max-w-[60%]">@_compFloatBits</span>
+                    </div>
+                </div>
+                <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
+                    <div class="text-xs font-semibold text-blue-500 mb-2">Double (64-bit)</div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-gray-500">Value:</span>
+                        <span>@_compDouble</span>
+                    </div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-gray-500">Hex:</span>
+                        <span>@_compDoubleHex</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Bits:</span>
+                        <span class="break-all text-right max-w-[60%]">@_compDoubleBits</span>
+                    </div>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_precisionDiff))
+            {
+                <div class="mt-3 p-2 text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 rounded">
+                    <i class="ti ti-info-circle mr-0.5"></i> @_precisionDiff
+                </div>
+            }
+        }
+        else
+        {
+            <p class="text-xs text-gray-400">Enter a valid decimal value to see the float vs double comparison.</p>
+        }
+    </div>
+}
+
+@* Example buttons *@
+<div class="mb-4 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+    <h3 class="text-sm font-semibold mb-3"><i class="ti ti-star mr-1"></i> Examples</h3>
+    <div class="flex flex-wrap gap-2">
+        @foreach (Ieee754Example example in _examples)
+        {
+            Ieee754Example captured = example;
+            <button type="button"
+                    class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer font-mono transition-colors"
+                    @onclick="() => LoadExample(captured)">
+                @captured.Label
+            </button>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/ieee754" OnRestore="RestoreState" />
+
+@code {
+    sealed class Ieee754Example
+    {
+        public string Label { get; init; } = string.Empty;
+        public string Value { get; init; } = string.Empty;
+        public bool UseDouble { get; init; }
+    }
+
+    string _decimalInput = string.Empty;
+    string _hexInput = string.Empty;
+    string? _error;
+    bool _isDouble;
+    bool _hasParsed;
+    RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string DecimalInput, string HexInput, bool IsDouble);
+
+    @* Bit storage: MSB at index 0 *@
+    int[] _bits = Array.Empty<int>();
+
+    @* Breakdown fields *@
+    int _signBit;
+    string _exponentBinary = string.Empty;
+    long _biasedExponent;
+    long _unbiasedExponent;
+    int _bias;
+    string _mantissaBinary = string.Empty;
+    string _mantissaFraction = string.Empty;
+    string _implicitMantissaDisplay = string.Empty;
+    string _computedValue = string.Empty;
+    string _hexDisplay = string.Empty;
+    string? _specialLabel;
+    string? _specialExplanation;
+
+    @* Comparison fields *@
+    bool _comparisonAvailable;
+    string _compFloat = string.Empty;
+    string _compFloatHex = string.Empty;
+    string _compFloatBits = string.Empty;
+    string _compDouble = string.Empty;
+    string _compDoubleHex = string.Empty;
+    string _compDoubleBits = string.Empty;
+    string _precisionDiff = string.Empty;
+
+    int _totalBits => _isDouble ? 64 : 32;
+    int _exponentBits => _isDouble ? 11 : 8;
+    int _mantissaBits => _isDouble ? 52 : 23;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/ieee754");
+            if (state is not null)
+            {
+                _decimalInput = state.DecimalInput;
+                _hexInput = state.HexInput;
+                _isDouble = state.IsDouble;
+                ParseFromDecimal();
+                StateHasChanged();
+            }
+        }
+    }
+
+    async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/ieee754", new ToolState(_decimalInput, _hexInput, _isDouble));
+    }
+
+    async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _decimalInput = state.DecimalInput;
+            _hexInput = state.HexInput;
+            _isDouble = state.IsDouble;
+            ParseFromDecimal();
+            StateHasChanged();
+        }
+    }
+
+    List<Ieee754Example> _examples = new()
+    {
+        new() { Label = "\u03c0 (pi)", Value = "3.141592653589793", UseDouble = true },
+        new() { Label = "e (Euler)", Value = "2.718281828459045", UseDouble = true },
+        new() { Label = "0.1 (imprecision)", Value = "0.1", UseDouble = false },
+        new() { Label = "Max Float", Value = "3.4028235E+38", UseDouble = false },
+        new() { Label = "Min Positive", Value = "1.17549435E-38", UseDouble = false },
+        new() { Label = "NaN", Value = "NaN", UseDouble = false },
+        new() { Label = "+Infinity", Value = "Infinity", UseDouble = false },
+        new() { Label = "-Infinity", Value = "-Infinity", UseDouble = false },
+        new() { Label = "-0", Value = "-0", UseDouble = false },
+        new() { Label = "1.0", Value = "1.0", UseDouble = false },
+        new() { Label = "0.5", Value = "0.5", UseDouble = false },
+        new() { Label = "-1.0", Value = "-1.0", UseDouble = false },
+    };
+
+    async Task SelectFloat()
+    {
+        _isDouble = false;
+        ParseFromDecimal();
+        await SaveState();
+    }
+
+    async Task SelectDouble()
+    {
+        _isDouble = true;
+        ParseFromDecimal();
+        await SaveState();
+    }
+
+    async Task OnDecimalInputChanged()
+    {
+        ParseFromDecimal();
+        await SaveState();
+    }
+
+    async Task OnHexInputChanged()
+    {
+        ParseFromHex();
+        await SaveState();
+    }
+
+    async Task LoadExample(Ieee754Example example)
+    {
+        _isDouble = example.UseDouble;
+        _decimalInput = example.Value;
+        _hexInput = string.Empty;
+        ParseFromDecimal();
+        await SaveState();
+        if (_hasParsed)
+        {
+            await Storage.AddRecentAsync("tools/encoding/ieee754", $"IEEE754: {example.Label}", new ToolState(_decimalInput, _hexInput, _isDouble));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    void ParseFromDecimal()
+    {
+        _error = null;
+        _hasParsed = false;
+
+        if (string.IsNullOrWhiteSpace(_decimalInput))
+            return;
+
+        string trimmed = _decimalInput.Trim();
+
+        if (_isDouble)
+        {
+            if (HandleSpecialStringDouble(trimmed))
+                return;
+
+            if (!double.TryParse(trimmed, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowExponent,
+                System.Globalization.CultureInfo.InvariantCulture, out double dVal))
+            {
+                _error = "Cannot parse as a valid double.";
+                return;
+            }
+
+            long raw = BitConverter.DoubleToInt64Bits(dVal);
+            LoadBitsFromLong(raw, 64);
+            _hexInput = raw.ToString("X16");
+        }
+        else
+        {
+            if (HandleSpecialStringFloat(trimmed))
+                return;
+
+            if (!float.TryParse(trimmed, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowExponent,
+                System.Globalization.CultureInfo.InvariantCulture, out float fVal))
+            {
+                _error = "Cannot parse as a valid float.";
+                return;
+            }
+
+            int raw = BitConverter.SingleToInt32Bits(fVal);
+            LoadBitsFromInt(raw);
+            _hexInput = raw.ToString("X8");
+        }
+
+        Analyze();
+        UpdateComparison();
+        _hasParsed = true;
+    }
+
+    bool HandleSpecialStringFloat(string input)
+    {
+        string lower = input.ToLowerInvariant();
+        float? val = lower switch
+        {
+            "nan" => float.NaN,
+            "infinity" or "+infinity" or "inf" or "+inf" => float.PositiveInfinity,
+            "-infinity" or "-inf" => float.NegativeInfinity,
+            "-0" or "-0.0" => -0.0f,
+            _ => null
+        };
+
+        if (val is null)
+            return false;
+
+        int raw = BitConverter.SingleToInt32Bits(val.Value);
+        LoadBitsFromInt(raw);
+        _hexInput = raw.ToString("X8");
+        Analyze();
+        UpdateComparison();
+        _hasParsed = true;
+        return true;
+    }
+
+    bool HandleSpecialStringDouble(string input)
+    {
+        string lower = input.ToLowerInvariant();
+        double? val = lower switch
+        {
+            "nan" => double.NaN,
+            "infinity" or "+infinity" or "inf" or "+inf" => double.PositiveInfinity,
+            "-infinity" or "-inf" => double.NegativeInfinity,
+            "-0" or "-0.0" => -0.0d,
+            _ => null
+        };
+
+        if (val is null)
+            return false;
+
+        long raw = BitConverter.DoubleToInt64Bits(val.Value);
+        LoadBitsFromLong(raw, 64);
+        _hexInput = raw.ToString("X16");
+        Analyze();
+        UpdateComparison();
+        _hasParsed = true;
+        return true;
+    }
+
+    void ParseFromHex()
+    {
+        _error = null;
+        _hasParsed = false;
+
+        if (string.IsNullOrWhiteSpace(_hexInput))
+            return;
+
+        string trimmed = _hexInput.Trim().TrimStart('0', 'x', 'X');
+        if (trimmed.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[2..];
+
+        if (_isDouble)
+        {
+            if (trimmed.Length > 16)
+            {
+                _error = "Hex too long for 64-bit double (max 16 hex chars).";
+                return;
+            }
+
+            if (!long.TryParse(trimmed, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out long raw))
+            {
+                _error = "Invalid hex value.";
+                return;
+            }
+
+            LoadBitsFromLong(raw, 64);
+            double dVal = BitConverter.Int64BitsToDouble(raw);
+            _decimalInput = FormatDouble(dVal);
+        }
+        else
+        {
+            if (trimmed.Length > 8)
+            {
+                _error = "Hex too long for 32-bit float (max 8 hex chars).";
+                return;
+            }
+
+            if (!int.TryParse(trimmed, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out int raw))
+            {
+                if (!uint.TryParse(trimmed, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out uint uraw))
+                {
+                    _error = "Invalid hex value.";
+                    return;
+                }
+                raw = unchecked((int)uraw);
+            }
+
+            LoadBitsFromInt(raw);
+            float fVal = BitConverter.Int32BitsToSingle(raw);
+            _decimalInput = FormatFloat(fVal);
+        }
+
+        Analyze();
+        UpdateComparison();
+        _hasParsed = true;
+    }
+
+    void LoadBitsFromInt(int raw)
+    {
+        _bits = new int[32];
+        Ieee754InspectorCore.LoadBitsFromInt(raw, _bits);
+    }
+
+    void LoadBitsFromLong(long raw, int count)
+    {
+        _bits = new int[count];
+        Ieee754InspectorCore.LoadBitsFromLong(raw, _bits, count);
+    }
+
+    long BitsToLong() => Ieee754InspectorCore.BitsToLong(_bits);
+
+    int BitsToInt() => Ieee754InspectorCore.BitsToInt(_bits);
+
+    void Analyze()
+    {
+        _signBit = _bits[0];
+        _bias = _isDouble ? 1023 : 127;
+
+        @* Extract exponent bits *@
+        System.Text.StringBuilder expBuf = new();
+        long expVal = 0;
+        for (int i = 1; i <= _exponentBits; i++)
+        {
+            expBuf.Append(_bits[i]);
+            expVal = (expVal << 1) | (long)_bits[i];
+        }
+        _exponentBinary = expBuf.ToString();
+        _biasedExponent = expVal;
+        _unbiasedExponent = expVal - _bias;
+
+        @* Extract mantissa bits *@
+        System.Text.StringBuilder manBuf = new();
+        for (int i = 1 + _exponentBits; i < _totalBits; i++)
+        {
+            manBuf.Append(_bits[i]);
+        }
+        _mantissaBinary = manBuf.ToString();
+
+        @* Compute mantissa fraction *@
+        double fraction = 0.0;
+        for (int i = 0; i < _mantissaBits; i++)
+        {
+            if (_bits[1 + _exponentBits + i] == 1)
+                fraction += Math.Pow(2, -(i + 1));
+        }
+        _mantissaFraction = fraction.ToString("G17");
+
+        @* Detect special values *@
+        bool allExpOnes = _biasedExponent == ((1L << _exponentBits) - 1);
+        bool allMantissaZero = IsMantissaZero();
+
+        _specialLabel = null;
+        _specialExplanation = null;
+
+        if (allExpOnes && !allMantissaZero)
+        {
+            _specialLabel = "NaN (Not a Number)";
+            _specialExplanation = "All exponent bits are 1 and mantissa is non-zero. This is an undefined or unrepresentable result.";
+            _implicitMantissaDisplay = "1." + _mantissaBinary;
+            _computedValue = "NaN";
+            UpdateHexDisplay();
+            return;
+        }
+
+        if (allExpOnes && allMantissaZero)
+        {
+            _specialLabel = _signBit == 0 ? "+Infinity" : "-Infinity";
+            _specialExplanation = "All exponent bits are 1 and mantissa is all zeros. This represents infinity.";
+            _implicitMantissaDisplay = "1." + _mantissaBinary;
+            _computedValue = _signBit == 0 ? "+Infinity" : "-Infinity";
+            UpdateHexDisplay();
+            return;
+        }
+
+        if (_biasedExponent == 0 && allMantissaZero)
+        {
+            _specialLabel = _signBit == 0 ? "+0 (Positive Zero)" : "-0 (Negative Zero)";
+            _specialExplanation = _signBit == 0
+                ? "All bits are zero. This is positive zero."
+                : "Sign bit is 1, all other bits zero. IEEE 754 distinguishes +0 and -0.";
+            _implicitMantissaDisplay = "0." + _mantissaBinary;
+            _computedValue = _signBit == 0 ? "0" : "-0";
+            UpdateHexDisplay();
+            return;
+        }
+
+        if (_biasedExponent == 0 && !allMantissaZero)
+        {
+            _specialLabel = "Denormalized (Subnormal)";
+            long denormExp = 1 - _bias;
+            _specialExplanation = $"Exponent field is all zeros but mantissa is non-zero. No implicit leading 1. Actual exponent is {denormExp}. These represent very small numbers near zero.";
+            _unbiasedExponent = denormExp;
+            _implicitMantissaDisplay = "0." + _mantissaBinary;
+            double denormValue = Math.Pow(-1, _signBit) * fraction * Math.Pow(2, denormExp);
+            _computedValue = denormValue.ToString("G17");
+            UpdateHexDisplay();
+            return;
+        }
+
+        @* Normal number *@
+        _implicitMantissaDisplay = "1." + _mantissaBinary;
+        double normalValue = Math.Pow(-1, _signBit) * (1.0 + fraction) * Math.Pow(2, _unbiasedExponent);
+        _computedValue = normalValue.ToString("G17");
+        UpdateHexDisplay();
+    }
+
+    void UpdateHexDisplay()
+    {
+        if (_isDouble)
+        {
+            long raw = BitsToLong();
+            _hexDisplay = "0x" + raw.ToString("X16");
+        }
+        else
+        {
+            int raw = BitsToInt();
+            _hexDisplay = "0x" + raw.ToString("X8");
+        }
+    }
+
+    bool IsMantissaZero() => Ieee754InspectorCore.IsMantissaZero(_bits, _exponentBits, _totalBits);
+
+    void ToggleBit(int index)
+    {
+        if (index < 0 || index >= _bits.Length)
+            return;
+
+        _bits[index] = _bits[index] == 0 ? 1 : 0;
+
+        @* Reconstruct value from bits *@
+        if (_isDouble)
+        {
+            long raw = BitsToLong();
+            double dVal = BitConverter.Int64BitsToDouble(raw);
+            _decimalInput = FormatDouble(dVal);
+            _hexInput = raw.ToString("X16");
+        }
+        else
+        {
+            int raw = BitsToInt();
+            float fVal = BitConverter.Int32BitsToSingle(raw);
+            _decimalInput = FormatFloat(fVal);
+            _hexInput = raw.ToString("X8");
+        }
+
+        Analyze();
+        UpdateComparison();
+    }
+
+    int GetBit(int index)
+    {
+        if (index < 0 || index >= _bits.Length)
+            return 0;
+        return _bits[index];
+    }
+
+    string GetBitColor(int index)
+    {
+        if (index == 0)
+            return "bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300";
+        if (index <= _exponentBits)
+            return "bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300";
+        return "bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300";
+    }
+
+    string GetBitBorder(int index)
+    {
+        if (index == 0)
+            return "border-red-300 dark:border-red-700";
+        if (index == 1)
+            return "border-l-2 border-l-blue-500 border-blue-300 dark:border-blue-700";
+        if (index <= _exponentBits)
+            return "border-blue-300 dark:border-blue-700";
+        if (index == 1 + _exponentBits)
+            return "border-l-2 border-l-green-500 border-green-300 dark:border-green-700";
+        return "border-green-300 dark:border-green-700";
+    }
+
+    string GetBitTooltip(int index)
+    {
+        if (index == 0)
+            return "Sign bit (bit 0)";
+        if (index <= _exponentBits)
+            return $"Exponent bit {index - 1} (bit {index})";
+        return $"Mantissa bit {index - 1 - _exponentBits} (bit {index})";
+    }
+
+    void UpdateComparison()
+    {
+        _comparisonAvailable = false;
+        _precisionDiff = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_decimalInput))
+            return;
+
+        string trimmed = _decimalInput.Trim().ToLowerInvariant();
+
+        float fVal;
+        double dVal;
+
+        if (trimmed is "nan")
+        {
+            fVal = float.NaN;
+            dVal = double.NaN;
+        }
+        else if (trimmed is "infinity" or "+infinity" or "inf" or "+inf")
+        {
+            fVal = float.PositiveInfinity;
+            dVal = double.PositiveInfinity;
+        }
+        else if (trimmed is "-infinity" or "-inf")
+        {
+            fVal = float.NegativeInfinity;
+            dVal = double.NegativeInfinity;
+        }
+        else if (trimmed is "-0" or "-0.0")
+        {
+            fVal = -0.0f;
+            dVal = -0.0d;
+        }
+        else
+        {
+            if (!double.TryParse(trimmed, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowExponent,
+                System.Globalization.CultureInfo.InvariantCulture, out dVal))
+                return;
+
+            if (!float.TryParse(trimmed, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowExponent,
+                System.Globalization.CultureInfo.InvariantCulture, out fVal))
+                return;
+        }
+
+        int fRaw = BitConverter.SingleToInt32Bits(fVal);
+        long dRaw = BitConverter.DoubleToInt64Bits(dVal);
+
+        _compFloat = FormatFloat(fVal);
+        _compFloatHex = "0x" + fRaw.ToString("X8");
+        _compFloatBits = FormatBitsGrouped(fRaw, 32);
+
+        _compDouble = FormatDouble(dVal);
+        _compDoubleHex = "0x" + dRaw.ToString("X16");
+        _compDoubleBits = FormatBitsGrouped(dRaw, 64);
+
+        @* Check precision difference *@
+        if (!float.IsNaN(fVal) && !float.IsInfinity(fVal) && !double.IsNaN(dVal) && !double.IsInfinity(dVal))
+        {
+            double fromFloat = (double)fVal;
+            double diff = Math.Abs(dVal - fromFloat);
+            if (diff > 0)
+            {
+                _precisionDiff = $"Precision loss when stored as float: the float value differs from the double by {diff:G6}. Float has ~7 significant digits; double has ~15.";
+            }
+        }
+
+        _comparisonAvailable = true;
+    }
+
+    string FormatBitsGrouped(long raw, int count) => Ieee754InspectorCore.FormatBitsGrouped(raw, count);
+
+    string FormatBitsGrouped(int raw, int count) => Ieee754InspectorCore.FormatBitsGrouped(raw, count);
+
+    string FormatFloat(float val) => Ieee754InspectorCore.FormatFloat(val);
+
+    string FormatDouble(double val) => Ieee754InspectorCore.FormatDouble(val);
+
+    bool IsNegativeZero(float val) => Ieee754InspectorCore.IsNegativeZero(val);
+
+    bool IsNegativeZeroDouble(double val) => Ieee754InspectorCore.IsNegativeZeroDouble(val);
+
+    string GetAllBitsString() => Ieee754InspectorCore.GetAllBitsString(_bits);
+
+    async Task CopyDecimalValue()
+    {
+        if (!string.IsNullOrEmpty(_computedValue))
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _computedValue);
+    }
+
+    async Task CopyHexValue()
+    {
+        if (!string.IsNullOrEmpty(_hexDisplay))
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _hexDisplay);
+    }
+
+    async Task CopyBits()
+    {
+        string bits = GetAllBitsString();
+        if (!string.IsNullOrEmpty(bits))
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", bits);
+    }
+}

@@ -1,0 +1,381 @@
+@page "/tools/web/fingerprint"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject LocalStorageService Storage
+
+@using System.Text.Json
+
+@inject IJSRuntime Js
+
+@implements IAsyncDisposable
+
+<PageTitle>Device Fingerprint - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Device Fingerprint" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-fingerprint mr-1"></i> See what your browser reveals about you</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="flex flex-wrap gap-2 items-center">
+        <button type="button"
+                class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                disabled="@_isCollecting"
+                @onclick="CollectFingerprintAsync">
+            @if (_isCollecting)
+            {
+                <i class="ti ti-loader-2 animate-spin mr-1"></i>
+                <span>Collecting...</span>
+            }
+            else if (_hasCollected)
+            {
+                <i class="ti ti-refresh mr-1"></i>
+                <span>Re-collect Fingerprint</span>
+            }
+            else
+            {
+                <i class="ti ti-fingerprint mr-1"></i>
+                <span>Collect Fingerprint</span>
+            }
+        </button>
+        @if (_hasCollected)
+        {
+            <button type="button"
+                    class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                    @onclick="CopyAsJsonAsync">
+                <i class="ti ti-clipboard-copy mr-1"></i> Copy as JSON
+            </button>
+        }
+    </div>
+
+    @if (_isCollecting)
+    {
+        <div class="flex items-center gap-3 p-4 border border-gray-200 dark:border-gray-700 rounded">
+            <i class="ti ti-loader-2 animate-spin text-blue-500 text-xl"></i>
+            <span class="text-sm text-gray-500">Scanning browser APIs and collecting fingerprint data...</span>
+        </div>
+    }
+
+    @if (_hasCollected)
+    {
+        <div class="border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 rounded p-4">
+            <div class="flex items-start gap-3">
+                <i class="ti ti-alert-triangle text-amber-600 dark:text-amber-400 text-2xl mt-0.5"></i>
+                <div>
+                    <div class="font-semibold text-amber-700 dark:text-amber-300">
+                        @_uniquenessScore of @_totalPoints data points collected
+                    </div>
+                    <p class="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                        Your browser exposes @_uniquenessScore identifiable properties that can be combined
+                        into a near-unique fingerprint, enabling cross-site tracking without cookies or other
+                        traditional mechanisms.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            @foreach (DeviceFingerprintCore.FingerprintCategory category in _categories)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+                    <div class="px-4 py-2.5 @category.HeaderColorClass">
+                        <h3 class="text-sm font-semibold flex items-center gap-1.5">
+                            <i class="ti @category.Icon"></i> @category.Name
+                            <span class="ml-auto text-xs font-normal opacity-75">@category.Entries.Count properties</span>
+                        </h3>
+                    </div>
+                    <div class="p-4 space-y-3">
+                        @foreach (DeviceFingerprintCore.FingerprintEntry entry in category.Entries)
+                        {
+                            <div class="space-y-0.5">
+                                <div class="flex items-start justify-between gap-2">
+                                    <span class="text-sm text-gray-600 dark:text-gray-400 shrink-0">@entry.Property</span>
+                                    <span class="text-sm font-mono font-bold text-right break-all max-w-[60%]">@entry.Value</span>
+                                </div>
+                                <p class="text-xs text-gray-400 italic">@entry.Note</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/fingerprint" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private bool _isCollecting;
+    private bool _hasCollected;
+    private List<DeviceFingerprintCore.FingerprintCategory> _categories = [];
+    private int _uniquenessScore;
+    private int _totalPoints;
+
+    sealed record ToolState(); // Read-only tool, no state to persist
+
+    private async Task RestoreState(string json)
+    {
+        // Read-only tool - just refresh fingerprint data
+        await CollectFingerprintAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CollectFingerprintAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task CollectFingerprintAsync()
+    {
+        _isCollecting = true;
+        _hasCollected = false;
+        _categories.Clear();
+        StateHasChanged();
+        await Task.Yield();
+
+        _categories.Add(await CollectNavigatorAsync());
+        _categories.Add(await CollectScreenAsync());
+        _categories.Add(await CollectTimezoneAsync());
+        _categories.Add(await CollectWebGLAsync());
+        _categories.Add(await CollectCanvasAsync());
+        _categories.Add(await CollectAudioAsync());
+        _categories.Add(await CollectMediaDevicesAsync());
+        _categories.Add(await CollectConnectionAsync());
+        _categories.Add(await CollectStorageAsync());
+        _categories.Add(await CollectFeaturesAsync());
+
+        _totalPoints = _categories.Sum(c => c.Entries.Count);
+        _uniquenessScore = _categories.Sum(c => c.Entries.Count(e => !string.Equals(e.Value, "N/A", StringComparison.Ordinal)));
+        _isCollecting = false;
+        _hasCollected = true;
+    }
+
+    private async Task<string> SafeEvalAsync(string expression)
+    {
+        try
+        {
+            string? result = await Js.InvokeAsync<string?>("eval", expression);
+            return result ?? "N/A";
+        }
+        catch
+        {
+            return "N/A";
+        }
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectNavigatorAsync()
+    {
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("User Agent", await SafeEvalAsync("navigator.userAgent"),
+                "Reveals browser, OS, and device information"),
+            new DeviceFingerprintCore.FingerprintEntry("Platform", await SafeEvalAsync("navigator.platform"),
+                "Exposes operating system and CPU architecture"),
+            new DeviceFingerprintCore.FingerprintEntry("Language", await SafeEvalAsync("navigator.language"),
+                "Primary language narrows your locale"),
+            new DeviceFingerprintCore.FingerprintEntry("Languages", await SafeEvalAsync("navigator.languages.join(', ')"),
+                "Full language list is more identifying than a single locale"),
+            new DeviceFingerprintCore.FingerprintEntry("Hardware Concurrency", await SafeEvalAsync("String(navigator.hardwareConcurrency)"),
+                "CPU core count helps profile your hardware"),
+            new DeviceFingerprintCore.FingerprintEntry("Max Touch Points", await SafeEvalAsync("String(navigator.maxTouchPoints)"),
+                "Distinguishes touch devices from traditional desktops"),
+            new DeviceFingerprintCore.FingerprintEntry("Cookies Enabled", await SafeEvalAsync("String(navigator.cookieEnabled)"),
+                "Cookie support is a basic browser configuration signal"),
+            new DeviceFingerprintCore.FingerprintEntry("Do Not Track", await SafeEvalAsync("navigator.doNotTrack || 'Not set'"),
+                "Ironically, enabling DNT makes your browser more unique"),
+            new DeviceFingerprintCore.FingerprintEntry("PDF Viewer", await SafeEvalAsync("typeof navigator.pdfViewerEnabled !== 'undefined' ? String(navigator.pdfViewerEnabled) : 'N/A'"),
+                "Built-in PDF viewer support varies by browser"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Navigator", "ti-compass",
+            "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectScreenAsync()
+    {
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("Width", await SafeEvalAsync("String(screen.width) + ' px'"),
+                "Physical screen resolution width"),
+            new DeviceFingerprintCore.FingerprintEntry("Height", await SafeEvalAsync("String(screen.height) + ' px'"),
+                "Physical screen resolution height"),
+            new DeviceFingerprintCore.FingerprintEntry("Available Width", await SafeEvalAsync("String(screen.availWidth) + ' px'"),
+                "Excludes OS chrome; reveals taskbar position"),
+            new DeviceFingerprintCore.FingerprintEntry("Available Height", await SafeEvalAsync("String(screen.availHeight) + ' px'"),
+                "Difference from total height reveals taskbar size"),
+            new DeviceFingerprintCore.FingerprintEntry("Color Depth", await SafeEvalAsync("String(screen.colorDepth) + ' bit'"),
+                "Colour bit depth varies across displays"),
+            new DeviceFingerprintCore.FingerprintEntry("Pixel Depth", await SafeEvalAsync("String(screen.pixelDepth) + ' bit'"),
+                "Usually matches colour depth; exceptions are distinctive"),
+            new DeviceFingerprintCore.FingerprintEntry("Device Pixel Ratio", await SafeEvalAsync("String(window.devicePixelRatio)"),
+                "HiDPI scaling ratio identifies display type"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Screen", "ti-device-desktop",
+            "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectTimezoneAsync()
+    {
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("Timezone", await SafeEvalAsync("Intl.DateTimeFormat().resolvedOptions().timeZone"),
+                "Geographic timezone narrows your physical location"),
+            new DeviceFingerprintCore.FingerprintEntry("UTC Offset", await SafeEvalAsync("String(new Date().getTimezoneOffset()) + ' minutes'"),
+                "Offset from UTC reveals your regional location"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Timezone", "ti-clock",
+            "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectWebGLAsync()
+    {
+        string renderer = await SafeEvalAsync(
+            "(function(){var c=document.createElement('canvas');var gl=c.getContext('webgl')||c.getContext('experimental-webgl');if(!gl)return 'N/A';var e=gl.getExtension('WEBGL_debug_renderer_info');return e?gl.getParameter(e.UNMASKED_RENDERER_WEBGL):'N/A'})()");
+        string vendor = await SafeEvalAsync(
+            "(function(){var c=document.createElement('canvas');var gl=c.getContext('webgl')||c.getContext('experimental-webgl');if(!gl)return 'N/A';var e=gl.getExtension('WEBGL_debug_renderer_info');return e?gl.getParameter(e.UNMASKED_VENDOR_WEBGL):'N/A'})()");
+        string maxTexture = await SafeEvalAsync(
+            "(function(){var c=document.createElement('canvas');var gl=c.getContext('webgl')||c.getContext('experimental-webgl');if(!gl)return 'N/A';return String(gl.getParameter(gl.MAX_TEXTURE_SIZE))})()");
+        string maxViewport = await SafeEvalAsync(
+            "(function(){var c=document.createElement('canvas');var gl=c.getContext('webgl')||c.getContext('experimental-webgl');if(!gl)return 'N/A';var d=gl.getParameter(gl.MAX_VIEWPORT_DIMS);return d[0]+' x '+d[1]})()");
+
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("Renderer", renderer, "GPU model is one of the most identifying signals"),
+            new DeviceFingerprintCore.FingerprintEntry("Vendor", vendor, "GPU vendor narrows down hardware manufacturer"),
+            new DeviceFingerprintCore.FingerprintEntry("Max Texture Size", maxTexture, "Maximum texture dimension is GPU-specific"),
+            new DeviceFingerprintCore.FingerprintEntry("Max Viewport Dims", maxViewport, "Maximum viewport dimensions depend on GPU capability"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("WebGL", "ti-3d-cube-sphere",
+            "bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectCanvasAsync()
+    {
+        string canvasHash = await SafeEvalAsync(
+            "(function(){var c=document.createElement('canvas');c.width=200;c.height=50;var x=c.getContext('2d');x.textBaseline='top';x.font='14px Arial';x.fillStyle='#f60';x.fillRect(125,1,62,20);x.fillStyle='#069';x.fillText('Fingerprint',2,15);x.fillStyle='rgba(102,204,0,0.7)';x.fillText('Fingerprint',4,17);var d=c.toDataURL();var h=0;for(var i=0;i<d.length;i++){h=((h<<5)-h)+d.charCodeAt(i);h|=0}return String(h)})()");
+
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("Canvas Hash", canvasHash,
+                "Subtle rendering differences across GPUs and drivers produce a unique image hash"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Canvas", "ti-artboard",
+            "bg-rose-100 dark:bg-rose-900/30 text-rose-800 dark:text-rose-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectAudioAsync()
+    {
+        string sampleRate = await SafeEvalAsync(
+            "(function(){try{var a=new(window.AudioContext||window.webkitAudioContext)();var r=String(a.sampleRate)+' Hz';a.close();return r}catch(e){return 'N/A'}})()");
+        string maxChannels = await SafeEvalAsync(
+            "(function(){try{var a=new(window.AudioContext||window.webkitAudioContext)();var r=String(a.destination.maxChannelCount);a.close();return r}catch(e){return 'N/A'}})()");
+        string contextState = await SafeEvalAsync(
+            "(function(){try{var a=new(window.AudioContext||window.webkitAudioContext)();var r=a.state;a.close();return r}catch(e){return 'N/A'}})()");
+
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("Sample Rate", sampleRate, "Audio hardware sample rate varies by sound card"),
+            new DeviceFingerprintCore.FingerprintEntry("Max Channel Count", maxChannels, "Channel count depends on audio hardware configuration"),
+            new DeviceFingerprintCore.FingerprintEntry("Context State", contextState, "AudioContext state reveals API interaction policy"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Audio Context", "ti-volume",
+            "bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectMediaDevicesAsync()
+    {
+        string deviceCount = await SafeEvalAsync(
+            "navigator.mediaDevices ? navigator.mediaDevices.enumerateDevices().then(function(d){var ai=d.filter(function(x){return x.kind==='audioinput'}).length;var vi=d.filter(function(x){return x.kind==='videoinput'}).length;var ao=d.filter(function(x){return x.kind==='audiooutput'}).length;return ai+' audio in, '+vi+' video in, '+ao+' audio out'}) : 'N/A'");
+
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("Device Count", deviceCount,
+                "Number of media devices helps profile your hardware setup"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Media Devices", "ti-camera",
+            "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectConnectionAsync()
+    {
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("Effective Type",
+                await SafeEvalAsync("navigator.connection && navigator.connection.effectiveType ? navigator.connection.effectiveType : 'N/A'"),
+                "Network connection type reveals connectivity context"),
+            new DeviceFingerprintCore.FingerprintEntry("Downlink",
+                await SafeEvalAsync("navigator.connection && navigator.connection.downlink !== undefined ? String(navigator.connection.downlink) + ' Mbps' : 'N/A'"),
+                "Estimated bandwidth narrows your connection profile"),
+            new DeviceFingerprintCore.FingerprintEntry("RTT",
+                await SafeEvalAsync("navigator.connection && navigator.connection.rtt !== undefined ? String(navigator.connection.rtt) + ' ms' : 'N/A'"),
+                "Round-trip time hints at network infrastructure"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Connection", "ti-wifi",
+            "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectStorageAsync()
+    {
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("localStorage",
+                await SafeEvalAsync("(function(){try{localStorage.setItem('_fp','1');localStorage.removeItem('_fp');return 'Available'}catch(e){return 'Blocked'}})()"),
+                "Storage availability depends on browser privacy settings"),
+            new DeviceFingerprintCore.FingerprintEntry("sessionStorage",
+                await SafeEvalAsync("(function(){try{sessionStorage.setItem('_fp','1');sessionStorage.removeItem('_fp');return 'Available'}catch(e){return 'Blocked'}})()"),
+                "Session storage support varies with privacy configuration"),
+            new DeviceFingerprintCore.FingerprintEntry("IndexedDB",
+                await SafeEvalAsync("typeof indexedDB !== 'undefined' ? 'Available' : 'Blocked'"),
+                "Database API availability differs across configurations"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Storage", "ti-database",
+            "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200", entries);
+    }
+
+    private async Task<DeviceFingerprintCore.FingerprintCategory> CollectFeaturesAsync()
+    {
+        List<DeviceFingerprintCore.FingerprintEntry> entries =
+        [
+            new DeviceFingerprintCore.FingerprintEntry("WebGL",
+                await SafeEvalAsync("(function(){try{var c=document.createElement('canvas');return(c.getContext('webgl')||c.getContext('experimental-webgl'))?'Supported':'Not supported'}catch(e){return 'Not supported'}})()"),
+                "3D rendering support depends on browser and GPU drivers"),
+            new DeviceFingerprintCore.FingerprintEntry("WebRTC",
+                await SafeEvalAsync("typeof RTCPeerConnection !== 'undefined' ? 'Supported' : 'Not supported'"),
+                "WebRTC can leak local IP addresses even behind a VPN"),
+            new DeviceFingerprintCore.FingerprintEntry("Service Worker",
+                await SafeEvalAsync("'serviceWorker' in navigator ? 'Supported' : 'Not supported'"),
+                "Worker support varies by browser and security context"),
+            new DeviceFingerprintCore.FingerprintEntry("WebAssembly",
+                await SafeEvalAsync("typeof WebAssembly !== 'undefined' ? 'Supported' : 'Not supported'"),
+                "WASM support is near-universal but not guaranteed"),
+            new DeviceFingerprintCore.FingerprintEntry("SharedArrayBuffer",
+                await SafeEvalAsync("typeof SharedArrayBuffer !== 'undefined' ? 'Supported' : 'Not supported'"),
+                "Restricted post-Spectre; availability is a distinctive signal"),
+        ];
+        return new DeviceFingerprintCore.FingerprintCategory("Features", "ti-puzzle",
+            "bg-violet-100 dark:bg-violet-900/30 text-violet-800 dark:text-violet-200", entries);
+    }
+
+    private async Task CopyAsJsonAsync()
+    {
+        Dictionary<string, Dictionary<string, string>> report = new();
+        foreach (DeviceFingerprintCore.FingerprintCategory category in _categories)
+        {
+            Dictionary<string, string> categoryData = new();
+            foreach (DeviceFingerprintCore.FingerprintEntry entry in category.Entries)
+            {
+                categoryData[entry.Property] = entry.Value;
+            }
+            report[category.Name] = categoryData;
+        }
+
+        JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
+        string json = JsonSerializer.Serialize(report, jsonOptions);
+        await Js.InvokeVoidAsync("navigator.clipboard.writeText", json);
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}

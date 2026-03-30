@@ -1,0 +1,306 @@
+@page "/tools/web/http-header"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject LocalStorageService Storage
+
+<PageTitle>HTTP Header Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="HTTP Header Builder" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-headers-off mr-1"></i> Build and parse HTTP request/response headers</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="flex gap-1 text-sm">
+        <button type="button" class="@TabClass(_mode == "build")" @onclick='async () => { _mode = "build"; await SaveState(); }'>
+            <i class="ti ti-hammer mr-1"></i> Build
+        </button>
+        <button type="button" class="@TabClass(_mode == "parse")" @onclick='async () => { _mode = "parse"; await SaveState(); }'>
+            <i class="ti ti-code mr-1"></i> Parse
+        </button>
+    </div>
+
+    @if (_mode == "build")
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="space-y-4">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-plus mr-1"></i> Add Header</h3>
+                    </div>
+
+                    <div class="flex gap-2 mb-3">
+                        <select class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                                @bind="_selectedPreset" @bind:after="SaveState">
+                            <option value="">— Select common header —</option>
+                            @foreach (HttpHeaderBuilderCore.HeaderPreset preset in HttpHeaderBuilderCore.CommonHeaders)
+                            {
+                                <option value="@preset.Name">@preset.Name</option>
+                            }
+                        </select>
+                        <button type="button"
+                                class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                disabled="@string.IsNullOrEmpty(_selectedPreset)"
+                                @onclick="AddPresetHeader">
+                            <i class="ti ti-plus"></i> Add
+                        </button>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <input type="text" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                               placeholder="Custom header name"
+                               @bind="_customHeaderName" @bind:after="SaveState" />
+                        <button type="button"
+                                class="px-3 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors disabled:opacity-50"
+                                disabled="@string.IsNullOrEmpty(_customHeaderName)"
+                                @onclick="AddCustomHeader">
+                            <i class="ti ti-plus"></i> Custom
+                        </button>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    @if (_headers.Count == 0)
+                    {
+                        <div class="text-center text-gray-400 text-sm py-8">
+                            <i class="ti ti-headers-off text-3xl"></i>
+                            <p class="mt-2">No headers added yet. Select a common header or add a custom one.</p>
+                        </div>
+                    }
+
+                    @foreach (HttpHeaderBuilderCore.HeaderEntry header in _headers)
+                    {
+                        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-sm font-mono font-semibold text-blue-600 dark:text-blue-400 flex-shrink-0">@header.Name</span>
+                                <button type="button"
+                                        class="ml-auto text-red-400 hover:text-red-600 text-sm"
+                                        @onclick="() => RemoveHeader(header)">
+                                    <i class="ti ti-trash"></i>
+                                </button>
+                            </div>
+                            @{
+                                HttpHeaderBuilderCore.HeaderPreset? preset = HttpHeaderBuilderCore.CommonHeaders.FirstOrDefault(h => string.Equals(h.Name, header.Name, StringComparison.OrdinalIgnoreCase));
+                            }
+                            @if (preset?.SuggestedValues?.Length > 0)
+                            {
+                                <div class="flex gap-2 mb-1">
+                                    <select class="flex-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                            @onchange="(ChangeEventArgs e) => ApplySuggestion(header, e)">
+                                        <option value="">— Suggestions —</option>
+                                        @foreach (string suggestion in preset.SuggestedValues)
+                                        {
+                                            <option value="@suggestion">@suggestion</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                                   placeholder="Header value"
+                                   value="@header.Value"
+                                   @oninput="async (ChangeEventArgs e) => { header.Value = e.Value?.ToString() ?? string.Empty; await SaveState(); }" />
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> Raw Headers</h3>
+                    <button type="button"
+                            class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                            @onclick="CopyRawHeaders">
+                        <i class="ti ti-copy mr-1"></i> @(_copied ? "Copied!" : "Copy")
+                    </button>
+                </div>
+                <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm font-mono whitespace-pre-wrap break-all min-h-[200px]">@RawHeadersOutput</pre>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <label class="block text-sm font-medium mb-1"><i class="ti ti-code mr-1"></i> Paste Raw Headers</label>
+                <textarea class="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="Content-Type: application/json&#10;Authorization: Bearer eyJ...&#10;Accept: text/html"
+                          @bind="_rawParseInput"
+                          @bind:after="SaveState"></textarea>
+                <button type="button"
+                        class="mt-2 px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
+                        @onclick="ParseRawHeaders">
+                    <i class="ti ti-arrow-right mr-1"></i> Parse Headers
+                </button>
+            </div>
+
+            <div class="space-y-2">
+                @if (_parsedHeaders.Count == 0)
+                {
+                    <div class="text-center text-gray-400 text-sm py-8">
+                        <i class="ti ti-code text-3xl"></i>
+                        <p class="mt-2">Paste raw headers on the left and click Parse.</p>
+                    </div>
+                }
+                else
+                {
+                    <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-list mr-1"></i> Parsed (@_parsedHeaders.Count headers)</h3>
+                    @foreach (HttpHeaderBuilderCore.HeaderEntry header in _parsedHeaders)
+                    {
+                        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                            <span class="text-sm font-mono font-semibold text-blue-600 dark:text-blue-400">@header.Name</span>
+                            <div class="text-sm font-mono text-gray-600 dark:text-gray-400 mt-1 break-all">@header.Value</div>
+                        </div>
+                    }
+                    <button type="button"
+                            class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors"
+                            @onclick="ImportParsedHeaders">
+                        <i class="ti ti-download mr-1"></i> Import to Builder
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/http-header" OnRestore="RestoreState" />
+
+@code {
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private RecentEntryPanel? _recentPanel;
+    private string _mode = "build";
+    private string _selectedPreset = string.Empty;
+    private string _customHeaderName = string.Empty;
+    private string _rawParseInput = string.Empty;
+    private bool _copied;
+    private readonly List<HttpHeaderBuilderCore.HeaderEntry> _headers = [];
+    private readonly List<HttpHeaderBuilderCore.HeaderEntry> _parsedHeaders = [];
+
+    sealed record ToolState(
+        string Mode,
+        string SelectedPreset,
+        string CustomHeaderName,
+        string RawParseInput,
+        List<HttpHeaderBuilderCore.HeaderEntry> Headers
+    );
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/http-header");
+        if (state is not null)
+        {
+            _mode = state.Mode;
+            _selectedPreset = state.SelectedPreset;
+            _customHeaderName = state.CustomHeaderName;
+            _rawParseInput = state.RawParseInput;
+            _headers.Clear();
+            _headers.AddRange(state.Headers);
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_mode, _selectedPreset, _customHeaderName, _rawParseInput, new List<HttpHeaderBuilderCore.HeaderEntry>(_headers));
+        await Storage.SaveStateAsync("tools/web/http-header", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _mode = state.Mode;
+                _selectedPreset = state.SelectedPreset;
+                _customHeaderName = state.CustomHeaderName;
+                _rawParseInput = state.RawParseInput;
+                _headers.Clear();
+                _headers.AddRange(state.Headers);
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private string TabClass(bool active) =>
+        active
+            ? "px-3 py-1.5 rounded font-medium bg-blue-600 text-white"
+            : "px-3 py-1.5 rounded font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+
+    private string RawHeadersOutput => HttpHeaderBuilderCore.BuildRawOutput(_headers);
+
+    private async Task AddPresetHeader()
+    {
+        if (string.IsNullOrEmpty(_selectedPreset)) return;
+        _headers.Add(new HttpHeaderBuilderCore.HeaderEntry { Name = _selectedPreset, Value = string.Empty });
+        await Storage.AddRecentAsync("tools/web/http-header", $"Added: {_selectedPreset}",
+            new ToolState(_mode, _selectedPreset, _customHeaderName, _rawParseInput, new List<HttpHeaderBuilderCore.HeaderEntry>(_headers)));
+        _selectedPreset = string.Empty;
+        await SaveState();
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    private async Task AddCustomHeader()
+    {
+        if (string.IsNullOrWhiteSpace(_customHeaderName)) return;
+        _headers.Add(new HttpHeaderBuilderCore.HeaderEntry { Name = _customHeaderName.Trim(), Value = string.Empty });
+        await Storage.AddRecentAsync("tools/web/http-header", $"Added custom: {_customHeaderName.Trim()}",
+            new ToolState(_mode, _selectedPreset, _customHeaderName, _rawParseInput, new List<HttpHeaderBuilderCore.HeaderEntry>(_headers)));
+        _customHeaderName = string.Empty;
+        await SaveState();
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    private async Task RemoveHeader(HttpHeaderBuilderCore.HeaderEntry header)
+    {
+        _headers.Remove(header);
+        await SaveState();
+    }
+
+    private void ApplySuggestion(HttpHeaderBuilderCore.HeaderEntry header, ChangeEventArgs e)
+    {
+        string? value = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(value))
+            header.Value = value;
+    }
+
+    private async Task CopyRawHeaders()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", RawHeadersOutput);
+        _copied = true;
+        await Task.Delay(1500);
+        _copied = false;
+    }
+
+    private void ParseRawHeaders()
+    {
+        _parsedHeaders.Clear();
+        _parsedHeaders.AddRange(HttpHeaderBuilderCore.ParseRawHeaders(_rawParseInput));
+    }
+
+    private async Task ImportParsedHeaders()
+    {
+        foreach (HttpHeaderBuilderCore.HeaderEntry parsed in _parsedHeaders)
+        {
+            _headers.Add(new HttpHeaderBuilderCore.HeaderEntry { Name = parsed.Name, Value = parsed.Value });
+        }
+        await Storage.AddRecentAsync("tools/web/http-header", $"Imported {_parsedHeaders.Count} headers",
+            new ToolState(_mode, _selectedPreset, _customHeaderName, _rawParseInput, new List<HttpHeaderBuilderCore.HeaderEntry>(_headers)));
+        _parsedHeaders.Clear();
+        _mode = "build";
+        await SaveState();
+        await _recentPanel?.RefreshAsync()!;
+    }
+}

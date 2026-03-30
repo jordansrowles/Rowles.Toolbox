@@ -1,0 +1,382 @@
+@page "/tools/security/dns"
+@using System.Net.Http.Json
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using Rowles.Toolbox.Core.Security
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>DNS Lookup - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="DNS Lookup" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-world-search mr-1"></i> Query DNS records via DNS-over-HTTPS</span>
+    </Actions>
+</PageHeader>
+
+@* ── Query bar ── *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex flex-col sm:flex-row gap-2">
+        <input type="text"
+               class="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Domain name (e.g. example.com)"
+               @bind="_domain"
+               @bind:event="oninput"
+               @bind:after="SaveState"
+               @onkeydown="HandleKeyDown" />
+        <button type="button"
+                class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none disabled:opacity-50"
+                @onclick="RunQuery"
+                disabled="@_loading">
+            @if (_loading)
+            {
+                <i class="ti ti-loader-2 mr-1 animate-spin"></i> <span>Querying…</span>
+            }
+            else
+            {
+                <i class="ti ti-search mr-1"></i> <span>Lookup</span>
+            }
+        </button>
+    </div>
+
+    @* Record type checkboxes *@
+    <div class="mt-3 flex flex-wrap gap-2">
+        @foreach (string type in RecordTypes)
+        {
+            bool checked_ = _selectedTypes.Contains(type);
+            <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                <input type="checkbox" class="rounded"
+                       checked="@checked_"
+                       @onchange="async () => { ToggleType(type); await SaveState(); }" />
+                <code class="font-mono font-semibold @RecordTypeColor(type)">@type</code>
+            </label>
+        }
+    </div>
+
+    @* Resolver selector *@
+    <div class="mt-3 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+        <span>Resolver:</span>
+        @foreach ((string name, string url) in Resolvers)
+        {
+            <label class="flex items-center gap-1 cursor-pointer">
+                <input type="radio" name="resolver" value="@url"
+                       checked="@(_resolverUrl == url)"
+                       @onchange="async () => { _resolverUrl = url; await SaveState(); }" />
+                @name
+            </label>
+        }
+    </div>
+</div>
+
+@* ── Error ── *@
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="mb-4 p-3 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded">
+        <i class="ti ti-alert-circle mr-1"></i> @_errorMessage
+    </div>
+}
+
+@* ── Results ── *@
+@if (_results.Count > 0)
+{
+    <div class="space-y-4">
+        <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-500">
+                <i class="ti ti-list mr-1"></i> Results for <span class="font-mono text-blue-600 dark:text-blue-400">@_queriedDomain</span>
+            </h3>
+            <button type="button"
+                    class="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+                    @onclick="CopyResults">
+                <i class="ti ti-copy mr-0.5"></i> Copy all
+            </button>
+        </div>
+
+        @foreach (DnsSection grp in _results)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+                <div class="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+                    <span class="text-xs font-bold font-mono @RecordTypeColor(grp.Type)">@grp.Type</span>
+                    <span class="text-xs text-gray-400">@grp.Records.Count record@(grp.Records.Count != 1 ? "s" : "")</span>
+                    @if (grp.Status != 0)
+                    {
+                        <span class="text-xs text-amber-600 dark:text-amber-400">
+                            <i class="ti ti-alert-triangle mr-0.5"></i> Status @grp.Status (@DnsStatusName(grp.Status))
+                        </span>
+                    }
+                </div>
+                @if (grp.Records.Count == 0)
+                {
+                    <div class="px-4 py-3 text-xs text-gray-400 italic">No records found</div>
+                }
+                else
+                {
+                    <table class="w-full text-xs">
+                        <thead class="text-gray-400 dark:text-gray-500 uppercase tracking-wide text-[10px]">
+                            <tr class="border-b border-gray-100 dark:border-gray-800">
+                                <th class="px-4 py-2 text-left font-medium">Name</th>
+                                <th class="px-4 py-2 text-left font-medium">TTL</th>
+                                <th class="px-4 py-2 text-left font-medium">Data</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (DnsRecord rec in grp.Records)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                                    <td class="px-4 py-2 font-mono text-gray-600 dark:text-gray-400">@rec.Name</td>
+                                    <td class="px-4 py-2 text-gray-500 dark:text-gray-500 whitespace-nowrap">@FormatTtl(rec.Ttl)</td>
+                                    <td class="px-4 py-2 font-mono break-all text-gray-800 dark:text-gray-200 select-all">@rec.Data</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        }
+    </div>
+}
+else if (!_loading && !string.IsNullOrEmpty(_queriedDomain))
+{
+    <div class="text-center py-10 text-sm text-gray-400">
+        <i class="ti ti-mood-empty text-2xl block mb-2"></i>
+        No results returned for <span class="font-mono">@_queriedDomain</span>
+    </div>
+}
+
+@* ── Recent queries ── *@
+@if (_recentQueries.Count > 0)
+{
+    <div class="mt-6 border border-gray-200 dark:border-gray-700 rounded p-4">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-history mr-1"></i> Recent</h3>
+            <button type="button"
+                    class="text-xs text-gray-400 hover:text-red-500 cursor-pointer border-none bg-transparent"
+                    @onclick="ClearRecent">
+                Clear
+            </button>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+            @foreach (string query in _recentQueries)
+            {
+                <button type="button"
+                        class="px-2 py-0.5 text-xs font-mono rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer border border-gray-200 dark:border-gray-700"
+                        @onclick="() => LoadRecent(query)">
+                    @query
+                </button>
+            }
+        </div>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/security/dns" OnRestore="RestoreState" />
+
+@code {
+    private static readonly string[] RecordTypes = ["A", "AAAA", "MX", "TXT", "CNAME", "NS", "SOA"];
+
+    private static readonly (string Name, string Url)[] Resolvers =
+    [
+        ("Google", "https://dns.google/resolve"),
+        ("Cloudflare", "https://cloudflare-dns.com/dns-query"),
+    ];
+
+    private string _domain = string.Empty;
+    private string _resolverUrl = "https://dns.google/resolve";
+    private readonly HashSet<string> _selectedTypes = ["A", "AAAA", "MX", "TXT", "CNAME"];
+    private bool _loading;
+    private string? _errorMessage;
+    private string _queriedDomain = string.Empty;
+    private List<DnsSection> _results = [];
+    private List<string> _recentQueries = [];
+
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(string Domain, string ResolverUrl, string[] SelectedTypes);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/security/dns");
+            if (state is not null)
+            {
+                _domain = state.Domain;
+                _resolverUrl = state.ResolverUrl;
+                _selectedTypes.Clear();
+                foreach (string t in state.SelectedTypes) _selectedTypes.Add(t);
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/security/dns", new ToolState(_domain, _resolverUrl, _selectedTypes.ToArray()));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _domain = state.Domain;
+            _resolverUrl = state.ResolverUrl;
+            _selectedTypes.Clear();
+            foreach (string t in state.SelectedTypes) _selectedTypes.Add(t);
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            string? stored = await JS.InvokeAsync<string?>("localStorage.getItem", "dns-recent");
+            if (!string.IsNullOrEmpty(stored))
+            {
+                _recentQueries = JsonSerializer.Deserialize<List<string>>(stored) ?? [];
+            }
+        }
+        catch { /* localStorage unavailable */ }
+    }
+
+    private void ToggleType(string type)
+    {
+        if (!_selectedTypes.Remove(type))
+            _selectedTypes.Add(type);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await RunQuery();
+    }
+
+    private async Task RunQuery()
+    {
+        string domain = _domain.Trim().TrimEnd('.');
+        if (string.IsNullOrWhiteSpace(domain))
+        {
+            _errorMessage = "Enter a domain name.";
+            return;
+        }
+
+        _errorMessage = null;
+        _loading = true;
+        _results = [];
+        _queriedDomain = domain;
+        StateHasChanged();
+
+        try
+        {
+            List<DnsSection> sections = [];
+            List<Task<DnsSection>> tasks = _selectedTypes
+                .Select(type => QueryType(domain, type))
+                .ToList();
+
+            DnsSection[] fetched = await Task.WhenAll(tasks);
+            sections.AddRange(fetched.OrderBy(s => Array.IndexOf(RecordTypes, s.Type)));
+            _results = sections;
+
+            await AddToRecent(domain);
+
+            await Storage.AddRecentAsync("tools/security/dns", $"DNS lookup: {domain}", new ToolState(_domain, _resolverUrl, _selectedTypes.ToArray()));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Query failed: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<DnsSection> QueryType(string domain, string type)
+    {
+        try
+        {
+            string url = $"{_resolverUrl}?name={Uri.EscapeDataString(domain)}&type={type}";
+            using HttpRequestMessage req = new(HttpMethod.Get, url);
+            req.Headers.Add("Accept", "application/dns-json");
+
+            using HttpResponseMessage resp = await Http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode)
+                return new DnsSection(type, [], (int)resp.StatusCode);
+
+            DoHResponse? doh = await resp.Content.ReadFromJsonAsync<DoHResponse>(
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (doh is null)
+                return new DnsSection(type, [], -1);
+
+            List<DnsRecord> records = doh.Answer?
+                .Where(a => a.Type == DnsTypeCode(type))
+                .Select(a => new DnsRecord(a.Name, a.Ttl, a.Data))
+                .ToList() ?? [];
+
+            return new DnsSection(type, records, doh.Status);
+        }
+        catch
+        {
+            return new DnsSection(type, [], -1);
+        }
+    }
+
+    private async Task AddToRecent(string domain)
+    {
+        _recentQueries.Remove(domain);
+        _recentQueries.Insert(0, domain);
+        if (_recentQueries.Count > 8) _recentQueries = _recentQueries.Take(8).ToList();
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "dns-recent",
+                JsonSerializer.Serialize(_recentQueries));
+        }
+        catch { }
+    }
+
+    private async Task ClearRecent()
+    {
+        _recentQueries.Clear();
+        try { await JS.InvokeVoidAsync("localStorage.removeItem", "dns-recent"); } catch { }
+    }
+
+    private async Task LoadRecent(string domain)
+    {
+        _domain = domain;
+        await RunQuery();
+    }
+
+    private async Task CopyResults()
+    {
+        System.Text.StringBuilder sb = new();
+        sb.AppendLine($"DNS lookup for {_queriedDomain}");
+        sb.AppendLine(new string('─', 40));
+        foreach (DnsSection section in _results)
+        {
+            sb.AppendLine($"\n{section.Type} records ({section.Records.Count}):");
+            foreach (DnsRecord rec in section.Records)
+                sb.AppendLine($"  {rec.Name,-40} TTL {rec.Ttl,-8} {rec.Data}");
+        }
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", sb.ToString());
+    }
+
+    private static string FormatTtl(int ttl) => DnsLookupCore.FormatTtl(ttl);
+    private static string RecordTypeColor(string type) => DnsLookupCore.RecordTypeColor(type);
+    private static int DnsTypeCode(string type) => DnsLookupCore.DnsTypeCode(type);
+    private static string DnsStatusName(int status) => DnsLookupCore.DnsStatusName(status);
+
+    // ── JSON model ──
+
+    private sealed record DoHResponse(
+        [property: JsonPropertyName("Status")] int Status,
+        [property: JsonPropertyName("Answer")] List<DoHAnswer>? Answer);
+
+    private sealed record DoHAnswer(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("type")] int Type,
+        [property: JsonPropertyName("TTL")] int Ttl,
+        [property: JsonPropertyName("data")] string Data);
+
+    private sealed record DnsRecord(string Name, int Ttl, string Data);
+    private sealed record DnsSection(string Type, List<DnsRecord> Records, int Status);
+}

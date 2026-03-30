@@ -1,0 +1,289 @@
+@page "/tools/image/format-inspector"
+@using Rowles.Toolbox.Core.Image
+@inject LocalStorageService Storage
+
+<PageTitle>Image Format Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Image Format Inspector" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-file-search mr-1"></i> Inspect raw bytes to identify image format, dimensions &amp; metadata</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    @* -- Upload -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-6">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Upload Image</h3>
+        <InputFile OnChange="HandleFileUpload" accept="image/*"
+                   class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+        <p class="text-xs text-gray-400 mt-2">Supports JPEG, PNG, GIF, BMP, WebP, TIFF, ICO, AVIF, HEIC (max 50 MB)</p>
+    </div>
+
+    @if (_errorMessage is not null)
+    {
+        <div class="border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 rounded p-4">
+            <p class="text-sm text-red-700 dark:text-red-400"><i class="ti ti-alert-circle mr-1"></i> @_errorMessage</p>
+        </div>
+    }
+
+    @if (_fileData is not null)
+    {
+        @* -- Preview -- *@
+        @if (_imageDataUrl is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-photo mr-1"></i> Preview</h3>
+                <img src="@_imageDataUrl" alt="Uploaded image" class="max-w-full max-h-80 h-auto rounded border border-gray-200 dark:border-gray-700 mx-auto" />
+                <p class="text-xs text-gray-400 mt-2 text-center">@_fileName (@ImageFormatInspectorCore.FormatBytes(_fileData.Length))</p>
+            </div>
+        }
+
+        @* -- Result Cards -- *@
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+            @* Format Card *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-type-jpg mr-1"></i> Format</h3>
+                <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded mb-3">
+                    <span class="text-2xl font-bold text-blue-600 dark:text-blue-400">@_result.FormatName</span>
+                </div>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Magic Bytes</span>
+                        <code class="font-mono text-xs bg-gray-50 dark:bg-gray-800 px-1 rounded">@_result.MagicBytesHex</code>
+                    </div>
+                    @if (!string.IsNullOrEmpty(_result.SubFormat))
+                    {
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Sub-format</span>
+                            <span class="font-mono text-xs">@_result.SubFormat</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Dimensions Card *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-dimensions mr-1"></i> Dimensions</h3>
+                @if (_result.Width > 0 && _result.Height > 0)
+                {
+                    <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded mb-3">
+                        <span class="text-2xl font-bold">@_result.Width <span class="text-gray-400 text-lg">&times;</span> @_result.Height</span>
+                    </div>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Aspect Ratio</span>
+                            <span class="font-mono text-xs">@ImageFormatInspectorCore.GetAspectRatio(_result.Width, _result.Height)</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Megapixels</span>
+                            <span class="font-mono text-xs">@ImageFormatInspectorCore.GetMegapixels(_result.Width, _result.Height)</span>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded">
+                        <span class="text-sm text-gray-400">Unable to parse</span>
+                    </div>
+                }
+            </div>
+
+            @* Colour Card *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-palette mr-1"></i> Colour</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Bit Depth</span>
+                        <span class="font-mono text-xs">@(_result.BitsPerPixel > 0 ? _result.BitsPerPixel + " bpp" : "Unknown")</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Colour Type</span>
+                        <span class="font-mono text-xs">@(string.IsNullOrEmpty(_result.ColourType) ? "Unknown" : _result.ColourType)</span>
+                    </div>
+                </div>
+            </div>
+
+            @* ICC Profile Card *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-color-swatch mr-1"></i> ICC Profile</h3>
+                <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded">
+                    @if (_result.HasIccProfile)
+                    {
+                        <span class="px-2 py-0.5 rounded text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                            <i class="ti ti-check mr-0.5"></i> Present
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-500">
+                            Not detected
+                        </span>
+                    }
+                </div>
+            </div>
+
+            @* File Info Card *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> File Info</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">File Size</span>
+                        <span class="font-mono text-xs">@ImageFormatInspectorCore.FormatBytes(_fileData.Length)</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">MIME Type</span>
+                        <span class="font-mono text-xs">@_result.MimeType</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-500">Animated</span>
+                        @if (_result.IsAnimated)
+                        {
+                            <span class="px-2 py-0.5 rounded text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                                <i class="ti ti-check mr-0.5"></i> Yes
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-500">No</span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* Raw Size Card *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-binary mr-1"></i> Size Breakdown</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Bytes</span>
+                        <span class="font-mono text-xs">@_fileData.Length.ToString("N0")</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Kilobytes</span>
+                        <span class="font-mono text-xs">@((_fileData.Length / 1024.0).ToString("F2")) KB</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Megabytes</span>
+                        <span class="font-mono text-xs">@((_fileData.Length / (1024.0 * 1024.0)).ToString("F2")) MB</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* -- Raw Header Hex Dump -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-binary-tree mr-1"></i> Raw Header (first @Math.Min(64, _fileData.Length) bytes)
+            </h3>
+            <div class="font-mono text-xs bg-gray-50 dark:bg-gray-800 p-3 rounded overflow-x-auto">
+                <div class="flex gap-2 leading-5 text-gray-400 mb-1 border-b border-gray-200 dark:border-gray-700 pb-1">
+                    <span class="w-12 shrink-0">Offset</span>
+                    <span class="w-[26rem] shrink-0">Hex</span>
+                    <span>ASCII</span>
+                </div>
+                @for (int row = 0; row < Math.Min(64, _fileData.Length); row += 16)
+                {
+                    int end = Math.Min(row + 16, Math.Min(64, _fileData.Length));
+                    <div class="flex gap-2 leading-5">
+                        <span class="text-gray-400 w-12 shrink-0">@row.ToString("X4")</span>
+                        <span class="w-[26rem] shrink-0">
+                            @for (int i = row; i < row + 16; i++)
+                            {
+                                if (i < end)
+                                {
+                                    <span>@_fileData[i].ToString("X2") </span>
+                                }
+                                else
+                                {
+                                    <span>   </span>
+                                }
+                            }
+                        </span>
+                        <span class="text-gray-400">
+                            @for (int i = row; i < end; i++)
+                            {
+                                char c = (char)_fileData[i];
+                                @(c >= 32 && c < 127 ? c : '.')
+                            }
+                        </span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_fileData is null && _errorMessage is null)
+    {
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 flex items-center justify-center h-48">
+            <p class="text-gray-400 text-sm"><i class="ti ti-file-search mr-1"></i> Upload an image to inspect its format and metadata</p>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="format-inspector" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private byte[]? _fileData;
+    private string _fileName = string.Empty;
+    private string? _imageDataUrl;
+    private string? _errorMessage;
+    private ImageFormatInspectorCore.ImageInfo _result = new();
+
+    sealed record ToolState();
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _fileData = null;
+        _imageDataUrl = null;
+        _result = new ImageFormatInspectorCore.ImageInfo();
+
+        IBrowserFile file = e.File;
+        _fileName = file.Name;
+
+        long maxSize = 50 * 1024 * 1024;
+        if (file.Size > maxSize)
+        {
+            _errorMessage = "File exceeds the 50 MB limit.";
+            return;
+        }
+
+        try
+        {
+            using Stream stream = file.OpenReadStream(maxSize);
+            using MemoryStream ms = new();
+            await stream.CopyToAsync(ms);
+            _fileData = ms.ToArray();
+
+            string base64 = Convert.ToBase64String(_fileData);
+            string contentType = file.ContentType;
+            if (string.IsNullOrEmpty(contentType))
+            {
+                contentType = "application/octet-stream";
+            }
+            _imageDataUrl = string.Concat("data:", contentType, ";base64,", base64);
+
+            _result = ImageFormatInspectorCore.InspectImage(_fileData);
+
+            if (contentType == "application/octet-stream" && !string.IsNullOrEmpty(_result.MimeType))
+            {
+                _imageDataUrl = string.Concat("data:", _result.MimeType, ";base64,", base64);
+            }
+
+            string label = $"{_fileName} ({_result.FormatName} {_result.Width}×{_result.Height})";
+            await Storage.AddRecentAsync("format-inspector", label);
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Error reading file: " + ex.Message;
+        }
+    }
+
+    private async Task RestoreState(string json)
+    {
+        await Task.CompletedTask;
+    }
+}

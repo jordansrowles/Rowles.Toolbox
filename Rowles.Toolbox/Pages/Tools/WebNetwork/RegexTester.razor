@@ -1,0 +1,358 @@
+@page "/tools/web/regex"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject LocalStorageService Storage
+
+@using System.Text.RegularExpressions
+
+<PageTitle>Regex Tester - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Regex Tester" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-regex mr-1"></i> Test and debug regular expressions with live matching</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+    <div class="xl:col-span-3 space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1">Pattern</label>
+            <div class="flex gap-2">
+                <input type="text" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="Enter regex pattern…"
+                       @bind="_pattern"
+                       @bind:after="SaveState" />
+            </div>
+
+            <div class="mt-2 flex flex-wrap gap-3 text-sm">
+                <label class="flex items-center gap-1">
+                    <input type="checkbox" class="rounded" @bind="_ignoreCase" @bind:after="SaveState" />
+                    <span>Case Insensitive (i)</span>
+                </label>
+                <label class="flex items-center gap-1">
+                    <input type="checkbox" class="rounded" @bind="_multiline" @bind:after="SaveState" />
+                    <span>Multiline (m)</span>
+                </label>
+                <label class="flex items-center gap-1">
+                    <input type="checkbox" class="rounded" @bind="_singleline" @bind:after="SaveState" />
+                    <span>Singleline (s)</span>
+                </label>
+                <label class="flex items-center gap-1">
+                    <input type="checkbox" class="rounded" @bind="_replaceMode" @bind:after="SaveState" />
+                    <span><i class="ti ti-replace mr-1"></i>Replace Mode</span>
+                </label>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="mt-2 text-red-500 text-sm"><i class="ti ti-alert-circle mr-1"></i>@_errorMessage</div>
+            }
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1">Test String</label>
+            <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter text to test against…"
+                      @bind="_testString"
+                      @bind:after="SaveState"></textarea>
+        </div>
+
+        @if (_replaceMode)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <label class="block text-sm font-medium mb-1"><i class="ti ti-replace mr-1"></i> Replacement String</label>
+                <input type="text" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="Replacement text (supports $1, ${name}, etc.)"
+                       @bind="_replacement"
+                       @bind:after="SaveState" />
+
+                @if (!string.IsNullOrEmpty(ReplacementResult))
+                {
+                    <div class="mt-3">
+                        <label class="block text-sm font-medium mb-1">Result</label>
+                        <pre class="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-sm font-mono whitespace-pre-wrap break-all">@ReplacementResult</pre>
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-highlight mr-1"></i> Highlighted Output</label>
+            <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm font-mono whitespace-pre-wrap break-all min-h-[4rem]">
+                @HighlightedMarkup
+            </div>
+        </div>
+
+        @if (Matches.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Matches (@Matches.Count)</h3>
+                <div class="space-y-2 max-h-96 overflow-y-auto">
+                    @for (int i = 0; i < Matches.Count; i++)
+                    {
+                        Match match = Matches[i];
+                        <div class="border border-gray-100 dark:border-gray-600 rounded p-3 bg-gray-50 dark:bg-gray-800">
+                            <div class="flex items-center gap-3 text-sm">
+                                <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded text-xs font-bold">@(i + 1)</span>
+                                <code class="text-green-600 dark:text-green-400 font-bold">@match.Value</code>
+                                <span class="text-gray-400 text-xs">Index: @match.Index | Length: @match.Length</span>
+                            </div>
+                            @if (match.Groups.Count > 1)
+                            {
+                                <div class="mt-2 ml-8 space-y-1">
+                                    @for (int g = 1; g < match.Groups.Count; g++)
+                                    {
+                                        Group group = match.Groups[g];
+                                        List<string> groupKeys = match.Groups.Keys.ToList();
+                                        string groupName = groupKeys.Count > g ? groupKeys[g] : g.ToString();
+                                        <div class="text-xs text-gray-500 dark:text-gray-400">
+                                            <span class="font-semibold text-purple-600 dark:text-purple-400">Group @groupName:</span>
+                                            <code class="ml-1">@(group.Success ? group.Value : "(no match)")</code>
+                                            @if (group.Success)
+                                            {
+                                                <span class="text-gray-400 ml-1">(Index: @group.Index, Length: @group.Length)</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-bookmarks mr-1"></i> Common Patterns</h3>
+            <div class="space-y-2">
+                @foreach (RegexTesterCore.RegexPreset preset in RegexTesterCore.Presets)
+                {
+                    <button type="button"
+                            class="w-full text-left p-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 text-sm transition-colors"
+                            @onclick="() => ApplyPreset(preset)">
+                        <div class="font-medium text-blue-600 dark:text-blue-400">@preset.Name</div>
+                        <code class="text-xs text-gray-500 dark:text-gray-400 break-all">@preset.Pattern</code>
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Quick Reference</h3>
+            <div class="space-y-1 text-xs font-mono text-gray-600 dark:text-gray-400">
+                <div><span class="text-blue-500 font-bold">.</span> Any character</div>
+                <div><span class="text-blue-500 font-bold">\d</span> Digit [0-9]</div>
+                <div><span class="text-blue-500 font-bold">\w</span> Word char [a-zA-Z0-9_]</div>
+                <div><span class="text-blue-500 font-bold">\s</span> Whitespace</div>
+                <div><span class="text-blue-500 font-bold">^</span> Start of line</div>
+                <div><span class="text-blue-500 font-bold">$</span> End of line</div>
+                <div><span class="text-blue-500 font-bold">*</span> 0 or more</div>
+                <div><span class="text-blue-500 font-bold">+</span> 1 or more</div>
+                <div><span class="text-blue-500 font-bold">?</span> 0 or 1</div>
+                <div><span class="text-blue-500 font-bold">{n,m}</span> n to m times</div>
+                <div><span class="text-blue-500 font-bold">(…)</span> Capture group</div>
+                <div><span class="text-blue-500 font-bold">(?&lt;name&gt;…)</span> Named group</div>
+                <div><span class="text-blue-500 font-bold">[abc]</span> Character class</div>
+                <div><span class="text-blue-500 font-bold">[^abc]</span> Negated class</div>
+                <div><span class="text-blue-500 font-bold">a|b</span> Alternation</div>
+                <div><span class="text-blue-500 font-bold">(?=…)</span> Lookahead</div>
+                <div><span class="text-blue-500 font-bold">(?&lt;=…)</span> Lookbehind</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/regex" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _pattern = string.Empty;
+    private string _testString = string.Empty;
+    private string _replacement = string.Empty;
+    private bool _ignoreCase;
+    private bool _multiline;
+    private bool _singleline;
+    private bool _replaceMode;
+    private string? _errorMessage;
+
+    sealed record ToolState(
+        string Pattern,
+        string TestString,
+        string Replacement,
+        bool IgnoreCase,
+        bool Multiline,
+        bool Singleline,
+        bool ReplaceMode
+    );
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/regex");
+        if (state is not null)
+        {
+            _pattern = state.Pattern;
+            _testString = state.TestString;
+            _replacement = state.Replacement;
+            _ignoreCase = state.IgnoreCase;
+            _multiline = state.Multiline;
+            _singleline = state.Singleline;
+            _replaceMode = state.ReplaceMode;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_pattern, _testString, _replacement, _ignoreCase, _multiline, _singleline, _replaceMode);
+        await Storage.SaveStateAsync("tools/web/regex", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _pattern = state.Pattern;
+                _testString = state.TestString;
+                _replacement = state.Replacement;
+                _ignoreCase = state.IgnoreCase;
+                _multiline = state.Multiline;
+                _singleline = state.Singleline;
+                _replaceMode = state.ReplaceMode;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private Regex? CompiledRegex
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(_pattern))
+            {
+                _errorMessage = null;
+                return null;
+            }
+
+            try
+            {
+                RegexOptions options = RegexOptions.None;
+                if (_ignoreCase) options |= RegexOptions.IgnoreCase;
+                if (_multiline) options |= RegexOptions.Multiline;
+                if (_singleline) options |= RegexOptions.Singleline;
+
+                Regex regex = new(_pattern, options, TimeSpan.FromSeconds(2));
+                _errorMessage = null;
+                return regex;
+            }
+            catch (RegexParseException ex)
+            {
+                _errorMessage = ex.Message;
+                return null;
+            }
+        }
+    }
+
+    private List<Match> Matches
+    {
+        get
+        {
+            Regex? regex = CompiledRegex;
+            if (regex is null || string.IsNullOrEmpty(_testString))
+                return [];
+
+            try
+            {
+                List<Match> results = [];
+                MatchCollection matchCollection = regex.Matches(_testString);
+                foreach (Match match in matchCollection)
+                {
+                    results.Add(match);
+                    if (results.Count >= 500) break;
+                }
+                return results;
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                _errorMessage = "Regex evaluation timed out (2s limit).";
+                return [];
+            }
+        }
+    }
+
+    private MarkupString HighlightedMarkup
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(_testString))
+                return new MarkupString("<span class=\"text-gray-400 italic\">Output will appear here…</span>");
+
+            List<Match> matches = Matches;
+            if (matches.Count == 0)
+                return new MarkupString(System.Net.WebUtility.HtmlEncode(_testString));
+
+            System.Text.StringBuilder sb = new();
+            int lastEnd = 0;
+
+            foreach (Match match in matches)
+            {
+                if (match.Index > lastEnd)
+                    sb.Append(System.Net.WebUtility.HtmlEncode(_testString[lastEnd..match.Index]));
+
+                sb.Append("<mark class=\"bg-yellow-200 dark:bg-yellow-700 rounded px-0.5\">");
+                sb.Append(System.Net.WebUtility.HtmlEncode(match.Value));
+                sb.Append("</mark>");
+                lastEnd = match.Index + match.Length;
+            }
+
+            if (lastEnd < _testString.Length)
+                sb.Append(System.Net.WebUtility.HtmlEncode(_testString[lastEnd..]));
+
+            return new MarkupString(sb.ToString());
+        }
+    }
+
+    private string? ReplacementResult
+    {
+        get
+        {
+            if (!_replaceMode || string.IsNullOrEmpty(_replacement))
+                return null;
+
+            Regex? regex = CompiledRegex;
+            if (regex is null || string.IsNullOrEmpty(_testString))
+                return null;
+
+            try
+            {
+                return regex.Replace(_testString, _replacement);
+            }
+            catch (Exception ex)
+            {
+                return $"Error: {ex.Message}";
+            }
+        }
+    }
+
+    private async Task ApplyPreset(RegexTesterCore.RegexPreset preset)
+    {
+        _pattern = preset.Pattern;
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/regex", $"Preset: {preset.Name}", 
+            new ToolState(_pattern, _testString, _replacement, _ignoreCase, _multiline, _singleline, _replaceMode));
+        await _recentPanel?.RefreshAsync()!;
+    }
+}

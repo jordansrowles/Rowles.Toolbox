@@ -1,0 +1,291 @@
+@page "/tools/data/bson"
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>BSON / JSON - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="BSON / JSON Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-transform mr-1"></i> Convert between BSON and JSON</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="ConvertBsonToJson">
+        <i class="ti ti-arrow-right"></i> BSON &rarr; JSON
+    </button>
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="ConvertJsonToBson">
+        <i class="ti ti-arrow-left"></i> JSON &rarr; BSON
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="ClearAll">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+
+    <div class="border-l border-gray-300 dark:border-gray-600 h-5 mx-1"></div>
+
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick='() => LoadSample("simple")'>
+        <i class="ti ti-file-text"></i> Simple
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick='() => LoadSample("nested")'>
+        <i class="ti ti-stack-2"></i> Nested
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick='() => LoadSample("array")'>
+        <i class="ti ti-list"></i> Array
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick='() => LoadSample("mongodb")'>
+        <i class="ti ti-database"></i> MongoDB
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">BSON (Hex / Base64)</label>
+            <button class="text-xs text-gray-400 hover:text-blue-500 transition-colors" @onclick="() => CopyToClipboard(_bsonText)">
+                <i class="ti ti-copy mr-0.5"></i> Copy
+            </button>
+        </div>
+        <textarea class="w-full h-80 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter BSON hex (e.g. 16000000 02 68 69 00 06000000 776f726c64 00 00) or Base64..."
+                  @bind="_bsonText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">JSON</label>
+            <button class="text-xs text-gray-400 hover:text-blue-500 transition-colors" @onclick="() => CopyToClipboard(_jsonText)">
+                <i class="ti ti-copy mr-0.5"></i> Copy
+            </button>
+        </div>
+        <textarea class="w-full h-80 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter JSON here..."
+                  @bind="_jsonText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+</div>
+
+@if (_typeBadges.Count > 0)
+{
+    <div class="mt-3 flex flex-wrap gap-1.5">
+        <span class="text-xs text-gray-500 dark:text-gray-400 mr-1">Types detected:</span>
+        @foreach (var badge in _typeBadges)
+        {
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300">
+                @badge
+            </span>
+        }
+    </div>
+}
+
+@if (_stats is not null)
+{
+    <div class="mt-3 grid grid-cols-3 gap-3">
+        <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+            <div class="text-lg font-semibold text-gray-900 dark:text-gray-100">@_stats!.DocumentSize</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">Document Size (bytes)</div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+            <div class="text-lg font-semibold text-gray-900 dark:text-gray-100">@_stats!.FieldCount</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">Fields</div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+            <div class="text-lg font-semibold text-gray-900 dark:text-gray-100">@_stats!.NestingDepth</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">Nesting Depth</div>
+        </div>
+    </div>
+}
+
+<div class="mt-3 text-xs text-gray-400">
+    <i class="ti ti-info-circle mr-1"></i>
+    Supports BSON types: double (0x01), string (0x02), document (0x03), array (0x04), binary (0x05),
+    ObjectId (0x07), boolean (0x08), datetime (0x09), null (0x0A), int32 (0x10), int64 (0x12).
+    Input accepts hex (with or without spaces) or Base64.
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/bson" OnRestore="RestoreState" />
+
+@code {
+    private string _bsonText = string.Empty;
+    private string _jsonText = string.Empty;
+    private string? _error;
+    private List<string> _typeBadges = new();
+    private BsonJsonCore.BsonStats? _stats;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string BsonText, string JsonText);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/bson");
+            if (state is not null)
+            {
+                _bsonText = state.BsonText;
+                _jsonText = state.JsonText;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/bson", new ToolState(_bsonText, _jsonText));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _bsonText = state.BsonText;
+            _jsonText = state.JsonText;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConvertBsonToJson()
+    {
+        _error = null;
+        _typeBadges.Clear();
+        _stats = null;
+
+        if (string.IsNullOrWhiteSpace(_bsonText))
+        {
+            _error = "BSON input is empty.";
+            return;
+        }
+
+        BsonJsonCore.BsonToJsonResult result = BsonJsonCore.ConvertBsonToJson(_bsonText);
+        if (result.Error is not null)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        _jsonText = result.Json ?? string.Empty;
+        _typeBadges = result.TypeBadges;
+        _stats = result.Stats;
+        await SaveState();
+        string bsonLabel = _bsonText.Length > 50 ? "BSON to JSON: " + _bsonText[..50] + "..." : "BSON to JSON: " + _bsonText;
+        await Storage.AddRecentAsync("tools/data/bson", bsonLabel, new ToolState(_bsonText, _jsonText));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task ConvertJsonToBson()
+    {
+        _error = null;
+        _typeBadges.Clear();
+        _stats = null;
+
+        if (string.IsNullOrWhiteSpace(_jsonText))
+        {
+            _error = "JSON input is empty.";
+            return;
+        }
+
+        BsonJsonCore.JsonToBsonResult result = BsonJsonCore.ConvertJsonToBson(_jsonText);
+        if (result.Error is not null)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        _bsonText = result.BsonHex ?? string.Empty;
+        _typeBadges = result.TypeBadges;
+        _stats = result.Stats;
+        await SaveState();
+        string jsonLabel = _jsonText.Length > 50 ? "JSON to BSON: " + _jsonText[..50] + "..." : "JSON to BSON: " + _jsonText;
+        await Storage.AddRecentAsync("tools/data/bson", jsonLabel, new ToolState(_bsonText, _jsonText));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task LoadSample(string kind)
+    {
+        _error = null;
+        _typeBadges.Clear();
+        _stats = null;
+
+        switch (kind)
+        {
+            case "simple":
+                _jsonText = """
+                    {
+                      "hello": "world",
+                      "count": 42,
+                      "active": true
+                    }
+                    """;
+                await ConvertJsonToBson();
+                break;
+
+            case "nested":
+                _jsonText = """
+                    {
+                      "user": {
+                        "name": "Alice",
+                        "age": 30,
+                        "address": {
+                          "city": "London",
+                          "postcode": "SW1A 1AA"
+                        }
+                      },
+                      "verified": false
+                    }
+                    """;
+                await ConvertJsonToBson();
+                break;
+
+            case "array":
+                _jsonText = """
+                    {
+                      "tags": ["mongodb", "database", "nosql"],
+                      "scores": [95, 87, 72],
+                      "label": "test"
+                    }
+                    """;
+                await ConvertJsonToBson();
+                break;
+
+            case "mongodb":
+                _bsonText = BsonJsonCore.BuildMongoSampleHex();
+                _jsonText = string.Empty;
+                await ConvertBsonToJson();
+                break;
+        }
+    }
+
+    private void ClearAll()
+    {
+        _bsonText = string.Empty;
+        _jsonText = string.Empty;
+        _error = null;
+        _typeBadges.Clear();
+        _stats = null;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        }
+    }
+}

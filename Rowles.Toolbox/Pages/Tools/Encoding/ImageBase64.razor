@@ -1,0 +1,214 @@
+@page "/tools/encoding/image-base64"
+@using Rowles.Toolbox.Core.Encoding
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>Image to Base64 - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Image to Base64" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-photo mr-1"></i> Convert images to/from Base64 data URIs</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section>
+        <h3 class="text-sm font-semibold mb-2"><i class="ti ti-upload mr-1"></i> Upload Image</h3>
+        <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded p-6 text-center">
+            <input type="file" @ref="_fileInput" accept="image/*" @onchange="OnFileInputChanged"
+                   class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 cursor-pointer" />
+        </div>
+
+        @if (!string.IsNullOrEmpty(_fileName))
+        {
+            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+                <p><strong>Name:</strong> @_fileName</p>
+                <p><strong>Type:</strong> @_fileType</p>
+                <p><strong>Size:</strong> @ImageBase64Core.FormatSize(_fileSize)</p>
+                @if (!string.IsNullOrEmpty(_dataUri))
+                {
+                    <p><strong>Data URI length:</strong> @_dataUri.Length.ToString("N0") chars</p>
+                }
+            </div>
+        }
+
+        <h3 class="text-sm font-semibold mt-6 mb-2"><i class="ti ti-clipboard mr-1"></i> Or Paste Base64 Data URI</h3>
+        <textarea class="w-full h-32 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_pastedDataUri" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="data:image/png;base64,iVBORw0KGgo…"></textarea>
+        <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none mt-2"
+                @onclick="PreviewPasted">
+            <i class="ti ti-eye mr-0.5"></i> Preview Pasted
+        </button>
+    </section>
+
+    <section>
+        <h3 class="text-sm font-semibold mb-2"><i class="ti ti-code mr-1"></i> Base64 Data URI</h3>
+        <textarea class="w-full h-40 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  readonly
+                  value="@_dataUri"
+                  placeholder="Upload an image or paste a Base64 string…"></textarea>
+        <div class="flex gap-2 mt-2">
+            <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                    @onclick="CopyDataUri" disabled="@string.IsNullOrEmpty(_dataUri)">
+                <i class="ti ti-copy mr-0.5"></i> Copy Data URI
+            </button>
+            <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                    @onclick="Clear">
+                <i class="ti ti-eraser mr-0.5"></i> Clear
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_previewUri))
+        {
+            <h3 class="text-sm font-semibold mt-6 mb-2"><i class="ti ti-photo mr-1"></i> Preview</h3>
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-2 bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+                <img src="@_previewUri" alt="Preview" class="max-w-full max-h-64 rounded" />
+            </div>
+        }
+    </section>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="mt-4 p-2 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+        <i class="ti ti-alert-triangle mr-0.5"></i> @_error
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/image-base64" OnRestore="RestoreState" />
+
+@code {
+    private ElementReference _fileInput;
+    private IJSObjectReference? _jsModule;
+
+    private string _dataUri = string.Empty;
+    private string _previewUri = string.Empty;
+    private string _pastedDataUri = string.Empty;
+    private string _fileName = string.Empty;
+    private string _fileType = string.Empty;
+    private long _fileSize;
+    private string? _error;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string FileName, string FileType);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/Encoding/ImageBase64.razor.js");
+
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/image-base64");
+            if (state is not null)
+            {
+                _fileName = state.FileName;
+                _fileType = state.FileType;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/image-base64", new ToolState(_fileName, _fileType));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _fileName = state.FileName;
+            _fileType = state.FileType;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnFileInputChanged(ChangeEventArgs args)
+    {
+        _ = args;
+        _error = null;
+        try
+        {
+            if (_jsModule is null) return;
+
+            FileReadResult? result = await _jsModule.InvokeAsync<FileReadResult?>(
+                "readFileAsDataUrl", _fileInput);
+
+            if (result is not null)
+            {
+                _dataUri = result.DataUrl;
+                _previewUri = result.DataUrl;
+                _fileName = result.Name;
+                _fileSize = result.Size;
+                _fileType = result.Type;
+                await SaveState();
+                string label = result.Name.Length > 40 ? result.Name[..40] + "..." : result.Name;
+                await Storage.AddRecentAsync("tools/encoding/image-base64", $"Upload: {label}", new ToolState(_fileName, _fileType));
+                if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to read file: {ex.Message}";
+        }
+    }
+
+    private async Task PreviewPasted()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_pastedDataUri))
+        {
+            _error = "Please paste a Base64 data URI string.";
+            return;
+        }
+
+        (string dataUri, long estimatedSize) = ImageBase64Core.NormaliseDataUri(_pastedDataUri);
+        _dataUri = dataUri;
+        _previewUri = dataUri;
+        _fileName = string.Empty;
+        _fileType = string.Empty;
+        _fileSize = estimatedSize;
+        await SaveState();
+        await Storage.AddRecentAsync("tools/encoding/image-base64", "Preview pasted data URI", new ToolState(_fileName, _fileType));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task CopyDataUri()
+    {
+        if (!string.IsNullOrEmpty(_dataUri))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _dataUri);
+        }
+    }
+
+    private void Clear()
+    {
+        _dataUri = string.Empty;
+        _previewUri = string.Empty;
+        _pastedDataUri = string.Empty;
+        _fileName = string.Empty;
+        _fileType = string.Empty;
+        _fileSize = 0;
+        _error = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+
+    private sealed class FileReadResult
+    {
+        public string DataUrl { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public string Type { get; set; } = string.Empty;
+    }
+}

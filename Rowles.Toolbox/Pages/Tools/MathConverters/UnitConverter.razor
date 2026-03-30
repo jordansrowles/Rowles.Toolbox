@@ -1,0 +1,193 @@
+@page "/tools/math/units"
+@using Rowles.Toolbox.Core.MathConverters
+@inject LocalStorageService Storage
+
+<PageTitle>Unit Converter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Unit Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-ruler-measure mr-1"></i> Convert between units of measurement</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="flex flex-wrap gap-2">
+        @foreach (UnitConverterCore.UnitCategory cat in Enum.GetValues<UnitConverterCore.UnitCategory>())
+        {
+            <button type="button"
+                    class="@CategoryButtonClass(cat)"
+                    @onclick="() => SelectCategory(cat)">
+                <i class="ti @CategoryIcon(cat) mr-1"></i> @CategoryLabel(cat)
+            </button>
+        }
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-arrow-right mr-1"></i> From</h3>
+            <div>
+                <label class="block text-sm font-medium mb-1">Value</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_inputValue" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Unit</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        @bind="_fromUnit" @bind:after="SaveState">
+                    @foreach (UnitConverterCore.UnitDefinition unit in CurrentUnits)
+                    {
+                        <option value="@unit.Key">@unit.Label</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-arrow-left mr-1"></i> To</h3>
+            <div>
+                <label class="block text-sm font-medium mb-1">Result</label>
+                <input type="text" readonly
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-bold text-blue-600 dark:text-blue-400"
+                       value="@ConvertedValue" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Unit</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        @bind="_toUnit" @bind:after="SaveState">
+                    @foreach (UnitConverterCore.UnitDefinition unit in CurrentUnits)
+                    {
+                        <option value="@unit.Key">@unit.Label</option>
+                    }
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-table mr-1"></i> All Conversions</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                        <th class="text-left p-2 text-gray-500">Unit</th>
+                        <th class="text-right p-2 text-gray-500">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (UnitConverterCore.UnitDefinition unit in CurrentUnits)
+                    {
+                        <tr class="border-b border-gray-100 dark:border-gray-800 @(unit.Key == _fromUnit ? "bg-blue-50 dark:bg-blue-900/20" : "")">
+                            <td class="p-2 text-gray-600 dark:text-gray-400">@unit.Label</td>
+                            <td class="p-2 text-right font-mono font-bold">@FormatConversion(_fromUnit, unit.Key)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/units" OnRestore="RestoreState" />
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    
+    sealed record ToolState(
+        double InputValue,
+        string FromUnit,
+        string ToUnit,
+        UnitConverterCore.UnitCategory Category);
+    
+    private double _inputValue = 1;
+    private string _fromUnit = "";
+    private string _toUnit = "";
+    private UnitConverterCore.UnitCategory _selectedCategory = UnitConverterCore.UnitCategory.Length;
+
+    private List<UnitConverterCore.UnitDefinition> CurrentUnits => UnitConverterCore.AllUnits[_selectedCategory];
+
+    protected override void OnInitialized()
+    {
+        List<UnitConverterCore.UnitDefinition> units = CurrentUnits;
+        _fromUnit = units[0].Key;
+        _toUnit = units.Count > 1 ? units[1].Key : units[0].Key;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/math/units");
+            if (state is not null)
+            {
+                _inputValue = state.InputValue;
+                _selectedCategory = state.Category;
+                _fromUnit = state.FromUnit;
+                _toUnit = state.ToUnit;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_inputValue, _fromUnit, _toUnit, _selectedCategory);
+        await Storage.SaveStateAsync("tools/math/units", state);
+    }
+
+    private void RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _inputValue = state.InputValue;
+                _selectedCategory = state.Category;
+                _fromUnit = state.FromUnit;
+                _toUnit = state.ToUnit;
+            }
+        }
+        catch { /* ignore */ }
+    }
+
+    private async Task SelectCategory(UnitConverterCore.UnitCategory category)
+    {
+        _selectedCategory = category;
+        List<UnitConverterCore.UnitDefinition> units = CurrentUnits;
+        _fromUnit = units[0].Key;
+        _toUnit = units.Count > 1 ? units[1].Key : units[0].Key;
+        
+        string label = $"{CategoryLabel(category)}: {_inputValue} {_fromUnit} → {ConvertedValue}";
+        await Storage.AddRecentAsync("tools/math/units", label, new ToolState(_inputValue, _fromUnit, _toUnit, category));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        
+        await SaveState();
+    }
+
+    private string ConvertedValue => FormatConversion(_fromUnit, _toUnit);
+
+    private string FormatConversion(string from, string to)
+    {
+        double result = Convert(from, to, _inputValue);
+        return FormatNumber(result);
+    }
+
+    private double Convert(string from, string to, double value) =>
+        UnitConverterCore.Convert(_selectedCategory, CurrentUnits, from, to, value);
+
+    private static double ConvertTemperature(string from, string to, double value) => UnitConverterCore.ConvertTemperature(from, to, value);
+
+    private static string FormatNumber(double value) => UnitConverterCore.FormatNumber(value);
+
+    private string CategoryButtonClass(UnitConverterCore.UnitCategory cat)
+    {
+        string baseClass = "px-3 py-1.5 text-sm rounded font-medium transition-colors";
+        return cat == _selectedCategory
+            ? $"{baseClass} bg-blue-600 text-white"
+            : $"{baseClass} bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700";
+    }
+
+    private static string CategoryIcon(UnitConverterCore.UnitCategory cat) => UnitConverterCore.CategoryIcon(cat);
+    private static string CategoryLabel(UnitConverterCore.UnitCategory cat) => UnitConverterCore.CategoryLabel(cat);
+}

@@ -1,0 +1,475 @@
+@page "/tools/generators/css-transform"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using System.Globalization
+@using Rowles.Toolbox.Core.Generators
+@using System.Text.Json
+
+<PageTitle>CSS Transform Visualiser - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="CSS Transform Visualiser" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-3d-cube-sphere mr-1"></i> Interactive transform builder with live preview</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    @* ── Preview (left) ── *@
+    <div class="lg:sticky lg:top-4 self-start border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-eye mr-1"></i> Preview</h3>
+        <div class="flex items-center justify-center bg-gray-50 dark:bg-gray-900/30 rounded overflow-hidden" style="min-height: 350px;">
+            <div style="perspective: @(_perspective)px; position: relative; width: 150px; height: 150px;">
+                @* Ghost outline — original untransformed position *@
+                <div style="position: absolute; inset: 0; border: 2px dashed rgba(148, 163, 184, 0.2); border-radius: 4px;"></div>
+                @* Transformed box *@
+                <div style="position: absolute; inset: 0; border: 2px solid #6366f1; border-radius: 4px; background: linear-gradient(135deg, #818cf8, #6366f1, #4f46e5); display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem; font-weight: 700; transform: @GetTransformValue(); transform-origin: @GetTransformOrigin(); @GetBackfaceInlineStyle()">
+                    Aa
+                    @* Transform origin dot indicator *@
+                    <div style="position: absolute; width: 8px; height: 8px; background: #f59e0b; border-radius: 50%; border: 1.5px solid white; left: @(GetOriginXPercent())%; top: @(GetOriginYPercent())%; transform: translate(-50%, -50%); z-index: 10; pointer-events: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ── Controls (right) ── *@
+    <div class="space-y-3">
+        @* Presets *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (CssTransformVisualiserCore.TransformPreset preset in _presets)
+                {
+                    <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="async () => await ApplyPreset(preset)">
+                        @preset.Name
+                    </button>
+                }
+                <button class="px-2 py-1 text-xs rounded cursor-pointer border border-red-300 dark:border-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400"
+                        @onclick="ResetAll">
+                    <i class="ti ti-refresh mr-0.5"></i> Reset
+                </button>
+            </div>
+        </div>
+
+        @* Translate *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"><i class="ti ti-arrows-move mr-1"></i> Translate</h3>
+            <div class="space-y-1.5">
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">translateX</span>
+                    <input type="range" min="-200" max="200" step="1" class="flex-1 accent-indigo-500" @bind="_translateX" @bind:after="SaveState" />
+                    <input type="number" min="-200" max="200" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_translateX" @bind:after="SaveState" @ondblclick="() => _translateX = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">px</span>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">translateY</span>
+                    <input type="range" min="-200" max="200" step="1" class="flex-1 accent-indigo-500" @bind="_translateY" @bind:after="SaveState" />
+                    <input type="number" min="-200" max="200" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_translateY" @bind:after="SaveState" @ondblclick="() => _translateY = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">px</span>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">translateZ</span>
+                    <input type="range" min="-200" max="200" step="1" class="flex-1 accent-indigo-500" @bind="_translateZ" @bind:after="SaveState" />
+                    <input type="number" min="-200" max="200" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_translateZ" @bind:after="SaveState" @ondblclick="() => _translateZ = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">px</span>
+                </div>
+            </div>
+        </div>
+
+        @* Rotate *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"><i class="ti ti-rotate mr-1"></i> Rotate</h3>
+            <div class="space-y-1.5">
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">rotateX</span>
+                    <input type="range" min="-180" max="180" step="1" class="flex-1 accent-indigo-500" @bind="_rotateX" @bind:after="SaveState" />
+                    <input type="number" min="-180" max="180" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_rotateX" @bind:after="SaveState" @ondblclick="() => _rotateX = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">deg</span>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">rotateY</span>
+                    <input type="range" min="-180" max="180" step="1" class="flex-1 accent-indigo-500" @bind="_rotateY" @bind:after="SaveState" />
+                    <input type="number" min="-180" max="180" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_rotateY" @bind:after="SaveState" @ondblclick="() => _rotateY = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">deg</span>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">rotateZ</span>
+                    <input type="range" min="-180" max="180" step="1" class="flex-1 accent-indigo-500" @bind="_rotateZ" @bind:after="SaveState" />
+                    <input type="number" min="-180" max="180" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_rotateZ" @bind:after="SaveState" @ondblclick="() => _rotateZ = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">deg</span>
+                </div>
+            </div>
+        </div>
+
+        @* Scale *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"><i class="ti ti-resize mr-1"></i> Scale</h3>
+            <div class="space-y-1.5">
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">scaleX</span>
+                    <input type="range" min="0" max="3" step="0.05" class="flex-1 accent-indigo-500" @bind="_scaleX" @bind:after="SaveState" />
+                    <input type="number" min="0" max="3" step="0.05"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_scaleX" @bind:after="SaveState" @ondblclick="() => _scaleX = 1.0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0"></span>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">scaleY</span>
+                    <input type="range" min="0" max="3" step="0.05" class="flex-1 accent-indigo-500" @bind="_scaleY" @bind:after="SaveState" />
+                    <input type="number" min="0" max="3" step="0.05"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_scaleY" @bind:after="SaveState" @ondblclick="() => _scaleY = 1.0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0"></span>
+                </div>
+            </div>
+        </div>
+
+        @* Skew *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"><i class="ti ti-transform mr-1"></i> Skew</h3>
+            <div class="space-y-1.5">
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">skewX</span>
+                    <input type="range" min="-90" max="90" step="1" class="flex-1 accent-indigo-500" @bind="_skewX" @bind:after="SaveState" />
+                    <input type="number" min="-90" max="90" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_skewX" @bind:after="SaveState" @ondblclick="() => _skewX = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">deg</span>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">skewY</span>
+                    <input type="range" min="-90" max="90" step="1" class="flex-1 accent-indigo-500" @bind="_skewY" @bind:after="SaveState" />
+                    <input type="number" min="-90" max="90" step="1"
+                           class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           @bind="_skewY" @bind:after="SaveState" @ondblclick="() => _skewY = 0" title="Double-click to reset" />
+                    <span class="text-[10px] text-gray-400 w-5 shrink-0">deg</span>
+                </div>
+            </div>
+        </div>
+
+        @* Perspective *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"><i class="ti ti-perspective mr-1"></i> Perspective</h3>
+            <div class="flex items-center gap-2 text-xs">
+                <span class="w-20 text-gray-600 dark:text-gray-400 font-mono shrink-0">perspective</span>
+                <input type="range" min="100" max="2000" step="1" class="flex-1 accent-indigo-500" @bind="_perspective" @bind:after="SaveState" />
+                <input type="number" min="100" max="2000" step="1"
+                       class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                       @bind="_perspective" @bind:after="SaveState" @ondblclick="() => _perspective = 800" title="Double-click to reset" />
+                <span class="text-[10px] text-gray-400 w-5 shrink-0">px</span>
+            </div>
+        </div>
+
+        @* Transform Origin *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"><i class="ti ti-focus-2 mr-1"></i> Transform Origin</h3>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="text-gray-600 dark:text-gray-400 mb-1 block font-medium">X axis</label>
+                    <select class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            @bind="_originX" @bind:after="SaveState">
+                        <option value="left">left (0%)</option>
+                        <option value="center">center (50%)</option>
+                        <option value="right">right (100%)</option>
+                        <option value="custom">custom %</option>
+                    </select>
+                    @if (_originX == "custom")
+                    {
+                        <input type="number" min="0" max="100"
+                               class="w-full mt-1.5 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                               @bind="_customOriginX" @bind:after="SaveState" placeholder="50" />
+                    }
+                </div>
+                <div>
+                    <label class="text-gray-600 dark:text-gray-400 mb-1 block font-medium">Y axis</label>
+                    <select class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            @bind="_originY" @bind:after="SaveState">
+                        <option value="top">top (0%)</option>
+                        <option value="center">center (50%)</option>
+                        <option value="bottom">bottom (100%)</option>
+                        <option value="custom">custom %</option>
+                    </select>
+                    @if (_originY == "custom")
+                    {
+                        <input type="number" min="0" max="100"
+                               class="w-full mt-1.5 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                               @bind="_customOriginY" @bind:after="SaveState" placeholder="50" />
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* Backface Visibility *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"><i class="ti ti-flip-vertical mr-1"></i> Backface Visibility</h3>
+            <div class="flex gap-2">
+                <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @(!_backfaceHidden ? "bg-indigo-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                        @onclick="async () => { _backfaceHidden = false; await SaveState(); }">
+                    visible
+                </button>
+                <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @(_backfaceHidden ? "bg-indigo-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                        @onclick="async () => { _backfaceHidden = true; await SaveState(); }">
+                    hidden
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* ── CSS Output (below both columns) ── *@
+<div class="mt-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+    <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> CSS Output</h3>
+        <button class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer border-none bg-transparent"
+                @onclick="CopyCss">
+            <i class="ti ti-copy mr-0.5"></i> Copy
+        </button>
+    </div>
+
+    @{
+        List<string> activeParts = GetActiveTransformParts();
+    }
+    @if (activeParts.Count > 0)
+    {
+        <div class="flex flex-wrap gap-1.5 mb-3">
+            @foreach (string part in activeParts)
+            {
+                <span class="px-1.5 py-0.5 text-[10px] font-mono bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded">@part</span>
+            }
+        </div>
+    }
+
+    <pre class="p-3 bg-gray-50 dark:bg-gray-900/30 rounded text-xs font-mono text-gray-900 dark:text-gray-100 overflow-x-auto whitespace-pre-wrap">@GetCssOutput()</pre>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/css-transform" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    
+    sealed record ToolState(
+        int TranslateX, int TranslateY, int TranslateZ,
+        int RotateX, int RotateY, int RotateZ,
+        double ScaleX, double ScaleY,
+        int SkewX, int SkewY,
+        int Perspective,
+        string OriginX, string OriginY,
+        int CustomOriginX, int CustomOriginY,
+        bool BackfaceHidden
+    );
+    
+    // ── Transform values ──
+    private int _translateX;
+    private int _translateY;
+    private int _translateZ;
+    private int _rotateX;
+    private int _rotateY;
+    private int _rotateZ;
+    private double _scaleX = 1.0;
+    private double _scaleY = 1.0;
+    private int _skewX;
+    private int _skewY;
+    private int _perspective = 800;
+
+    // ── Transform origin ──
+    private string _originX = "center";
+    private string _originY = "center";
+    private int _customOriginX = 50;
+    private int _customOriginY = 50;
+
+    // ── Options ──
+    private bool _backfaceHidden;
+    private string? _statusMessage;
+
+    // ── Presets ──
+    private readonly List<CssTransformVisualiserCore.TransformPreset> _presets =
+    [
+        new("Card flip", RotateY: 180, Perspective: 600),
+        new("Tilt hover", RotateX: -10, RotateY: 15, ScaleX: 1.05, ScaleY: 1.05),
+        new("Slide in", TranslateX: -100),
+        new("Perspective zoom", TranslateZ: 100, Perspective: 500),
+        new("Skew banner", SkewX: -5, ScaleX: 1.1)
+    ];
+
+    // ── Transform string building ──
+
+    private string GetTransformValue()
+    {
+        List<string> parts = GetActiveTransformParts();
+        return parts.Count > 0 ? string.Join(" ", parts) : "none";
+    }
+
+    private List<string> GetActiveTransformParts() =>
+        CssTransformVisualiserCore.GetActiveTransformParts(
+            _translateX, _translateY, _translateZ,
+            _rotateX, _rotateY, _rotateZ,
+            _scaleX, _scaleY, _skewX, _skewY);
+
+    // ── Transform origin ──
+
+    private string GetTransformOrigin() =>
+        CssTransformVisualiserCore.GetTransformOrigin(_originX, _originY, _customOriginX, _customOriginY);
+
+    private bool IsOriginDefault() =>
+        CssTransformVisualiserCore.IsOriginDefault(_originX, _originY);
+
+    private int GetOriginXPercent() =>
+        CssTransformVisualiserCore.GetOriginXPercent(_originX, _customOriginX);
+
+    private int GetOriginYPercent() =>
+        CssTransformVisualiserCore.GetOriginYPercent(_originY, _customOriginY);
+
+    // ── Inline style helpers ──
+
+    private string GetBackfaceInlineStyle() =>
+        _backfaceHidden ? "backface-visibility: hidden;" : "";
+
+    private static string FmtDouble(double value) =>
+        CssTransformVisualiserCore.FmtDouble(value);
+
+    // ── CSS output ──
+
+    private string GetCssOutput() =>
+        CssTransformVisualiserCore.GetCssOutput(
+            GetActiveTransformParts(), _perspective,
+            _originX, _originY, _customOriginX, _customOriginY, _backfaceHidden);
+
+    // ── Actions ──
+
+    private async Task ApplyPreset(CssTransformVisualiserCore.TransformPreset preset)
+    {
+        await ResetAll();
+        _translateX = preset.TranslateX;
+        _translateY = preset.TranslateY;
+        _translateZ = preset.TranslateZ;
+        _rotateX = preset.RotateX;
+        _rotateY = preset.RotateY;
+        _rotateZ = preset.RotateZ;
+        _scaleX = preset.ScaleX;
+        _scaleY = preset.ScaleY;
+        _skewX = preset.SkewX;
+        _skewY = preset.SkewY;
+        _perspective = preset.Perspective;
+        await SaveState();
+    }
+
+    private async Task ResetAll()
+    {
+        _translateX = 0;
+        _translateY = 0;
+        _translateZ = 0;
+        _rotateX = 0;
+        _rotateY = 0;
+        _rotateZ = 0;
+        _scaleX = 1.0;
+        _scaleY = 1.0;
+        _skewX = 0;
+        _skewY = 0;
+        _perspective = 800;
+        _originX = "center";
+        _originY = "center";
+        _customOriginX = 50;
+        _customOriginY = 50;
+        _backfaceHidden = false;
+        await SaveState();
+    }
+
+    private async Task CopyCss()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GetCssOutput());
+        _statusMessage = "CSS copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+        
+        // Add recent entry when CSS is copied
+        string transformSummary = GetActiveTransformParts().Count > 0 ? 
+            string.Join(", ", GetActiveTransformParts().Take(3)) : "Default transform";
+        await Storage.AddRecentAsync("tools/generators/css-transform", transformSummary, 
+            new ToolState(_translateX, _translateY, _translateZ, _rotateX, _rotateY, _rotateZ,
+                _scaleX, _scaleY, _skewX, _skewY, _perspective, _originX, _originY, 
+                _customOriginX, _customOriginY, _backfaceHidden));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    // ── localStorage persistence ──
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/generators/css-transform");
+            if (state is not null)
+            {
+                _translateX = state.TranslateX;
+                _translateY = state.TranslateY;
+                _translateZ = state.TranslateZ;
+                _rotateX = state.RotateX;
+                _rotateY = state.RotateY;
+                _rotateZ = state.RotateZ;
+                _scaleX = state.ScaleX;
+                _scaleY = state.ScaleY;
+                _skewX = state.SkewX;
+                _skewY = state.SkewY;
+                _perspective = state.Perspective;
+                _originX = state.OriginX;
+                _originY = state.OriginY;
+                _customOriginX = state.CustomOriginX;
+                _customOriginY = state.CustomOriginY;
+                _backfaceHidden = state.BackfaceHidden;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/generators/css-transform", 
+            new ToolState(_translateX, _translateY, _translateZ, _rotateX, _rotateY, _rotateZ,
+                _scaleX, _scaleY, _skewX, _skewY, _perspective, _originX, _originY, 
+                _customOriginX, _customOriginY, _backfaceHidden));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _translateX = state.TranslateX;
+            _translateY = state.TranslateY;
+            _translateZ = state.TranslateZ;
+            _rotateX = state.RotateX;
+            _rotateY = state.RotateY;
+            _rotateZ = state.RotateZ;
+            _scaleX = state.ScaleX;
+            _scaleY = state.ScaleY;
+            _skewX = state.SkewX;
+            _skewY = state.SkewY;
+            _perspective = state.Perspective;
+            _originX = state.OriginX;
+            _originY = state.OriginY;
+            _customOriginX = state.CustomOriginX;
+            _customOriginY = state.CustomOriginY;
+            _backfaceHidden = state.BackfaceHidden;
+            StateHasChanged();
+        }
+    }
+}

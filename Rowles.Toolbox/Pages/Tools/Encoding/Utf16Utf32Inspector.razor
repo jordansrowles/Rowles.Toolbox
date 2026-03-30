@@ -1,0 +1,386 @@
+@page "/tools/encoding/utf16-utf32"
+
+@using Rowles.Toolbox.Core.Encoding
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>UTF-16/UTF-32 Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="UTF-16/UTF-32 Inspector" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-letter-case mr-1"></i> Inspect UTF-16 and UTF-32 byte sequences</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    @* Input *@
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Input String</label>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button"
+                        class="px-2.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                        @onclick="LoadAsciiExample">
+                    <i class="ti ti-letter-case-upper mr-0.5"></i> ASCII
+                </button>
+                <button type="button"
+                        class="px-2.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                        @onclick="LoadMixedExample">
+                    <i class="ti ti-world mr-0.5"></i> Mixed Scripts
+                </button>
+                <button type="button"
+                        class="px-2.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                        @onclick="LoadEmojiExample">
+                    <i class="ti ti-mood-smile mr-0.5"></i> Emoji
+                </button>
+                <button type="button"
+                        class="px-2.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                        @onclick="Clear">
+                    <i class="ti ti-eraser mr-0.5"></i> Clear
+                </button>
+            </div>
+        </div>
+        <textarea class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  rows="3"
+                  placeholder="Type or paste any string (emoji, CJK, Arabic, etc.)"
+                  @bind="_inputText"
+                  @bind:event="oninput"
+                  @bind:after="OnInputChanged"></textarea>
+    </div>
+
+    @* Endianness Toggle *@
+    <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-500">Byte Order:</label>
+        <button type="button"
+                class="@(!_showBigEndian ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer"
+                @onclick="SetLittleEndian">
+            Little Endian
+        </button>
+        <button type="button"
+                class="@(_showBigEndian ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer"
+                @onclick="SetBigEndian">
+            Big Endian
+        </button>
+    </div>
+
+    @* BOM Reference *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+        <h2 class="text-sm font-medium mb-2"><i class="ti ti-file-info mr-1"></i> BOM Reference (Byte Order Mark)</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                <div class="text-gray-500 mb-1">UTF-16 BE</div>
+                <div class="font-mono text-blue-600 dark:text-blue-400">FE FF</div>
+            </div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                <div class="text-gray-500 mb-1">UTF-16 LE</div>
+                <div class="font-mono text-blue-600 dark:text-blue-400">FF FE</div>
+            </div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                <div class="text-gray-500 mb-1">UTF-32 BE</div>
+                <div class="font-mono text-blue-600 dark:text-blue-400">00 00 FE FF</div>
+            </div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+                <div class="text-gray-500 mb-1">UTF-32 LE</div>
+                <div class="font-mono text-blue-600 dark:text-blue-400">FF FE 00 00</div>
+            </div>
+        </div>
+    </div>
+
+    @if (_inspections.Count > 0)
+    {
+        @* Summary Stats *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h2 class="text-sm font-medium mb-2"><i class="ti ti-chart-bar mr-1"></i> Summary</h2>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                <div class="text-center">
+                    <div class="text-lg font-bold text-blue-600 dark:text-blue-400">@GetTextElementCount()</div>
+                    <div class="text-[10px] text-gray-500">Characters</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-lg font-bold text-blue-600 dark:text-blue-400">@_inspections.Count</div>
+                    <div class="text-[10px] text-gray-500">Code Points</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-lg font-bold text-green-600 dark:text-green-400">@GetTotalUtf8Bytes()</div>
+                    <div class="text-[10px] text-gray-500">UTF-8 Bytes</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-lg font-bold text-purple-600 dark:text-purple-400">@GetTotalUtf16Bytes()</div>
+                    <div class="text-[10px] text-gray-500">UTF-16 Bytes</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-lg font-bold text-orange-600 dark:text-orange-400">@GetTotalUtf32Bytes()</div>
+                    <div class="text-[10px] text-gray-500">UTF-32 Bytes</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-lg font-bold text-red-600 dark:text-red-400">@GetSurrogatePairCount()</div>
+                    <div class="text-[10px] text-gray-500">Surrogate Pairs</div>
+                </div>
+            </div>
+        </div>
+
+        @* Copy Buttons *@
+        <div class="flex flex-wrap items-center gap-2">
+            <button type="button"
+                    class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                    @onclick="CopyUtf8Hex">
+                <i class="ti ti-copy mr-0.5"></i> Copy UTF-8 Hex
+            </button>
+            <button type="button"
+                    class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                    @onclick="CopyUtf16Hex">
+                <i class="ti ti-copy mr-0.5"></i> Copy UTF-16 @(_showBigEndian ? "BE" : "LE") Hex
+            </button>
+            <button type="button"
+                    class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                    @onclick="CopyUtf32Hex">
+                <i class="ti ti-copy mr-0.5"></i> Copy UTF-32 @(_showBigEndian ? "BE" : "LE") Hex
+            </button>
+            @if (!string.IsNullOrEmpty(_copyFeedback))
+            {
+                <span class="text-xs text-green-600 dark:text-green-400">
+                    <i class="ti ti-check mr-0.5"></i> @_copyFeedback
+                </span>
+            }
+        </div>
+
+        @* Per Code Point Breakdown Table *@
+        <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Char</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Code Point</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">UTF-8</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">UTF-16 @(_showBigEndian ? "BE" : "LE")</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">UTF-32 @(_showBigEndian ? "BE" : "LE")</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Bytes (8/16/32)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (Utf16Utf32InspectorCore.CodePointInfo item in _inspections)
+                    {
+                        <tr class="@(item.Index % 2 == 0 ? "bg-gray-50/50 dark:bg-gray-800/50" : "")">
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-gray-400 tabular-nums">@item.Index</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-lg font-mono">@item.Display</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 font-mono text-blue-600 dark:text-blue-400 text-xs">@item.CodePointHex</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-xs">@item.CategoryName</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 font-mono text-xs text-green-700 dark:text-green-400">@item.Utf8Hex</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 font-mono text-xs text-purple-700 dark:text-purple-400">
+                                @(GetUtf16Display(item))
+                                @if (item.HasSurrogates)
+                                {
+                                    <span class="ml-1 text-[9px] px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 whitespace-nowrap">SP</span>
+                                }
+                            </td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 font-mono text-xs text-orange-700 dark:text-orange-400">@(GetUtf32Display(item))</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 tabular-nums whitespace-nowrap">@item.Utf8ByteCount / @item.Utf16ByteCount / @item.Utf32ByteCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @* Surrogate Pair Explanation *@
+        @if (HasAnySurrogates())
+        {
+            <div class="border border-yellow-200 dark:border-yellow-800 rounded p-4 bg-yellow-50/50 dark:bg-yellow-900/10">
+                <h2 class="text-sm font-medium mb-2">
+                    <i class="ti ti-info-circle mr-1 text-yellow-600"></i> Surrogate Pair Details
+                </h2>
+                <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
+                    Characters above U+FFFF cannot fit in a single 16-bit code unit. UTF-16 encodes them as a
+                    <strong>surrogate pair</strong>: a high surrogate (U+D800..U+DBFF) followed by a low surrogate (U+DC00..U+DFFF).
+                </p>
+                <div class="bg-gray-50 dark:bg-gray-800 rounded p-3 mb-3 text-xs font-mono text-gray-600 dark:text-gray-400 space-y-1">
+                    <div>offset = codepoint - 0x10000</div>
+                    <div>high = 0xD800 + (offset &gt;&gt; 10)</div>
+                    <div>low &nbsp;= 0xDC00 + (offset &amp; 0x3FF)</div>
+                </div>
+                <div class="space-y-2">
+                    @foreach (Utf16Utf32InspectorCore.CodePointInfo item in _inspections)
+                    {
+                        @if (item.HasSurrogates)
+                        {
+                            <div class="bg-white dark:bg-gray-800 rounded p-3 border border-yellow-200 dark:border-yellow-800 text-xs font-mono">
+                                <div class="mb-1.5 text-sm not-italic">
+                                    @item.Display
+                                    <span class="text-gray-500 ml-1">(@item.CodePointHex)</span>
+                                </div>
+                                <div class="text-gray-600 dark:text-gray-400">
+                                    offset = @item.CodePointHex - U+10000 = 0x@((item.CodePoint - 0x10000).ToString("X5"))
+                                </div>
+                                <div class="text-gray-600 dark:text-gray-400">
+                                    High surrogate = 0xD800 + (0x@((item.CodePoint - 0x10000).ToString("X5")) &gt;&gt; 10) =
+                                    <span class="text-purple-600 dark:text-purple-400 font-semibold">0x@(item.HighSurrogate.ToString("X4"))</span>
+                                </div>
+                                <div class="text-gray-600 dark:text-gray-400">
+                                    Low surrogate &nbsp;= 0xDC00 + (0x@((item.CodePoint - 0x10000).ToString("X5")) &amp; 0x3FF) =
+                                    <span class="text-purple-600 dark:text-purple-400 font-semibold">0x@(item.LowSurrogate.ToString("X4"))</span>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/utf16-utf32" OnRestore="RestoreState" />
+
+@code {
+    private string _inputText = string.Empty;
+    private bool _showBigEndian;
+    private List<Utf16Utf32InspectorCore.CodePointInfo> _inspections = new();
+    private string? _copyFeedback;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string InputText, bool ShowBigEndian);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/utf16-utf32");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                _showBigEndian = state.ShowBigEndian;
+                Analyze();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/utf16-utf32", new ToolState(_inputText, _showBigEndian));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            _showBigEndian = state.ShowBigEndian;
+            Analyze();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnInputChanged()
+    {
+        Analyze();
+        await SaveState();
+    }
+
+    private void Analyze()
+    {
+        _inspections = Utf16Utf32InspectorCore.Analyze(_inputText);
+    }
+
+    private string GetUtf16Display(Utf16Utf32InspectorCore.CodePointInfo item) =>
+        _showBigEndian ? item.Utf16BeHex : item.Utf16LeHex;
+
+    private string GetUtf32Display(Utf16Utf32InspectorCore.CodePointInfo item) =>
+        _showBigEndian ? item.Utf32BeHex : item.Utf32LeHex;
+
+    private int GetTextElementCount() => Utf16Utf32InspectorCore.GetTextElementCount(_inputText);
+
+    private int GetTotalUtf8Bytes() => Utf16Utf32InspectorCore.GetTotalBytes(_inspections, i => i.Utf8ByteCount);
+
+    private int GetTotalUtf16Bytes() => Utf16Utf32InspectorCore.GetTotalBytes(_inspections, i => i.Utf16ByteCount);
+
+    private int GetTotalUtf32Bytes() => Utf16Utf32InspectorCore.GetTotalBytes(_inspections, i => i.Utf32ByteCount);
+
+    private int GetSurrogatePairCount() => Utf16Utf32InspectorCore.GetSurrogatePairCount(_inspections);
+
+    private bool HasAnySurrogates() => Utf16Utf32InspectorCore.HasAnySurrogates(_inspections);
+
+    private async Task CopyUtf8Hex()
+    {
+        if (string.IsNullOrEmpty(_inputText)) return;
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(_inputText);
+        await CopyToClipboard(Utf16Utf32InspectorCore.FormatBytesHex(bytes));
+    }
+
+    private async Task CopyUtf16Hex()
+    {
+        if (string.IsNullOrEmpty(_inputText)) return;
+        System.Text.Encoding enc = _showBigEndian ? System.Text.Encoding.BigEndianUnicode : System.Text.Encoding.Unicode;
+        byte[] bytes = enc.GetBytes(_inputText);
+        await CopyToClipboard(Utf16Utf32InspectorCore.FormatBytesHex(bytes));
+    }
+
+    private async Task CopyUtf32Hex()
+    {
+        if (string.IsNullOrEmpty(_inputText)) return;
+        System.Text.Encoding enc = _showBigEndian
+            ? (System.Text.Encoding)new System.Text.UTF32Encoding(bigEndian: true, byteOrderMark: false)
+            : System.Text.Encoding.UTF32;
+        byte[] bytes = enc.GetBytes(_inputText);
+        await CopyToClipboard(Utf16Utf32InspectorCore.FormatBytesHex(bytes));
+    }
+
+    private async Task CopyToClipboard(string value)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+        _copyFeedback = "Copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copyFeedback = null;
+        StateHasChanged();
+    }
+
+    private async Task LoadAsciiExample()
+    {
+        _inputText = "Hello, World!";
+        Analyze();
+        await SaveState();
+        string label = _inputText.Length > 40 ? _inputText[..40] + "..." : _inputText;
+        await Storage.AddRecentAsync("tools/encoding/utf16-utf32", $"Inspect: {label}", new ToolState(_inputText, _showBigEndian));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task LoadMixedExample()
+    {
+        _inputText = "caf\u00E9 \u4F60\u597D \u03A9 \u0645\u0631\u062D\u0628\u0627";
+        Analyze();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/encoding/utf16-utf32", "Inspect: Mixed Scripts", new ToolState(_inputText, _showBigEndian));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task LoadEmojiExample()
+    {
+        _inputText = "\U0001F600\U0001F389\U0001F1FA\U0001F1F8\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466";
+        Analyze();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/encoding/utf16-utf32", "Inspect: Emoji", new ToolState(_inputText, _showBigEndian));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SetBigEndian()
+    {
+        _showBigEndian = true;
+        await SaveState();
+    }
+
+    private async Task SetLittleEndian()
+    {
+        _showBigEndian = false;
+        await SaveState();
+    }
+
+    private void Clear()
+    {
+        _inputText = string.Empty;
+        _inspections.Clear();
+        _copyFeedback = null;
+    }
+}

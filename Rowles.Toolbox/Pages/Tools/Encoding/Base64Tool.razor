@@ -1,0 +1,159 @@
+@page "/tools/encoding/base64"
+@using Rowles.Toolbox.Core.Encoding
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Base64 Encoder/Decoder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Base64 Encoder / Decoder" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-transform mr-1"></i> Encode &amp; decode Base64 text (UTF-8)</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Plain Text</label>
+        <textarea class="w-full h-48 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_plainText" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="Enter text to encode…"></textarea>
+    </div>
+    <div>
+        <label class="block text-sm font-medium mb-1">Base64</label>
+        <textarea class="w-full h-48 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_base64Text" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="Enter Base64 to decode…"></textarea>
+    </div>
+</div>
+
+<div class="flex flex-wrap items-center gap-2 mt-3">
+    <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+            @onclick="Encode">
+        <i class="ti ti-arrow-right mr-0.5"></i> Encode
+    </button>
+    <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+            @onclick="Decode">
+        <i class="ti ti-arrow-left mr-0.5"></i> Decode
+    </button>
+    <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+            @onclick="() => CopyToClipboard(_base64Text)">
+        <i class="ti ti-copy mr-0.5"></i> Copy Base64
+    </button>
+    <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+            @onclick="() => CopyToClipboard(_plainText)">
+        <i class="ti ti-copy mr-0.5"></i> Copy Plain
+    </button>
+    <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+            @onclick="Clear">
+        <i class="ti ti-eraser mr-0.5"></i> Clear
+    </button>
+</div>
+
+@if (_byteLength > 0)
+{
+    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+        <i class="ti ti-info-circle mr-0.5"></i>
+        Encoded length: @_base64Text.Length.ToString("N0") chars · @_byteLength.ToString("N0") bytes (original UTF-8)
+    </p>
+}
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="mt-3 p-2 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+        <i class="ti ti-alert-triangle mr-0.5"></i> @_error
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/base64" OnRestore="RestoreState" />
+
+@code {
+    private string _plainText = string.Empty;
+    private string _base64Text = string.Empty;
+    private string? _error;
+    private int _byteLength;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string PlainText, string Base64Text);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/base64");
+            if (state is not null)
+            {
+                _plainText = state.PlainText;
+                _base64Text = state.Base64Text;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/base64", new ToolState(_plainText, _base64Text));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _plainText = state.PlainText;
+            _base64Text = state.Base64Text;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Encode()
+    {
+        _error = null;
+        try
+        {
+            (string base64, int byteLen) = Base64ToolCore.Encode(_plainText);
+            _base64Text = base64;
+            _byteLength = byteLen;
+            string label = _plainText.Length > 40 ? _plainText[..40] + "..." : _plainText;
+            await Storage.AddRecentAsync("tools/encoding/base64", $"Encode: {label}", new ToolState(_plainText, _base64Text));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Encoding failed: {ex.Message}";
+        }
+    }
+
+    private async Task Decode()
+    {
+        _error = null;
+        try
+        {
+            (string plain, int byteLen) = Base64ToolCore.Decode(_base64Text);
+            _plainText = plain;
+            _byteLength = byteLen;
+            string label = _base64Text.Length > 40 ? _base64Text[..40] + "..." : _base64Text;
+            await Storage.AddRecentAsync("tools/encoding/base64", $"Decode: {label}", new ToolState(_plainText, _base64Text));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (FormatException)
+        {
+            _error = "Invalid Base64 input. Ensure the text is properly Base64-encoded.";
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        }
+    }
+
+    private void Clear()
+    {
+        _plainText = string.Empty;
+        _base64Text = string.Empty;
+        _error = null;
+        _byteLength = 0;
+    }
+}

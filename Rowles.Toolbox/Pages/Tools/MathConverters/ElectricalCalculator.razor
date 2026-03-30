@@ -1,0 +1,1342 @@
+@page "/tools/math/electrical"
+@namespace Rowles.Toolbox.Pages.Tools.MathConverters
+@using Rowles.Toolbox.Core.MathConverters
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using System.Globalization
+
+<PageTitle>Electrical Calculator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Electrical Calculator" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-bolt mr-1"></i> Ohm's Law, resistance, capacitance, inductance</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    @* Tab buttons *@
+    <div class="flex flex-wrap gap-2">
+        @foreach (ElectricalCalculatorCore.CalcTab tab in Enum.GetValues<ElectricalCalculatorCore.CalcTab>())
+        {
+            <button type="button" class="@TabCss(tab)" @onclick="() => _activeTab = tab">
+                <i class="ti @TabIcon(tab) mr-1"></i> @TabLabel(tab)
+            </button>
+        }
+    </div>
+
+    @switch (_activeTab)
+    {
+        @* ============================================================ *@
+        @* TAB 1: Ohm's Law                                             *@
+        @* ============================================================ *@
+        case ElectricalCalculatorCore.CalcTab.OhmsLaw:
+            @* Inputs *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-bolt mr-1"></i> Enter any 2 values
+                </h3>
+                <p class="text-xs text-gray-400 mb-3">Supports SI prefixes: p, n, u, m, k, M, G (e.g. 4.7k = 4700)</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Voltage (V)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 12 or 5k"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_ohmV" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">V</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Current (I)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 0.5 or 500m"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_ohmI" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">A</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Resistance (R)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 4.7k or 1M"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_ohmR" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">&Omega;</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Power (P)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 0.25 or 100m"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_ohmP" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">W</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <span class="text-xs @(OhmFilledCount() == 2 ? "text-green-500 font-semibold" : "text-gray-400")">
+                        @OhmFilledCount() / 2 values entered
+                    </span>
+                    <div class="flex gap-2">
+                        <button type="button"
+                                class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="ClearOhm">
+                            <i class="ti ti-refresh mr-1"></i>Clear
+                        </button>
+                        <button type="button"
+                                class="px-3 py-1.5 text-xs font-medium rounded transition-colors @(OhmFilledCount() == 2 ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer" : "bg-blue-300 dark:bg-blue-900/50 text-white cursor-not-allowed")"
+                                disabled="@(OhmFilledCount() != 2)"
+                                @onclick="SolveOhm">
+                            <i class="ti ti-calculator mr-1"></i>Calculate
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_ohmError))
+            {
+                <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 flex items-start gap-2">
+                    <i class="ti ti-alert-circle text-red-500 mt-0.5 shrink-0"></i>
+                    <span class="text-sm text-red-700 dark:text-red-400">@_ohmError</span>
+                </div>
+            }
+
+            @if (_ohmSolved)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-gray-500">
+                            <i class="ti ti-circle-check text-green-500 mr-1"></i> Results
+                        </h3>
+                        <button type="button"
+                                class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="CopyOhm">
+                            <i class="ti @(_copiedTab == ElectricalCalculatorCore.CalcTab.OhmsLaw ? "ti-check text-green-500" : "ti-clipboard") mr-1"></i>
+                            @(_copiedTab == ElectricalCalculatorCore.CalcTab.OhmsLaw ? "Copied" : "Copy")
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-center">
+                            <div class="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wide mb-1">Voltage</div>
+                            <div class="text-lg font-bold font-mono text-amber-700 dark:text-amber-300">@FormatSI(_resV, "V")</div>
+                        </div>
+                        <div class="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-center">
+                            <div class="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-1">Current</div>
+                            <div class="text-lg font-bold font-mono text-blue-700 dark:text-blue-300">@FormatSI(_resI, "A")</div>
+                        </div>
+                        <div class="bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg p-3 text-center">
+                            <div class="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide mb-1">Resistance</div>
+                            <div class="text-lg font-bold font-mono text-green-700 dark:text-green-300">@FormatSI(_resR, "\u03A9")</div>
+                        </div>
+                        <div class="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg p-3 text-center">
+                            <div class="text-xs font-medium text-red-600 dark:text-red-400 uppercase tracking-wide mb-1">Power</div>
+                            <div class="text-lg font-bold font-mono text-red-700 dark:text-red-300">@FormatSI(_resP, "W")</div>
+                        </div>
+                    </div>
+                    @if (_ohmFormulas.Count > 0)
+                    {
+                        <div class="pt-2 border-t border-gray-100 dark:border-gray-800">
+                            <h4 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Formulas Used</h4>
+                            <div class="flex flex-wrap gap-2">
+                                @foreach (string formula in _ohmFormulas)
+                                {
+                                    <span class="text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-1 rounded">@formula</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            @* Ohm's Law reference wheel *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-circle mr-1"></i> Ohm's Law Reference Wheel
+                </h3>
+                <div class="grid grid-cols-2 gap-px max-w-md mx-auto bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
+                    <div class="bg-amber-50 dark:bg-amber-900/10 p-3 text-center">
+                        <div class="text-amber-600 dark:text-amber-400 font-bold text-sm mb-1">V (Voltage)</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 space-y-0.5 font-mono">
+                            <div>I &times; R</div>
+                            <div>P / I</div>
+                            <div>&radic;(P &times; R)</div>
+                        </div>
+                    </div>
+                    <div class="bg-blue-50 dark:bg-blue-900/10 p-3 text-center">
+                        <div class="text-blue-600 dark:text-blue-400 font-bold text-sm mb-1">I (Current)</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 space-y-0.5 font-mono">
+                            <div>V / R</div>
+                            <div>P / V</div>
+                            <div>&radic;(P / R)</div>
+                        </div>
+                    </div>
+                    <div class="bg-green-50 dark:bg-green-900/10 p-3 text-center">
+                        <div class="text-green-600 dark:text-green-400 font-bold text-sm mb-1">R (Resistance)</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 space-y-0.5 font-mono">
+                            <div>V / I</div>
+                            <div>V&sup2; / P</div>
+                            <div>P / I&sup2;</div>
+                        </div>
+                    </div>
+                    <div class="bg-red-50 dark:bg-red-900/10 p-3 text-center">
+                        <div class="text-red-600 dark:text-red-400 font-bold text-sm mb-1">P (Power)</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 space-y-0.5 font-mono">
+                            <div>V &times; I</div>
+                            <div>I&sup2; &times; R</div>
+                            <div>V&sup2; / R</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            break;
+
+        @* ============================================================ *@
+        @* TAB 2: Resistor Calculator                                   *@
+        @* ============================================================ *@
+        case ElectricalCalculatorCore.CalcTab.Resistor:
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs text-gray-400">Supports SI prefixes: p, n, u, m, k, M, G</p>
+                <div class="flex gap-2">
+                    <button type="button"
+                            class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="ClearResistor">
+                        <i class="ti ti-refresh mr-1"></i>Clear
+                    </button>
+                    <button type="button"
+                            class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="CopyResistor">
+                        <i class="ti @(_copiedTab == ElectricalCalculatorCore.CalcTab.Resistor ? "ti-check text-green-500" : "ti-clipboard") mr-1"></i>
+                        @(_copiedTab == ElectricalCalculatorCore.CalcTab.Resistor ? "Copied" : "Copy")
+                    </button>
+                </div>
+            </div>
+
+            @* Series and Parallel side by side *@
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @* Series resistance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-line mr-1"></i> Series Resistance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-2">R<sub>total</sub> = R<sub>1</sub> + R<sub>2</sub> + ...</p>
+                    <div class="space-y-2">
+                        @for (int i = 0; i < _seriesR.Count; i++)
+                        {
+                            int idx = i;
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400 w-6 shrink-0">R@(idx + 1)</span>
+                                <input type="text" inputmode="decimal" placeholder="e.g. 4.7k"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       value="@_seriesR[idx]"
+                                       @oninput="e => SetListValue(_seriesR, idx, e)" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">&Omega;</span>
+                                @if (_seriesR.Count > 2)
+                                {
+                                    <button type="button" class="text-red-400 hover:text-red-600 text-sm" @onclick="() => RemoveFromList(_seriesR, idx)">
+                                        <i class="ti ti-x"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    @if (_seriesR.Count < 10)
+                    {
+                        <button type="button"
+                                class="mt-2 text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="() => AddToList(_seriesR)">
+                            <i class="ti ti-plus mr-1"></i>Add Resistor
+                        </button>
+                    }
+                    @if (ValidItemCount(_seriesR) >= 2)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Total:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeSum(_seriesR), "\u03A9")</span>
+                        </div>
+                    }
+                </div>
+
+                @* Parallel resistance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-git-fork mr-1"></i> Parallel Resistance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-2">1/R<sub>total</sub> = 1/R<sub>1</sub> + 1/R<sub>2</sub> + ...</p>
+                    <div class="space-y-2">
+                        @for (int i = 0; i < _parallelR.Count; i++)
+                        {
+                            int idx = i;
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400 w-6 shrink-0">R@(idx + 1)</span>
+                                <input type="text" inputmode="decimal" placeholder="e.g. 10k"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       value="@_parallelR[idx]"
+                                       @oninput="e => SetListValue(_parallelR, idx, e)" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">&Omega;</span>
+                                @if (_parallelR.Count > 2)
+                                {
+                                    <button type="button" class="text-red-400 hover:text-red-600 text-sm" @onclick="() => RemoveFromList(_parallelR, idx)">
+                                        <i class="ti ti-x"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    @if (_parallelR.Count < 10)
+                    {
+                        <button type="button"
+                                class="mt-2 text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="() => AddToList(_parallelR)">
+                            <i class="ti ti-plus mr-1"></i>Add Resistor
+                        </button>
+                    }
+                    @if (ValidItemCount(_parallelR) >= 2)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Total:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeReciprocalSum(_parallelR), "\u03A9")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Colour code decoder *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-palette mr-1"></i> Resistor Colour Code Decoder
+                </h3>
+
+                @* Band count toggle *@
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-xs text-gray-500">Band count:</span>
+                    <button type="button"
+                            class="px-3 py-1 text-xs rounded font-medium transition-colors @(_ccBandCount == 4 ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700") cursor-pointer"
+                            @onclick="() => SetBandCount(4)">
+                        4-Band
+                    </button>
+                    <button type="button"
+                            class="px-3 py-1 text-xs rounded font-medium transition-colors @(_ccBandCount == 5 ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700") cursor-pointer"
+                            @onclick="() => SetBandCount(5)">
+                        5-Band
+                    </button>
+                </div>
+
+                @* Visual resistor body with bands *@
+                <div class="flex items-center justify-center my-4">
+                    <div class="w-10 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-l"></div>
+                    <div class="bg-amber-200 dark:bg-amber-800/30 rounded px-4 py-1.5 flex items-center gap-1.5">
+                        @for (int b = 0; b < _ccBandCount - 1; b++)
+                        {
+                            int band = b;
+                            <div class="w-4 h-10 rounded-sm border border-black/20 dark:border-white/20"
+                                 style="background-color: @GetBandHex(band)"></div>
+                        }
+                        <div class="w-6"></div>
+                        <div class="w-4 h-10 rounded-sm border border-black/20 dark:border-white/20"
+                             style="background-color: @GetBandHex(_ccBandCount - 1)"></div>
+                    </div>
+                    <div class="w-10 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-r"></div>
+                </div>
+
+                @* Band selectors *@
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Band 1 (1st digit)</label>
+                        <select @bind="_ccD1"
+                                class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            @for (int d = 0; d < ElectricalCalculatorCore.DigitBands.Length; d++)
+                            {
+                                int digit = d;
+                                <option value="@digit">@ElectricalCalculatorCore.DigitBands[digit].Name (@digit)</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Band 2 (2nd digit)</label>
+                        <select @bind="_ccD2"
+                                class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            @for (int d = 0; d < ElectricalCalculatorCore.DigitBands.Length; d++)
+                            {
+                                int digit = d;
+                                <option value="@digit">@ElectricalCalculatorCore.DigitBands[digit].Name (@digit)</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_ccBandCount == 5)
+                    {
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Band 3 (3rd digit)</label>
+                            <select @bind="_ccD3"
+                                    class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                @for (int d = 0; d < ElectricalCalculatorCore.DigitBands.Length; d++)
+                                {
+                                    int digit = d;
+                                    <option value="@digit">@ElectricalCalculatorCore.DigitBands[digit].Name (@digit)</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Multiplier</label>
+                        <select @bind="_ccMult"
+                                class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            @for (int m = 0; m < ElectricalCalculatorCore.MultBands.Length; m++)
+                            {
+                                int mult = m;
+                                <option value="@mult">@ElectricalCalculatorCore.MultBands[mult].Name (&times;@FormatMult(ElectricalCalculatorCore.MultBands[mult].Factor))</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Tolerance</label>
+                        <select @bind="_ccTol"
+                                class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            @for (int t = 0; t < ElectricalCalculatorCore.TolBands.Length; t++)
+                            {
+                                int tol = t;
+                                <option value="@tol">@ElectricalCalculatorCore.TolBands[tol].Name (&plusmn;@ElectricalCalculatorCore.TolBands[tol].Percent%)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                @* Colour code result *@
+                <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 text-center space-y-1">
+                    <div class="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400">@FormatSI(ColourCodeResistance(), "\u03A9")</div>
+                    <div class="text-sm text-gray-500">&plusmn;@ColourCodeTolerance()%</div>
+                    <div class="text-xs text-gray-400">
+                        Range: @FormatSI(ColourCodeResistance() * (1.0 - ColourCodeTolerance() / 100.0), "\u03A9")
+                        to @FormatSI(ColourCodeResistance() * (1.0 + ColourCodeTolerance() / 100.0), "\u03A9")
+                    </div>
+                </div>
+            </div>
+            break;
+
+        @* ============================================================ *@
+        @* TAB 3: Capacitance                                           *@
+        @* ============================================================ *@
+        case ElectricalCalculatorCore.CalcTab.Capacitance:
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs text-gray-400">Supports SI prefixes: p, n, u, m, k, M, G</p>
+                <div class="flex gap-2">
+                    <button type="button"
+                            class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="ClearCapacitance">
+                        <i class="ti ti-refresh mr-1"></i>Clear
+                    </button>
+                    <button type="button"
+                            class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="CopyCapacitance">
+                        <i class="ti @(_copiedTab == ElectricalCalculatorCore.CalcTab.Capacitance ? "ti-check text-green-500" : "ti-clipboard") mr-1"></i>
+                        @(_copiedTab == ElectricalCalculatorCore.CalcTab.Capacitance ? "Copied" : "Copy")
+                    </button>
+                </div>
+            </div>
+
+            @* Series and Parallel *@
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @* Series capacitance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-line mr-1"></i> Series Capacitance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-2">1/C<sub>total</sub> = 1/C<sub>1</sub> + 1/C<sub>2</sub> + ...</p>
+                    <div class="space-y-2">
+                        @for (int i = 0; i < _seriesC.Count; i++)
+                        {
+                            int idx = i;
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400 w-6 shrink-0">C@(idx + 1)</span>
+                                <input type="text" inputmode="decimal" placeholder="e.g. 100n"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       value="@_seriesC[idx]"
+                                       @oninput="e => SetListValue(_seriesC, idx, e)" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">F</span>
+                                @if (_seriesC.Count > 2)
+                                {
+                                    <button type="button" class="text-red-400 hover:text-red-600 text-sm" @onclick="() => RemoveFromList(_seriesC, idx)">
+                                        <i class="ti ti-x"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    @if (_seriesC.Count < 10)
+                    {
+                        <button type="button"
+                                class="mt-2 text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="() => AddToList(_seriesC)">
+                            <i class="ti ti-plus mr-1"></i>Add Capacitor
+                        </button>
+                    }
+                    @if (ValidItemCount(_seriesC) >= 2)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Total:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeReciprocalSum(_seriesC), "F")</span>
+                        </div>
+                    }
+                </div>
+
+                @* Parallel capacitance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-git-fork mr-1"></i> Parallel Capacitance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-2">C<sub>total</sub> = C<sub>1</sub> + C<sub>2</sub> + ...</p>
+                    <div class="space-y-2">
+                        @for (int i = 0; i < _parallelC.Count; i++)
+                        {
+                            int idx = i;
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400 w-6 shrink-0">C@(idx + 1)</span>
+                                <input type="text" inputmode="decimal" placeholder="e.g. 10u"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       value="@_parallelC[idx]"
+                                       @oninput="e => SetListValue(_parallelC, idx, e)" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">F</span>
+                                @if (_parallelC.Count > 2)
+                                {
+                                    <button type="button" class="text-red-400 hover:text-red-600 text-sm" @onclick="() => RemoveFromList(_parallelC, idx)">
+                                        <i class="ti ti-x"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    @if (_parallelC.Count < 10)
+                    {
+                        <button type="button"
+                                class="mt-2 text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="() => AddToList(_parallelC)">
+                            <i class="ti ti-plus mr-1"></i>Add Capacitor
+                        </button>
+                    }
+                    @if (ValidItemCount(_parallelC) >= 2)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Total:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeSum(_parallelC), "F")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* RC Time Constant *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-clock mr-1"></i> RC Time Constant
+                </h3>
+                <p class="text-xs text-gray-400 mb-3">&tau; = R &times; C</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Resistance (R)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 10k"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_rcR" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">&Omega;</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Capacitance (C)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 100u"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_rcC" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">F</span>
+                        </div>
+                    </div>
+                </div>
+                @if (ComputeRcTau() > 0)
+                {
+                    <div class="bg-blue-50 dark:bg-blue-900/10 rounded-lg p-3 text-center mb-3">
+                        <div class="text-xs text-blue-500 uppercase tracking-wide mb-1">&tau; (Time Constant)</div>
+                        <div class="text-xl font-bold font-mono text-blue-700 dark:text-blue-300">@FormatSI(ComputeRcTau(), "s")</div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-200 dark:border-gray-700">
+                                    <th class="pb-2 text-left text-xs font-medium text-gray-500">&tau; Multiples</th>
+                                    <th class="pb-2 text-right text-xs font-medium text-gray-500">Charged</th>
+                                    <th class="pb-2 text-right text-xs font-medium text-gray-500">Remaining</th>
+                                    <th class="pb-2 text-right text-xs font-medium text-gray-500">Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (ElectricalCalculatorCore.TauEntry entry in ElectricalCalculatorCore.TauTable)
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            @* Energy stored and Reactance side by side *@
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @* Energy stored *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-bolt mr-1"></i> Energy Stored
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-3">E = &frac12; &times; C &times; V&sup2;</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Capacitance (C)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 470u"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_ceC" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">F</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Voltage (V)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 5"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_ceV" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">V</span>
+                            </div>
+                        </div>
+                    </div>
+                    @if (ComputeCapEnergy() > 0)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Energy:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeCapEnergy(), "J")</span>
+                        </div>
+                    }
+                </div>
+
+                @* Capacitive reactance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-wave-sine mr-1"></i> Capacitive Reactance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-3">X<sub>C</sub> = 1 / (2&pi;fC)</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Capacitance (C)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 100n"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_cxC" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">F</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Frequency (f)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 1k"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_cxF" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">Hz</span>
+                            </div>
+                        </div>
+                    </div>
+                    @if (ComputeCapReactance() > 0)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">X<sub>C</sub>:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeCapReactance(), "\u03A9")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+            break;
+
+        @* ============================================================ *@
+        @* TAB 4: Inductance                                            *@
+        @* ============================================================ *@
+        case ElectricalCalculatorCore.CalcTab.Inductance:
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs text-gray-400">Supports SI prefixes: p, n, u, m, k, M, G</p>
+                <div class="flex gap-2">
+                    <button type="button"
+                            class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="ClearInductance">
+                        <i class="ti ti-refresh mr-1"></i>Clear
+                    </button>
+                    <button type="button"
+                            class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="CopyInductance">
+                        <i class="ti @(_copiedTab == ElectricalCalculatorCore.CalcTab.Inductance ? "ti-check text-green-500" : "ti-clipboard") mr-1"></i>
+                        @(_copiedTab == ElectricalCalculatorCore.CalcTab.Inductance ? "Copied" : "Copy")
+                    </button>
+                </div>
+            </div>
+
+            @* Series and Parallel *@
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @* Series inductance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-line mr-1"></i> Series Inductance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-2">L<sub>total</sub> = L<sub>1</sub> + L<sub>2</sub> + ...</p>
+                    <div class="space-y-2">
+                        @for (int i = 0; i < _seriesL.Count; i++)
+                        {
+                            int idx = i;
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400 w-6 shrink-0">L@(idx + 1)</span>
+                                <input type="text" inputmode="decimal" placeholder="e.g. 10m"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       value="@_seriesL[idx]"
+                                       @oninput="e => SetListValue(_seriesL, idx, e)" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">H</span>
+                                @if (_seriesL.Count > 2)
+                                {
+                                    <button type="button" class="text-red-400 hover:text-red-600 text-sm" @onclick="() => RemoveFromList(_seriesL, idx)">
+                                        <i class="ti ti-x"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    @if (_seriesL.Count < 10)
+                    {
+                        <button type="button"
+                                class="mt-2 text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="() => AddToList(_seriesL)">
+                            <i class="ti ti-plus mr-1"></i>Add Inductor
+                        </button>
+                    }
+                    @if (ValidItemCount(_seriesL) >= 2)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Total:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeSum(_seriesL), "H")</span>
+                        </div>
+                    }
+                </div>
+
+                @* Parallel inductance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-git-fork mr-1"></i> Parallel Inductance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-2">1/L<sub>total</sub> = 1/L<sub>1</sub> + 1/L<sub>2</sub> + ...</p>
+                    <div class="space-y-2">
+                        @for (int i = 0; i < _parallelL.Count; i++)
+                        {
+                            int idx = i;
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400 w-6 shrink-0">L@(idx + 1)</span>
+                                <input type="text" inputmode="decimal" placeholder="e.g. 100m"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       value="@_parallelL[idx]"
+                                       @oninput="e => SetListValue(_parallelL, idx, e)" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">H</span>
+                                @if (_parallelL.Count > 2)
+                                {
+                                    <button type="button" class="text-red-400 hover:text-red-600 text-sm" @onclick="() => RemoveFromList(_parallelL, idx)">
+                                        <i class="ti ti-x"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    @if (_parallelL.Count < 10)
+                    {
+                        <button type="button"
+                                class="mt-2 text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="() => AddToList(_parallelL)">
+                            <i class="ti ti-plus mr-1"></i>Add Inductor
+                        </button>
+                    }
+                    @if (ValidItemCount(_parallelL) >= 2)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Total:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeReciprocalSum(_parallelL), "H")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* RL Time Constant *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-clock mr-1"></i> RL Time Constant
+                </h3>
+                <p class="text-xs text-gray-400 mb-3">&tau; = L / R</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Inductance (L)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 10m"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_rlL" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">H</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Resistance (R)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="decimal" placeholder="e.g. 1k"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_rlR" @bind:event="oninput" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400 w-6 shrink-0">&Omega;</span>
+                        </div>
+                    </div>
+                </div>
+                @if (ComputeRlTau() > 0)
+                {
+                    <div class="bg-blue-50 dark:bg-blue-900/10 rounded-lg p-3 text-center mb-3">
+                        <div class="text-xs text-blue-500 uppercase tracking-wide mb-1">&tau; (Time Constant)</div>
+                        <div class="text-xl font-bold font-mono text-blue-700 dark:text-blue-300">@FormatSI(ComputeRlTau(), "s")</div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-200 dark:border-gray-700">
+                                    <th class="pb-2 text-left text-xs font-medium text-gray-500">&tau; Multiples</th>
+                                    <th class="pb-2 text-right text-xs font-medium text-gray-500">Current Rise</th>
+                                    <th class="pb-2 text-right text-xs font-medium text-gray-500">Remaining</th>
+                                    <th class="pb-2 text-right text-xs font-medium text-gray-500">Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (ElectricalCalculatorCore.TauEntry entry in ElectricalCalculatorCore.TauTable)
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            @* Energy, Reactance, Resonant frequency *@
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                @* Energy stored *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-bolt mr-1"></i> Energy Stored
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-3">E = &frac12; &times; L &times; I&sup2;</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Inductance (L)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 100m"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_ieL" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">H</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Current (I)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 2"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_ieI" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">A</span>
+                            </div>
+                        </div>
+                    </div>
+                    @if (ComputeIndEnergy() > 0)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">Energy:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeIndEnergy(), "J")</span>
+                        </div>
+                    }
+                </div>
+
+                @* Inductive reactance *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-wave-sine mr-1"></i> Inductive Reactance
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-3">X<sub>L</sub> = 2&pi;fL</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Inductance (L)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 10m"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_ixL" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">H</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Frequency (f)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 1k"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_ixF" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">Hz</span>
+                            </div>
+                        </div>
+                    </div>
+                    @if (ComputeIndReactance() > 0)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">X<sub>L</sub>:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeIndReactance(), "\u03A9")</span>
+                        </div>
+                    }
+                </div>
+
+                @* Resonant frequency *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-activity mr-1"></i> Resonant Frequency
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-3">f = 1 / (2&pi;&radic;(LC))</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Inductance (L)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 10m"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_rfL" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">H</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Capacitance (C)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" placeholder="e.g. 100n"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       @bind="_rfC" @bind:event="oninput" @bind:after="SaveState" />
+                                <span class="text-xs text-gray-400 w-6 shrink-0">F</span>
+                            </div>
+                        </div>
+                    </div>
+                    @if (ComputeResonantFreq() > 0)
+                    {
+                        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <span class="text-xs text-gray-400">f<sub>0</sub>:</span>
+                            <span class="text-sm font-bold font-mono text-green-600 dark:text-green-400 ml-1">@FormatSI(ComputeResonantFreq(), "Hz")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+            break;
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/electrical" OnRestore="RestoreState" />
+
+@code {
+    RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(
+        string ActiveTab,
+        string OhmV, string OhmI, string OhmR, string OhmP,
+        string RcR, string RcC, string CeC, string CeV, string CxC, string CxF,
+        string RlR, string RlL, string IeL, string IeI, string IxL, string IxF,
+        string RfL, string RfC);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/math/electrical");
+            if (state is not null) { ApplyElecState(state); StateHasChanged(); }
+        }
+    }
+
+    async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/math/electrical", new ToolState(
+            _activeTab.ToString(),
+            _ohmV, _ohmI, _ohmR, _ohmP,
+            _rcR, _rcC, _ceC, _ceV, _cxC, _cxF,
+            _rlR, _rlL, _ieL, _ieI, _ixL, _ixF,
+            _rfL, _rfC));
+    }
+
+    async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null) { ApplyElecState(state); StateHasChanged(); }
+    }
+
+    void ApplyElecState(ToolState state)
+    {
+        if (Enum.TryParse<ElectricalCalculatorCore.CalcTab>(state.ActiveTab, out ElectricalCalculatorCore.CalcTab tab))
+            _activeTab = tab;
+        _ohmV = state.OhmV; _ohmI = state.OhmI; _ohmR = state.OhmR; _ohmP = state.OhmP;
+        _rcR = state.RcR; _rcC = state.RcC; _ceC = state.CeC; _ceV = state.CeV;
+        _cxC = state.CxC; _cxF = state.CxF;
+        _rlR = state.RlR; _rlL = state.RlL; _ieL = state.IeL; _ieI = state.IeI;
+        _ixL = state.IxL; _ixF = state.IxF; _rfL = state.RfL; _rfC = state.RfC;
+    }
+
+    ElectricalCalculatorCore.CalcTab _activeTab = ElectricalCalculatorCore.CalcTab.OhmsLaw;
+    ElectricalCalculatorCore.CalcTab? _copiedTab;
+
+    @* Ohm's Law state *@
+    string _ohmV = string.Empty;
+    string _ohmI = string.Empty;
+    string _ohmR = string.Empty;
+    string _ohmP = string.Empty;
+    double _resV;
+    double _resI;
+    double _resR;
+    double _resP;
+    List<string> _ohmFormulas = new();
+    string _ohmError = string.Empty;
+    bool _ohmSolved;
+
+    @* Resistor state *@
+    List<string> _seriesR = new() { string.Empty, string.Empty };
+    List<string> _parallelR = new() { string.Empty, string.Empty };
+    int _ccBandCount = 4;
+    int _ccD1 = 1;
+    int _ccD2 = 0;
+    int _ccD3 = 0;
+    int _ccMult = 2;
+    int _ccTol = 6;
+
+    @* Capacitance state *@
+    List<string> _seriesC = new() { string.Empty, string.Empty };
+    List<string> _parallelC = new() { string.Empty, string.Empty };
+    string _rcR = string.Empty;
+    string _rcC = string.Empty;
+    string _ceC = string.Empty;
+    string _ceV = string.Empty;
+    string _cxC = string.Empty;
+    string _cxF = string.Empty;
+
+    @* Inductance state *@
+    List<string> _seriesL = new() { string.Empty, string.Empty };
+    List<string> _parallelL = new() { string.Empty, string.Empty };
+    string _rlR = string.Empty;
+    string _rlL = string.Empty;
+    string _ieL = string.Empty;
+    string _ieI = string.Empty;
+    string _ixL = string.Empty;
+    string _ixF = string.Empty;
+    string _rfL = string.Empty;
+    string _rfC = string.Empty;
+
+    @* Delegate wrappers for extracted static methods *@
+    static bool TryParseSI(string raw, out double result) => ElectricalCalculatorCore.TryParseSI(raw, out result);
+    static string FormatSI(double value, string unit) => ElectricalCalculatorCore.FormatSI(value, unit);
+    static string FormatMult(double f) => ElectricalCalculatorCore.FormatMult(f);
+    static string TabIcon(ElectricalCalculatorCore.CalcTab tab) => ElectricalCalculatorCore.TabIcon(tab);
+    static string TabLabel(ElectricalCalculatorCore.CalcTab tab) => ElectricalCalculatorCore.TabLabel(tab);
+    static double ComputeSum(List<string> items) => ElectricalCalculatorCore.ComputeSum(items);
+    static double ComputeReciprocalSum(List<string> items) => ElectricalCalculatorCore.ComputeReciprocalSum(items);
+    static int ValidItemCount(List<string> items) => ElectricalCalculatorCore.ValidItemCount(items);
+
+    @* Tab helpers *@
+    string TabCss(ElectricalCalculatorCore.CalcTab tab)
+    {
+        string baseClass = "px-3 py-1.5 text-sm rounded font-medium transition-colors cursor-pointer";
+        return tab == _activeTab
+            ? baseClass + " bg-blue-600 text-white"
+            : baseClass + " bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700";
+    }
+
+    @* Ohm's Law *@
+    int OhmFilledCount()
+    {
+        int c = 0;
+        if (TryParseSI(_ohmV, out _)) c++;
+        if (TryParseSI(_ohmI, out _)) c++;
+        if (TryParseSI(_ohmR, out _)) c++;
+        if (TryParseSI(_ohmP, out _)) c++;
+        return c;
+    }
+
+    void SolveOhm()
+    {
+        _ohmFormulas.Clear();
+        _ohmError = string.Empty;
+        _ohmSolved = false;
+
+        bool hasV = TryParseSI(_ohmV, out double v);
+        bool hasI = TryParseSI(_ohmI, out double iVal);
+        bool hasR = TryParseSI(_ohmR, out double r);
+        bool hasP = TryParseSI(_ohmP, out double p);
+        int count = (hasV ? 1 : 0) + (hasI ? 1 : 0) + (hasR ? 1 : 0) + (hasP ? 1 : 0);
+
+        if (count != 2)
+        {
+            _ohmError = "Enter exactly 2 values to calculate the other 2.";
+            return;
+        }
+
+        if (hasV && hasI)
+        {
+            r = v / iVal;
+            p = v * iVal;
+            _ohmFormulas.Add("R = V / I");
+            _ohmFormulas.Add("P = V \u00D7 I");
+        }
+        else if (hasV && hasR)
+        {
+            iVal = v / r;
+            p = v * v / r;
+            _ohmFormulas.Add("I = V / R");
+            _ohmFormulas.Add("P = V\u00B2 / R");
+        }
+        else if (hasV && hasP)
+        {
+            iVal = p / v;
+            r = v * v / p;
+            _ohmFormulas.Add("I = P / V");
+            _ohmFormulas.Add("R = V\u00B2 / P");
+        }
+        else if (hasI && hasR)
+        {
+            v = iVal * r;
+            p = iVal * iVal * r;
+            _ohmFormulas.Add("V = I \u00D7 R");
+            _ohmFormulas.Add("P = I\u00B2 \u00D7 R");
+        }
+        else if (hasI && hasP)
+        {
+            v = p / iVal;
+            r = p / (iVal * iVal);
+            _ohmFormulas.Add("V = P / I");
+            _ohmFormulas.Add("R = P / I\u00B2");
+        }
+        else if (hasR && hasP)
+        {
+            v = Math.Sqrt(p * r);
+            iVal = Math.Sqrt(p / r);
+            _ohmFormulas.Add("V = \u221A(P \u00D7 R)");
+            _ohmFormulas.Add("I = \u221A(P / R)");
+        }
+
+        if (double.IsNaN(v) || double.IsNaN(iVal) || double.IsNaN(r) || double.IsNaN(p) ||
+            double.IsInfinity(v) || double.IsInfinity(iVal) || double.IsInfinity(r) || double.IsInfinity(p))
+        {
+            _ohmError = "Result is undefined. Check for division by zero or invalid inputs.";
+            return;
+        }
+
+        _resV = v;
+        _resI = iVal;
+        _resR = r;
+        _resP = p;
+        _ohmSolved = true;
+    }
+
+    async Task AddOhmRecentEntry()
+    {
+        string label = "V=" + FormatSI(_resV, "V") + " I=" + FormatSI(_resI, "A");
+        await Storage.AddRecentAsync("tools/math/electrical", label, new ToolState(
+            _activeTab.ToString(), _ohmV, _ohmI, _ohmR, _ohmP,
+            _rcR, _rcC, _ceC, _ceV, _cxC, _cxF,
+            _rlR, _rlL, _ieL, _ieI, _ixL, _ixF, _rfL, _rfC));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    void ClearOhm()
+    {
+        _ohmV = _ohmI = _ohmR = _ohmP = string.Empty;
+        _ohmSolved = false;
+        _ohmError = string.Empty;
+        _ohmFormulas.Clear();
+    }
+
+    async Task CopyOhm()
+    {
+        string output = "V = " + FormatSI(_resV, "V") + ", I = " + FormatSI(_resI, "A") +
+                         ", R = " + FormatSI(_resR, "\u03A9") + ", P = " + FormatSI(_resP, "W");
+        await CopyToClipboard(output, ElectricalCalculatorCore.CalcTab.OhmsLaw);
+        await AddOhmRecentEntry();
+    }
+
+    @* List helpers *@
+    void AddToList(List<string> list)
+    {
+        if (list.Count < 10) list.Add(string.Empty);
+    }
+
+    void RemoveFromList(List<string> list, int index)
+    {
+        if (list.Count > 2 && index >= 0 && index < list.Count) list.RemoveAt(index);
+    }
+
+    void SetListValue(List<string> list, int index, ChangeEventArgs e)
+    {
+        list[index] = e.Value?.ToString() ?? string.Empty;
+    }
+
+    @* Colour code *@
+    double ColourCodeResistance()
+    {
+        double baseVal;
+        if (_ccBandCount == 5)
+            baseVal = _ccD1 * 100 + _ccD2 * 10 + _ccD3;
+        else
+            baseVal = _ccD1 * 10 + _ccD2;
+        return baseVal * ElectricalCalculatorCore.MultBands[_ccMult].Factor;
+    }
+
+    double ColourCodeTolerance() => ElectricalCalculatorCore.TolBands[_ccTol].Percent;
+
+    string GetBandHex(int position)
+    {
+        if (_ccBandCount == 4)
+        {
+            return position switch
+            {
+                0 => ElectricalCalculatorCore.DigitBands[_ccD1].Hex,
+                1 => ElectricalCalculatorCore.DigitBands[_ccD2].Hex,
+                2 => ElectricalCalculatorCore.MultBands[_ccMult].Hex,
+                3 => ElectricalCalculatorCore.TolBands[_ccTol].Hex,
+                _ => "#000000"
+            };
+        }
+        return position switch
+        {
+            0 => ElectricalCalculatorCore.DigitBands[_ccD1].Hex,
+            1 => ElectricalCalculatorCore.DigitBands[_ccD2].Hex,
+            2 => ElectricalCalculatorCore.DigitBands[_ccD3].Hex,
+            3 => ElectricalCalculatorCore.MultBands[_ccMult].Hex,
+            4 => ElectricalCalculatorCore.TolBands[_ccTol].Hex,
+            _ => "#000000"
+        };
+    }
+
+    void SetBandCount(int count) { _ccBandCount = count; }
+
+    @* RC / RL / Energy / Reactance computations *@
+    double ComputeRcTau()
+    {
+        if (TryParseSI(_rcR, out double r) && TryParseSI(_rcC, out double c) && r > 0 && c > 0)
+            return r * c;
+        return 0;
+    }
+
+    double ComputeCapEnergy()
+    {
+        if (TryParseSI(_ceC, out double c) && TryParseSI(_ceV, out double v) && c > 0)
+            return 0.5 * c * v * v;
+        return 0;
+    }
+
+    double ComputeCapReactance()
+    {
+        if (TryParseSI(_cxC, out double c) && TryParseSI(_cxF, out double f) && c > 0 && f > 0)
+            return 1.0 / (2.0 * Math.PI * f * c);
+        return 0;
+    }
+
+    double ComputeRlTau()
+    {
+        if (TryParseSI(_rlL, out double l) && TryParseSI(_rlR, out double r) && r > 0 && l > 0)
+            return l / r;
+        return 0;
+    }
+
+    double ComputeIndEnergy()
+    {
+        if (TryParseSI(_ieL, out double l) && TryParseSI(_ieI, out double iVal) && l > 0)
+            return 0.5 * l * iVal * iVal;
+        return 0;
+    }
+
+    double ComputeIndReactance()
+    {
+        if (TryParseSI(_ixL, out double l) && TryParseSI(_ixF, out double f) && l > 0 && f > 0)
+            return 2.0 * Math.PI * f * l;
+        return 0;
+    }
+
+    double ComputeResonantFreq()
+    {
+        if (TryParseSI(_rfL, out double l) && TryParseSI(_rfC, out double c) && l > 0 && c > 0)
+            return 1.0 / (2.0 * Math.PI * Math.Sqrt(l * c));
+        return 0;
+    }
+
+    @* Clear methods *@
+    void ClearResistor()
+    {
+        _seriesR = new List<string> { string.Empty, string.Empty };
+        _parallelR = new List<string> { string.Empty, string.Empty };
+        _ccBandCount = 4;
+        _ccD1 = 1;
+        _ccD2 = 0;
+        _ccD3 = 0;
+        _ccMult = 2;
+        _ccTol = 6;
+    }
+
+    void ClearCapacitance()
+    {
+        _seriesC = new List<string> { string.Empty, string.Empty };
+        _parallelC = new List<string> { string.Empty, string.Empty };
+        _rcR = _rcC = _ceC = _ceV = _cxC = _cxF = string.Empty;
+    }
+
+    void ClearInductance()
+    {
+        _seriesL = new List<string> { string.Empty, string.Empty };
+        _parallelL = new List<string> { string.Empty, string.Empty };
+        _rlR = _rlL = _ieL = _ieI = _ixL = _ixF = _rfL = _rfC = string.Empty;
+    }
+
+    @* Copy helpers *@
+    async Task CopyToClipboard(string content, ElectricalCalculatorCore.CalcTab tab)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", content);
+        _copiedTab = tab;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _copiedTab = null;
+        StateHasChanged();
+    }
+
+    async Task CopyResistor()
+    {
+        string output = "Series: " + FormatSI(ComputeSum(_seriesR), "\u03A9") +
+                         ", Parallel: " + FormatSI(ComputeReciprocalSum(_parallelR), "\u03A9") +
+                         ", Colour Code: " + FormatSI(ColourCodeResistance(), "\u03A9") +
+                         " \u00B1" + ColourCodeTolerance().ToString(CultureInfo.InvariantCulture) + "%";
+        await CopyToClipboard(output, ElectricalCalculatorCore.CalcTab.Resistor);
+        await AddTabRecentEntry("Resistor");
+    }
+
+    async Task CopyCapacitance()
+    {
+        string output = "Series: " + FormatSI(ComputeReciprocalSum(_seriesC), "F") +
+                         ", Parallel: " + FormatSI(ComputeSum(_parallelC), "F");
+        double tau = ComputeRcTau();
+        if (tau > 0) output += ", RC \u03C4 = " + FormatSI(tau, "s");
+        double energy = ComputeCapEnergy();
+        if (energy > 0) output += ", E = " + FormatSI(energy, "J");
+        double xc = ComputeCapReactance();
+        if (xc > 0) output += ", Xc = " + FormatSI(xc, "\u03A9");
+        await CopyToClipboard(output, ElectricalCalculatorCore.CalcTab.Capacitance);
+        await AddTabRecentEntry("Capacitance");
+    }
+
+    async Task CopyInductance()
+    {
+        string output = "Series: " + FormatSI(ComputeSum(_seriesL), "H") +
+                         ", Parallel: " + FormatSI(ComputeReciprocalSum(_parallelL), "H");
+        double tau = ComputeRlTau();
+        if (tau > 0) output += ", RL \u03C4 = " + FormatSI(tau, "s");
+        double energy = ComputeIndEnergy();
+        if (energy > 0) output += ", E = " + FormatSI(energy, "J");
+        double xl = ComputeIndReactance();
+        if (xl > 0) output += ", XL = " + FormatSI(xl, "\u03A9");
+        double fr = ComputeResonantFreq();
+        if (fr > 0) output += ", f\u2080 = " + FormatSI(fr, "Hz");
+        await CopyToClipboard(output, ElectricalCalculatorCore.CalcTab.Inductance);
+        await AddTabRecentEntry("Inductance");
+    }
+
+    async Task AddTabRecentEntry(string tabLabel)
+    {
+        await Storage.AddRecentAsync("tools/math/electrical", tabLabel, new ToolState(
+            _activeTab.ToString(), _ohmV, _ohmI, _ohmR, _ohmP,
+            _rcR, _rcC, _ceC, _ceV, _cxC, _cxF,
+            _rlR, _rlL, _ieL, _ieI, _ixL, _ixF, _rfL, _rfC));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+}

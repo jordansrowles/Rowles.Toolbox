@@ -1,0 +1,260 @@
+@page "/tools/image/code-screenshot"
+@using Rowles.Toolbox.Core.Image
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>Code Screenshot - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Code Screenshot" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-camera-code mr-1"></i> Generate beautiful code screenshots client-side</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    @* Left panel: code input + options *@
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-code mr-1"></i> Code</h3>
+            <textarea class="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500"
+                      placeholder="Paste your code here…"
+                      @bind="_code" @bind:event="oninput" @bind:after="UpdatePreviewAndSave"></textarea>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-palette mr-1"></i> Appearance</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-sm text-gray-600 dark:text-gray-400">Background</label>
+                    <select class="w-full border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm px-2 py-1"
+                            @bind="_selectedBackground" @bind:after="UpdatePreviewAndSave">
+                        @foreach (CodeScreenshotCore.BackgroundPreset preset in CodeScreenshotCore.BackgroundPresets)
+                        {
+                            <option value="@preset.Value">@preset.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="text-sm text-gray-600 dark:text-gray-400">Theme</label>
+                    <select class="w-full border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm px-2 py-1"
+                            @bind="_theme" @bind:after="UpdatePreviewAndSave">
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="text-sm text-gray-600 dark:text-gray-400">Padding: @(_padding)px</label>
+                    <input type="range" min="16" max="128" class="w-full"
+                           @bind="_padding" @bind:event="oninput" @bind:after="UpdatePreviewAndSave" />
+                </div>
+
+                <div>
+                    <label class="text-sm text-gray-600 dark:text-gray-400">Border radius: @(_borderRadius)px</label>
+                    <input type="range" min="0" max="24" class="w-full"
+                           @bind="_borderRadius" @bind:event="oninput" @bind:after="UpdatePreviewAndSave" />
+                </div>
+
+                <div>
+                    <label class="text-sm text-gray-600 dark:text-gray-400">Font size: @(_fontSize)px</label>
+                    <input type="range" min="12" max="24" class="w-full"
+                           @bind="_fontSize" @bind:event="oninput" @bind:after="UpdatePreviewAndSave" />
+                </div>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-window mr-1"></i> Window</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-sm text-gray-600 dark:text-gray-400">Title bar text</label>
+                    <input type="text"
+                           class="w-full border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm px-2 py-1"
+                           @bind="_title" @bind:event="oninput" @bind:after="UpdatePreviewAndSave" />
+                </div>
+
+                <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                    <input type="checkbox" @bind="_windowControls" @bind:after="UpdatePreviewAndSave" />
+                    Window controls (macOS dots)
+                </label>
+
+                <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                    <input type="checkbox" @bind="_lineNumbers" @bind:after="UpdatePreviewAndSave" />
+                    Line numbers
+                </label>
+            </div>
+        </div>
+    </div>
+
+    @* Right panel: preview + actions *@
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-eye mr-1"></i> Preview</h3>
+            @if (_previewDataUrl is not null)
+            {
+                <div class="overflow-auto rounded" style="max-height: 600px;">
+                    <img src="@_previewDataUrl" alt="Code screenshot preview" class="max-w-full h-auto" />
+                </div>
+            }
+            else
+            {
+                <div class="flex items-center justify-center h-64 text-gray-400 dark:text-gray-600 text-sm">
+                    <span><i class="ti ti-code mr-1"></i> Paste some code to see a preview</span>
+                </div>
+            }
+        </div>
+
+        <div class="flex gap-2">
+            <button class="flex-1 bg-blue-600 text-white px-3 py-2 text-xs rounded hover:bg-blue-700 cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    @onclick="DownloadPng" disabled="@(string.IsNullOrWhiteSpace(_code))">
+                <i class="ti ti-download mr-0.5"></i> Download PNG
+            </button>
+            <button class="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    @onclick="CopyToClipboard" disabled="@(string.IsNullOrWhiteSpace(_code))">
+                <i class="ti ti-clipboard mr-0.5"></i> @(_copyLabel)
+            </button>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="code-screenshot" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private IJSObjectReference? _jsModule;
+    private string? _previewDataUrl;
+
+    private string _code = string.Empty;
+    private string _selectedBackground = "#f093fb → #f5576c";
+    private int _padding = 64;
+    private int _borderRadius = 12;
+    private int _fontSize = 14;
+    private bool _lineNumbers = true;
+    private bool _windowControls = true;
+    private string _title = "Untitled";
+    private string _theme = "dark";
+    private string _copyLabel = "Copy to Clipboard";
+
+    sealed record ToolState(string SelectedBackground, int Padding, int BorderRadius, int FontSize, bool LineNumbers, bool WindowControls, string Title, string Theme);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/Image/CodeScreenshot.razor.js");
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("code-screenshot");
+            if (state is not null)
+            {
+                _selectedBackground = state.SelectedBackground;
+                _padding = state.Padding;
+                _borderRadius = state.BorderRadius;
+                _fontSize = state.FontSize;
+                _lineNumbers = state.LineNumbers;
+                _windowControls = state.WindowControls;
+                _title = state.Title;
+                _theme = state.Theme;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task UpdatePreview()
+    {
+        if (_jsModule is null || string.IsNullOrWhiteSpace(_code))
+        {
+            _previewDataUrl = null;
+            return;
+        }
+
+        _previewDataUrl = await _jsModule.InvokeAsync<string>("renderScreenshot", _code, new
+        {
+            background = _selectedBackground,
+            padding = _padding,
+            borderRadius = _borderRadius,
+            fontSize = _fontSize,
+            lineNumbers = _lineNumbers,
+            windowControls = _windowControls,
+            title = _title,
+            theme = _theme,
+            width = 680,
+        });
+    }
+
+    private async Task UpdatePreviewAndSave()
+    {
+        await UpdatePreview();
+        await SaveState();
+    }
+
+    private async Task DownloadPng()
+    {
+        if (_jsModule is null || string.IsNullOrWhiteSpace(_code)) return;
+
+        await UpdatePreview();
+
+        if (_previewDataUrl is not null)
+        {
+            string filename = string.IsNullOrWhiteSpace(_title) || _title == "Untitled"
+                ? "code-screenshot.png"
+                : CodeScreenshotCore.SanitiseFilename(_title) + ".png";
+            await _jsModule.InvokeVoidAsync("downloadImage", _previewDataUrl, filename);
+
+            string label = $"Screenshot: {_title} ({_theme})";
+            ToolState state = new(_selectedBackground, _padding, _borderRadius, _fontSize, _lineNumbers, _windowControls, _title, _theme);
+            await Storage.AddRecentAsync("code-screenshot", label, state);
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_selectedBackground, _padding, _borderRadius, _fontSize, _lineNumbers, _windowControls, _title, _theme);
+        await Storage.SaveStateAsync("code-screenshot", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _selectedBackground = state.SelectedBackground;
+                _padding = state.Padding;
+                _borderRadius = state.BorderRadius;
+                _fontSize = state.FontSize;
+                _lineNumbers = state.LineNumbers;
+                _windowControls = state.WindowControls;
+                _title = state.Title;
+                _theme = state.Theme;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task CopyToClipboard()
+    {
+        if (_jsModule is null || _previewDataUrl is null) return;
+
+        bool success = await _jsModule.InvokeAsync<bool>("copyImageToClipboard", _previewDataUrl);
+        _copyLabel = success ? "Copied!" : "Copy failed";
+        StateHasChanged();
+
+        await Task.Delay(2000);
+        _copyLabel = "Copy to Clipboard";
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+}

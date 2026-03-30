@@ -1,0 +1,439 @@
+@page "/tools/dev/func-builder"
+
+@using System.Text
+@using Rowles.Toolbox.Core.Developer
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Delegate / Func Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Delegate / Func Builder" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-function mr-1"></i> Build Func, Action, Predicate &amp; delegate signatures</span>
+    </Actions>
+</PageHeader>
+
+@* -- Mode selector tabs -- *@
+<div class="flex gap-2 mb-4">
+    @foreach (var m in DelegateBuilderCore.Modes)
+    {
+        <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_mode == m.Key ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+                @onclick="() => SetMode(m.Key)">
+            <i class="ti ti-@m.Value.Icon mr-1"></i> @m.Value.Label
+        </button>
+    }
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    @* ==================== LEFT: Builder ==================== *@
+    <div class="space-y-4">
+
+        @* -- Custom delegate options -- *@
+        @if (_mode == "delegate")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Delegate Declaration</h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Access Modifier</label>
+                        <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                @bind="_accessModifier"
+                                @bind:after="SaveState">
+                            <option value="public">public</option>
+                            <option value="internal">internal</option>
+                            <option value="private">private</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Delegate Name</label>
+                        <input type="text"
+                               class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="MyDelegate"
+                               @bind="_delegateName"
+                               @bind:event="oninput"
+                               @bind:after="SaveState" />
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* -- Return type (Func + Custom Delegate) -- *@
+        @if (_mode is "func" or "delegate")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-arrow-back-up mr-1"></i> Return Type</h3>
+                <div class="flex gap-2">
+                    <select class="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            @bind="_returnType"
+                            @bind:after="SaveState">
+                        @foreach (var t in DelegateBuilderCore.CommonTypes)
+                        {
+                            <option value="@t">@t</option>
+                        }
+                        <option value="__custom__">Custom…</option>
+                    </select>
+                    @if (_returnType == "__custom__")
+                    {
+                        <input type="text"
+                               class="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="MyReturnType"
+                               @bind="_customReturnType"
+                               @bind:event="oninput"
+                               @bind:after="SaveState" />
+                    }
+                </div>
+            </div>
+        }
+
+        @* -- Parameters -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Parameters</h3>
+
+            @if (_parameters.Count == 0)
+            {
+                <p class="text-xs text-gray-400 italic mb-3">No parameters added yet.</p>
+            }
+
+            <div class="space-y-2">
+                @for (int i = 0; i < _parameters.Count; i++)
+                {
+                    var idx = i;
+                    var p = _parameters[idx];
+                    <div class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800/50 rounded">
+                        <span class="text-xs text-gray-400 w-5 text-right">@(idx + 1).</span>
+
+                        @* Modifier *@
+                        <select class="w-20 p-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                value="@p.Modifier"
+                                @onchange="e => SetParamModifier(p, e)">
+                            <option value="">(none)</option>
+                            <option value="in">in</option>
+                            <option value="out">out</option>
+                            <option value="ref">ref</option>
+                        </select>
+
+                        @* Type *@
+                        <select class="flex-1 p-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                value="@p.Type"
+                                @onchange="e => SetParamType(p, e)">
+                            @foreach (var t in DelegateBuilderCore.CommonTypes)
+                            {
+                                <option value="@t">@t</option>
+                            }
+                            <option value="__custom__">Custom…</option>
+                        </select>
+
+                        @if (p.Type == "__custom__")
+                        {
+                            <input type="text"
+                                   class="w-28 p-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="MyType"
+                                   value="@p.CustomType"
+                                   @onchange="e => SetParamCustomType(p, e)" />
+                        }
+
+                        @* Name *@
+                        <input type="text"
+                               class="w-24 p-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="name"
+                               value="@p.Name"
+                               @onchange="e => SetParamName(p, e)" />
+
+                        @* Remove *@
+                        <button class="p-1 text-red-500 hover:text-red-700 transition-colors cursor-pointer border-none bg-transparent"
+                                @onclick="() => RemoveParameter(idx)"
+                                title="Remove parameter">
+                            <i class="ti ti-x text-sm"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <button class="mt-3 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                    @onclick="AddParameter"
+                    disabled="@(_mode == "predicate" && _parameters.Count >= 1)">
+                <i class="ti ti-plus mr-1"></i> Add Parameter
+            </button>
+
+            @if (_mode == "predicate" && _parameters.Count >= 1)
+            {
+                <span class="ml-2 text-xs text-gray-400">Predicate&lt;T&gt; takes exactly one parameter</span>
+            }
+        </div>
+
+        @* -- Options -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-adjustments mr-1"></i> Options</h3>
+            <div class="flex flex-wrap gap-4">
+                <label class="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" class="rounded" @bind="_isNullable" @bind:after="SaveState" />
+                    <span>Nullable types <code class="text-xs font-mono">?</code></span>
+                </label>
+                <label class="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" class="rounded" @bind="_isAsync" @bind:after="SaveState" />
+                    <span>Async <code class="text-xs font-mono">Task&lt;&gt;</code></span>
+                </label>
+            </div>
+        </div>
+
+        @* -- Validation messages -- *@
+        @foreach (var msg in GetValidations())
+        {
+            <div class="border rounded p-3 text-sm @msg.Css">
+                <i class="ti ti-@msg.Icon mr-1"></i> @msg.Text
+            </div>
+        }
+    </div>
+
+    @* ==================== RIGHT: Output ==================== *@
+    <div class="space-y-4">
+
+        @* -- Generated snippets -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-code mr-1"></i> Generated Code</h3>
+
+            <div class="space-y-4">
+                @foreach (var snippet in GenerateSnippets())
+                {
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs text-gray-500">@snippet.Label</span>
+                            <button class="text-xs text-gray-400 hover:text-blue-500 transition-colors cursor-pointer border-none bg-transparent"
+                                    @onclick="() => CopyToClipboard(snippet.Code)">
+                                <i class="ti ti-copy mr-0.5"></i> Copy
+                            </button>
+                        </div>
+                        <pre class="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-sm font-mono overflow-x-auto whitespace-pre-wrap">@snippet.Code</pre>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* -- Quick Reference -- *@
+        <details class="border border-gray-200 dark:border-gray-700 rounded" open>
+            <summary class="p-4 cursor-pointer text-sm font-semibold text-gray-500 select-none">
+                <i class="ti ti-book mr-1"></i> Quick Reference
+            </summary>
+            <div class="px-4 pb-4 space-y-4">
+
+                @* Delegate equivalents table *@
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500">Type</th>
+                                <th class="text-left p-2 text-gray-500">Equivalent</th>
+                                <th class="text-left p-2 text-gray-500">Params</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in DelegateBuilderCore.ReferenceRows)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2 font-mono text-blue-600 dark:text-blue-400">@r.Type</td>
+                                    <td class="p-2 font-mono text-gray-600 dark:text-gray-400">@r.Equivalent</td>
+                                    <td class="p-2 text-gray-500">@r.Notes</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @* Notes *@
+                <div class="space-y-2 text-xs text-gray-500 dark:text-gray-400">
+                    <p><strong>Max parameters:</strong> <code class="font-mono">Func&lt;&gt;</code> and <code class="font-mono">Action&lt;&gt;</code> support up to <strong>16</strong> type parameters.</p>
+                    <p><strong>Covariance (<code class="font-mono">out</code>):</strong> Return types in generic delegates can be covariant — <code class="font-mono">Func&lt;out TResult&gt;</code> means a <code class="font-mono">Func&lt;string&gt;</code> is assignable to <code class="font-mono">Func&lt;object&gt;</code>.</p>
+                    <p><strong>Contravariance (<code class="font-mono">in</code>):</strong> Parameter types can be contravariant — <code class="font-mono">Action&lt;in T&gt;</code> means an <code class="font-mono">Action&lt;object&gt;</code> is assignable to <code class="font-mono">Action&lt;string&gt;</code>.</p>
+                    <p><strong class="text-amber-600 dark:text-amber-400">⚠ Ref structs:</strong> <code class="font-mono">Span&lt;T&gt;</code>, <code class="font-mono">ReadOnlySpan&lt;T&gt;</code>, and other <code class="font-mono">ref struct</code> types <em>cannot</em> be used as generic type arguments for <code class="font-mono">Func&lt;&gt;</code> or <code class="font-mono">Action&lt;&gt;</code>. Use a custom <code class="font-mono">delegate</code> declaration instead.</p>
+                </div>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(
+        string Mode,
+        string ReturnType,
+        string CustomReturnType,
+        bool IsNullable,
+        bool IsAsync,
+        string DelegateName,
+        string AccessModifier
+    );
+
+    sealed class ParamInfo
+    {
+        public string Type { get; set; } = "int";
+        public string CustomType { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Modifier { get; set; } = "";
+
+        public string ResolvedType => Type == "__custom__" ? (string.IsNullOrWhiteSpace(CustomType) ? "object" : CustomType) : Type;
+    }
+
+    private string _mode = "func";
+    private readonly List<ParamInfo> _parameters = new();
+    private string _returnType = "bool";
+    private string _customReturnType = "";
+    private bool _isNullable;
+    private bool _isAsync;
+    private string _delegateName = "MyDelegate";
+    private string _accessModifier = "public";
+
+    private void SetMode(string mode)
+    {
+        _mode = mode;
+        if (_mode == "predicate" && _parameters.Count > 1)
+            _parameters.RemoveRange(1, _parameters.Count - 1);
+        if (_mode == "predicate" && _parameters.Count == 0)
+            _parameters.Add(new ParamInfo());
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/func-builder");
+            if (state is not null)
+            {
+                _mode = state.Mode;
+                _returnType = state.ReturnType;
+                _customReturnType = state.CustomReturnType;
+                _isNullable = state.IsNullable;
+                _isAsync = state.IsAsync;
+                _delegateName = state.DelegateName;
+                _accessModifier = state.AccessModifier;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/func-builder", new ToolState(
+            _mode,
+            _returnType,
+            _customReturnType,
+            _isNullable,
+            _isAsync,
+            _delegateName,
+            _accessModifier
+        ));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _mode = state.Mode;
+            _returnType = state.ReturnType;
+            _customReturnType = state.CustomReturnType;
+            _isNullable = state.IsNullable;
+            _isAsync = state.IsAsync;
+            _delegateName = state.DelegateName;
+            _accessModifier = state.AccessModifier;
+            StateHasChanged();
+        }
+    }
+
+    private void AddParameter()
+    {
+        if (_mode == "predicate" && _parameters.Count >= 1) return;
+        _parameters.Add(new ParamInfo { Name = DelegateBuilderCore.DefaultParamName(_parameters.Count) });
+    }
+
+    private void RemoveParameter(int index)
+    {
+        if (index >= 0 && index < _parameters.Count)
+            _parameters.RemoveAt(index);
+    }
+
+    private static void SetParamType(ParamInfo p, ChangeEventArgs e) =>
+        p.Type = e.Value?.ToString() ?? "int";
+
+    private static void SetParamModifier(ParamInfo p, ChangeEventArgs e) =>
+        p.Modifier = e.Value?.ToString() ?? string.Empty;
+
+    private static void SetParamCustomType(ParamInfo p, ChangeEventArgs e) =>
+        p.CustomType = e.Value?.ToString() ?? string.Empty;
+
+    private static void SetParamName(ParamInfo p, ChangeEventArgs e) =>
+        p.Name = e.Value?.ToString() ?? string.Empty;
+
+    private string ResolvedReturnType
+    {
+        get
+        {
+            if (_mode == "action") return "void";
+            if (_mode == "predicate") return "bool";
+            var rt = _returnType == "__custom__"
+                ? (string.IsNullOrWhiteSpace(_customReturnType) ? "object" : _customReturnType)
+                : _returnType;
+            return ApplyNullable(rt);
+        }
+    }
+
+    private string ApplyNullable(string type)
+    {
+        if (!_isNullable) return type;
+        if (type is "string" or "object" || type.Contains('<') || type.Contains('['))
+            return type + "?";
+        if (type is "int" or "long" or "float" or "double" or "decimal" or "bool"
+            or "char" or "byte" or "DateTime" or "DateTimeOffset" or "TimeSpan" or "Guid")
+            return type + "?";
+        return type;
+    }
+
+    private string ParamType(ParamInfo p) => ApplyNullable(p.ResolvedType);
+
+    private string ParamWithModifier(ParamInfo p)
+    {
+        var mod = string.IsNullOrEmpty(p.Modifier) ? "" : p.Modifier + " ";
+        return mod + ParamType(p);
+    }
+
+    private string SafeName(ParamInfo p, int i) =>
+        string.IsNullOrWhiteSpace(p.Name) ? DelegateBuilderCore.DefaultParamName(i) : p.Name;
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private List<DelegateBuilderCore.ValidationMsg> GetValidations()
+    {
+        return DelegateBuilderCore.GetValidations(
+            _mode, _parameters.Count, _returnType,
+            _parameters.Select(p => p.ResolvedType));
+    }
+
+    private List<DelegateBuilderCore.Snippet> GenerateSnippets()
+    {
+        var paramTypes = _parameters.Select(p => ParamType(p)).ToList();
+        var paramNames = _parameters.Select((p, i) => SafeName(p, i)).ToList();
+
+        return _mode switch
+        {
+            "func" => DelegateBuilderCore.GenerateFuncSnippets(paramTypes, paramNames, ResolvedReturnType, _isAsync),
+            "action" => DelegateBuilderCore.GenerateActionSnippets(paramTypes, paramNames, _isAsync),
+            "predicate" => DelegateBuilderCore.GeneratePredicateSnippets(
+                _parameters.Count > 0 ? ParamType(_parameters[0]) : "T",
+                _parameters.Count > 0 ? SafeName(_parameters[0], 0) : "x"),
+            "delegate" => DelegateBuilderCore.GenerateDelegateSnippets(
+                _parameters.Select((p, i) => ParamWithModifier(p)).ToList(),
+                paramNames,
+                ResolvedReturnType,
+                _isAsync,
+                _accessModifier,
+                _delegateName),
+            _ => new()
+        };
+    }
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/func-builder" OnRestore="RestoreState" />

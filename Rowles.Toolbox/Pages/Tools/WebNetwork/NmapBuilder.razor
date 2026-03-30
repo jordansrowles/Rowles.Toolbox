@@ -1,0 +1,590 @@
+@page "/tools/web/nmap-builder"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Nmap Flag Builder- Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Nmap Flag Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-radar mr-1"></i> Compose nmap commands visually</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    @* Legal warning *@
+    <div class="flex items-start gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded text-yellow-800 dark:text-yellow-300 text-xs">
+        <i class="ti ti-alert-triangle text-lg mt-0.5 shrink-0"></i>
+        <div>
+            <strong>Legal Notice:</strong> Only scan networks you own or have explicit written permission to scan. Unauthorised port scanning may violate local laws and can result in criminal charges. You are solely responsible for how you use any generated commands.
+        </div>
+    </div>
+
+    @if (IsAggressiveMode)
+    {
+        <div class="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded text-red-800 dark:text-red-300 text-xs">
+            <i class="ti ti-alert-octagon text-lg mt-0.5 shrink-0"></i>
+            <div>
+                <strong>Detection Risk:</strong> Your current configuration uses aggressive options that are easily detected by intrusion detection systems (IDS/IPS) and firewalls. This includes high timing templates, aggressive scanning, or vulnerability scripts.
+            </div>
+        </div>
+    }
+
+    @* Presets *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+        <div class="flex flex-wrap gap-2">
+            @foreach (NmapBuilderCore.NmapPreset preset in NmapBuilderCore.Presets)
+            {
+                <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        @onclick="() => ApplyPreset(preset)">
+                    <i class="ti @preset.Icon mr-0.5"></i> @preset.Name
+                </button>
+            }
+            <button class="px-2 py-1 text-xs rounded cursor-pointer border border-red-300 dark:border-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400"
+                    @onclick="ResetAll">
+                <i class="ti ti-trash mr-0.5"></i> Reset
+            </button>
+        </div>
+    </div>
+
+    @* Main builder grid *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        @* Left column *@
+        <div class="space-y-4">
+
+            @* Target and Ports *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-target mr-1"></i> Target &amp; Ports</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Target host, IP, or subnet</label>
+                        <input type="text"
+                               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="e.g. 192.168.1.0/24 or scanme.nmap.org"
+                               @bind="_target"
+                               @bind:after="SaveState" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Port specification</label>
+                        <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                @bind="_portMode"
+                                @bind:after="SaveState">
+                            <option value="common">Common ports (nmap default)</option>
+                            <option value="top100">Top 100 ports</option>
+                            <option value="top1000">Top 1000 ports</option>
+                            <option value="specific">Specific ports</option>
+                            <option value="all">All 65535 ports</option>
+                        </select>
+                    </div>
+                    @if (_portMode == "specific")
+                    {
+                        <div>
+                            <input type="text"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="e.g. 22,80,443 or 1-1024"
+                                   @bind="_specificPorts"
+                                   @bind:after="SaveState" />
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Scan Type *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-scan mr-1"></i> Scan Type</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    @foreach (NmapBuilderCore.ScanTypeOption opt in NmapBuilderCore.ScanTypes)
+                    {
+                        <div class="flex items-start gap-2 p-2 rounded cursor-pointer border transition-colors @(ScanTypeItemClass(opt.Flag))"
+                             @onclick="() => SelectScanType(opt.Flag)">
+                            <i class="ti @(_scanType == opt.Flag ? "ti-circle-check-filled text-blue-500" : "ti-circle text-gray-400") mt-0.5 text-sm shrink-0"></i>
+                            <div>
+                                <span class="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">@opt.Flag</span>
+                                <span class="text-xs text-gray-600 dark:text-gray-400 ml-1">@opt.Name</span>
+                                <p class="text-[10px] text-gray-400 mt-0.5 leading-tight">@opt.Description</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Service and Version Detection *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-search mr-1"></i> Service / Version Detection</h3>
+                <div class="space-y-3">
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_versionDetection" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-sV</span> Version detection
+                    </label>
+                    @if (_versionDetection)
+                    {
+                        <div class="ml-5 pl-2 border-l-2 border-gray-200 dark:border-gray-700">
+                            <label class="block text-xs font-medium mb-1">
+                                Intensity: <strong class="text-blue-600 dark:text-blue-400">@_versionIntensity</strong>
+                                <span class="text-gray-400 ml-1">(@VersionIntensityLabel)</span>
+                            </label>
+                            <input type="range" min="0" max="9" @bind="_versionIntensity" @bind:after="SaveState"
+                                   class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+                            <div class="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                                <span>0 (Light)</span>
+                                <span>9 (All probes)</span>
+                            </div>
+                        </div>
+                    }
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_osDetection" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-O</span> OS detection
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_aggressive" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-A</span> Aggressive (OS + version + scripts + traceroute)
+                    </label>
+                    @if (_aggressive)
+                    {
+                        <p class="text-[10px] text-amber-600 dark:text-amber-400 ml-5">
+                            <i class="ti ti-info-circle mr-0.5"></i> Includes -sV, -O, default scripts, and traceroute
+                        </p>
+                    }
+                </div>
+            </div>
+
+            @* Timing and Performance *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-clock mr-1"></i> Timing &amp; Performance</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Timing template</label>
+                        <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                @bind="_timingLevel"
+                                @bind:after="SaveState">
+                             @foreach (NmapBuilderCore.TimingOption opt in NmapBuilderCore.TimingOptions)
+                            {
+                                <option value="@opt.Level">T@(opt.Level) &ndash; @opt.Name</option>
+                            }
+                        </select>
+                        <p class="text-[10px] text-gray-400 mt-1">@CurrentTimingDescription</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Min rate (pkts/sec)</label>
+                            <input type="text" inputmode="numeric"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="e.g. 100"
+                                   @bind="_minRate"
+                                   @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Max rate (pkts/sec)</label>
+                            <input type="text" inputmode="numeric"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="e.g. 1000"
+                                   @bind="_maxRate"
+                                   @bind:after="SaveState" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Right column *@
+        <div class="space-y-4">
+
+            @* Output Format *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-export mr-1"></i> Output Format</h3>
+                <div class="space-y-3">
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            @bind="_outputFormat"
+                            @bind:after="SaveState">
+                        <option value="">None (stdout only)</option>
+                        <option value="-oN">-oN Normal text output</option>
+                        <option value="-oX">-oX XML output</option>
+                        <option value="-oG">-oG Greppable output</option>
+                        <option value="-oA">-oA All formats at once</option>
+                    </select>
+                    @if (!string.IsNullOrEmpty(_outputFormat))
+                    {
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Output filename</label>
+                            <input type="text"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="scan_output"
+                                   @bind="_outputFilename"
+                                   @bind:after="SaveState" />
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* NSE Scripts *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-script mr-1"></i> NSE Scripts</h3>
+                <div class="space-y-3">
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_scriptEnabled" @bind:after="SaveState" />
+                        Enable script scanning
+                    </label>
+                    @if (_scriptEnabled)
+                    {
+                        <div class="space-y-2 ml-1">
+                            <p class="text-[10px] text-gray-400">Script categories:</p>
+                            <div class="flex flex-wrap gap-x-4 gap-y-1">
+                                @foreach (string cat in NmapBuilderCore.ScriptCategoryNames)
+                                {
+                                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                        <input type="checkbox"
+                                               checked="@_selectedCategories.Contains(cat)"
+                                               @onchange="(ChangeEventArgs e) => HandleCategoryChange(cat, e)" />
+                                        @cat
+                                    </label>
+                                }
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-gray-400 mb-1">Or specify custom scripts:</label>
+                                <input type="text"
+                                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       placeholder="e.g. http-title,ssl-enum-ciphers"
+                                       @bind="_customScript"
+                                       @bind:after="SaveState" />
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Additional Flags *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Additional Flags</h3>
+                <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_verbose" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-v</span> Verbose
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_veryVerbose" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-vv</span> Very verbose
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_skipHostDiscovery" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-Pn</span> Skip host discovery
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_openOnly" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">--open</span> Open ports only
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_ipv6" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-6</span> IPv6
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_reason" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">--reason</span> Show reason
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_traceroute" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">--traceroute</span> Traceroute
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" class="rounded" @bind="_noDns" @bind:after="SaveState" />
+                        <span class="font-mono font-bold">-n</span> No DNS resolution
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Generated Command *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-terminal mr-1"></i> Generated Command</h3>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="CopyCommand">
+                <i class="ti ti-copy mr-0.5"></i> @(_copied ? "Copied!" : "Copy")
+            </button>
+        </div>
+        <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm font-mono whitespace-pre-wrap break-all select-all">@GeneratedCommand</pre>
+
+        @if (string.IsNullOrWhiteSpace(_target))
+        {
+            <p class="text-[10px] text-amber-500 mt-2"><i class="ti ti-info-circle mr-0.5"></i> Enter a target above to complete the command.</p>
+        }
+    </div>
+
+    @* Flag Reference *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Active Flag Reference</h3>
+        <div class="space-y-1.5">
+            @foreach (NmapBuilderCore.FlagInfo info in ActiveFlagExplanations)
+            {
+                <div class="flex items-start gap-2 text-xs">
+                    <span class="font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap shrink-0 min-w-[120px]">@info.Flag</span>
+                    <span class="text-gray-500 dark:text-gray-400">@info.Description</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/nmap-builder" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    private string _target = string.Empty;
+    private string _portMode = "common";
+    private string _specificPorts = string.Empty;
+    private string _scanType = "-sS";
+    private bool _versionDetection;
+    private int _versionIntensity = 7;
+    private bool _osDetection;
+    private bool _aggressive;
+    private int _timingLevel = 3;
+    private string _minRate = string.Empty;
+    private string _maxRate = string.Empty;
+    private string _outputFormat = string.Empty;
+    private string _outputFilename = string.Empty;
+    private bool _scriptEnabled;
+    private readonly List<string> _selectedCategories = [];
+    private string _customScript = string.Empty;
+    private bool _verbose;
+    private bool _veryVerbose;
+    private bool _skipHostDiscovery;
+    private bool _openOnly;
+    private bool _ipv6;
+    private bool _reason;
+    private bool _traceroute;
+    private bool _noDns;
+    private bool _copied;
+    private string? _statusMessage;
+
+    sealed record ToolState(
+        string Target, string PortMode, string SpecificPorts, string ScanType,
+        bool VersionDetection, int VersionIntensity, bool OsDetection, bool Aggressive,
+        int TimingLevel, string MinRate, string MaxRate,
+        string OutputFormat, string OutputFilename,
+        bool ScriptEnabled, string CustomScript,
+        bool Verbose, bool VeryVerbose, bool SkipHostDiscovery,
+        bool OpenOnly, bool Ipv6, bool Reason, bool Traceroute, bool NoDns);
+
+    private bool IsAggressiveMode =>
+        _aggressive || _timingLevel >= 4 || _selectedCategories.Contains("vuln");
+
+    private string VersionIntensityLabel => NmapBuilderCore.GetVersionIntensityLabel(_versionIntensity);
+
+    private string CurrentTimingDescription =>
+        NmapBuilderCore.TimingOptions.FirstOrDefault(t => t.Level == _timingLevel)?.Description ?? "";
+
+    private NmapBuilderCore.NmapOptions BuildOptions() => new(
+        Target: _target,
+        PortMode: _portMode,
+        SpecificPorts: _specificPorts,
+        ScanType: _scanType,
+        VersionDetection: _versionDetection,
+        VersionIntensity: _versionIntensity,
+        OsDetection: _osDetection,
+        Aggressive: _aggressive,
+        TimingLevel: _timingLevel,
+        MinRate: _minRate,
+        MaxRate: _maxRate,
+        OutputFormat: _outputFormat,
+        OutputFilename: _outputFilename,
+        ScriptEnabled: _scriptEnabled,
+        SelectedCategories: _selectedCategories,
+        CustomScript: _customScript,
+        Verbose: _verbose,
+        VeryVerbose: _veryVerbose,
+        SkipHostDiscovery: _skipHostDiscovery,
+        OpenOnly: _openOnly,
+        Ipv6: _ipv6,
+        Reason: _reason,
+        Traceroute: _traceroute,
+        NoDns: _noDns);
+
+    private string GeneratedCommand => NmapBuilderCore.BuildCommand(BuildOptions());
+
+    private List<NmapBuilderCore.FlagInfo> ActiveFlagExplanations => NmapBuilderCore.BuildExplanations(BuildOptions());
+
+    private void SelectScanType(string flag) => _scanType = flag;
+
+    private void HandleCategoryChange(string category, ChangeEventArgs e)
+    {
+        bool isChecked = e.Value is true;
+        if (isChecked)
+        {
+            if (!_selectedCategories.Contains(category))
+                _selectedCategories.Add(category);
+        }
+        else
+        {
+            _selectedCategories.Remove(category);
+        }
+    }
+
+    private void ApplyPreset(NmapBuilderCore.NmapPreset preset)
+    {
+        string savedTarget = _target;
+        ResetAll();
+        _target = savedTarget;
+        _scanType = preset.ScanType;
+        _timingLevel = preset.TimingLevel;
+        _portMode = preset.PortMode;
+        _versionDetection = preset.VersionDetection;
+        _osDetection = preset.OsDetection;
+        _aggressive = preset.Aggressive;
+        _scriptEnabled = preset.ScriptEnabled;
+        foreach (string cat in preset.ScriptCategories)
+            _selectedCategories.Add(cat);
+        _verbose = preset.Verbose;
+        _skipHostDiscovery = preset.SkipHostDiscovery;
+        _openOnly = preset.OpenOnly;
+        _noDns = preset.NoDns;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/nmap-builder");
+            if (state is not null)
+            {
+                _target = state.Target;
+                _portMode = state.PortMode;
+                _specificPorts = state.SpecificPorts;
+                _scanType = state.ScanType;
+                _versionDetection = state.VersionDetection;
+                _versionIntensity = state.VersionIntensity;
+                _osDetection = state.OsDetection;
+                _aggressive = state.Aggressive;
+                _timingLevel = state.TimingLevel;
+                _minRate = state.MinRate;
+                _maxRate = state.MaxRate;
+                _outputFormat = state.OutputFormat;
+                _outputFilename = state.OutputFilename;
+                _scriptEnabled = state.ScriptEnabled;
+                _customScript = state.CustomScript;
+                _verbose = state.Verbose;
+                _veryVerbose = state.VeryVerbose;
+                _skipHostDiscovery = state.SkipHostDiscovery;
+                _openOnly = state.OpenOnly;
+                _ipv6 = state.Ipv6;
+                _reason = state.Reason;
+                _traceroute = state.Traceroute;
+                _noDns = state.NoDns;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/web/nmap-builder", new ToolState(
+            _target, _portMode, _specificPorts, _scanType,
+            _versionDetection, _versionIntensity, _osDetection, _aggressive,
+            _timingLevel, _minRate, _maxRate,
+            _outputFormat, _outputFilename,
+            _scriptEnabled, _customScript,
+            _verbose, _veryVerbose, _skipHostDiscovery,
+            _openOnly, _ipv6, _reason, _traceroute, _noDns));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _target = state.Target;
+                _portMode = state.PortMode;
+                _specificPorts = state.SpecificPorts;
+                _scanType = state.ScanType;
+                _versionDetection = state.VersionDetection;
+                _versionIntensity = state.VersionIntensity;
+                _osDetection = state.OsDetection;
+                _aggressive = state.Aggressive;
+                _timingLevel = state.TimingLevel;
+                _minRate = state.MinRate;
+                _maxRate = state.MaxRate;
+                _outputFormat = state.OutputFormat;
+                _outputFilename = state.OutputFilename;
+                _scriptEnabled = state.ScriptEnabled;
+                _customScript = state.CustomScript;
+                _verbose = state.Verbose;
+                _veryVerbose = state.VeryVerbose;
+                _skipHostDiscovery = state.SkipHostDiscovery;
+                _openOnly = state.OpenOnly;
+                _ipv6 = state.Ipv6;
+                _reason = state.Reason;
+                _traceroute = state.Traceroute;
+                _noDns = state.NoDns;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private void ResetAll()
+    {
+        _target = string.Empty;
+        _portMode = "common";
+        _specificPorts = string.Empty;
+        _scanType = "-sS";
+        _versionDetection = false;
+        _versionIntensity = 7;
+        _osDetection = false;
+        _aggressive = false;
+        _timingLevel = 3;
+        _minRate = string.Empty;
+        _maxRate = string.Empty;
+        _outputFormat = string.Empty;
+        _outputFilename = string.Empty;
+        _scriptEnabled = false;
+        _selectedCategories.Clear();
+        _customScript = string.Empty;
+        _verbose = false;
+        _veryVerbose = false;
+        _skipHostDiscovery = false;
+        _openOnly = false;
+        _ipv6 = false;
+        _reason = false;
+        _traceroute = false;
+        _noDns = false;
+    }
+
+    private async Task CopyCommand()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GeneratedCommand);
+        _copied = true;
+        _statusMessage = "Command copied to clipboard";
+        StateHasChanged();
+        await Storage.AddRecentAsync("tools/web/nmap-builder",
+            $"{(string.IsNullOrWhiteSpace(_target) ? "(no target)" : _target)} {_scanType}",
+            new ToolState(_target, _portMode, _specificPorts, _scanType,
+                _versionDetection, _versionIntensity, _osDetection, _aggressive,
+                _timingLevel, _minRate, _maxRate,
+                _outputFormat, _outputFilename,
+                _scriptEnabled, _customScript,
+                _verbose, _veryVerbose, _skipHostDiscovery,
+                _openOnly, _ipv6, _reason, _traceroute, _noDns));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        await Task.Delay(1500);
+        _copied = false;
+        _statusMessage = null;
+    }
+
+    private string ScanTypeItemClass(string flag) => _scanType == flag
+        ? "border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20"
+        : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600";
+}

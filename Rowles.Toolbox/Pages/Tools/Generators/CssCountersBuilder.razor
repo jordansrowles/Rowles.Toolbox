@@ -1,0 +1,526 @@
+@page "/tools/generators/css-counters"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+@using System.Text.Json
+
+<PageTitle>CSS Counters Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="CSS Counters Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-list-numbers mr-1"></i> Visual counter-increment / counter-reset builder</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    @* ── Left column: Builder ── *@
+    <div class="space-y-3">
+        @* Presets *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (CssCountersBuilderCore.CounterPreset preset in _presets)
+                {
+                    <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="() => ApplyPreset(preset)">
+                        @preset.Name
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Counter definitions *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-variable mr-1"></i> Counter Definitions</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="AddCounter">
+                    <i class="ti ti-plus mr-0.5"></i> Add counter
+                </button>
+            </div>
+            <div class="space-y-2">
+                @for (int i = 0; i < _counters.Count; i++)
+                {
+                    int idx = i;
+                    <div class="flex items-center gap-2 text-xs">
+                        <input type="text" placeholder="name"
+                               class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_counters[idx].Name"
+                               @onchange="async (ChangeEventArgs e) => { _counters[idx].Name = SanitiseIdent(e.Value?.ToString()); await SaveState(); }" />
+                        <label class="text-gray-400 whitespace-nowrap">init</label>
+                        <input type="number"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_counters[idx].InitialValue"
+                               @onchange="async (ChangeEventArgs e) => { _counters[idx].InitialValue = ParseInt(e.Value, 0); await SaveState(); }" />
+                        <label class="text-gray-400 whitespace-nowrap">inc</label>
+                        <input type="number"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_counters[idx].IncrementValue"
+                               @onchange="async (ChangeEventArgs e) => { _counters[idx].IncrementValue = ParseInt(e.Value, 1); await SaveState(); }" />
+                        <button class="text-red-400 hover:text-red-600 cursor-pointer border-none bg-transparent"
+                                @onclick="async () => { await RemoveCounter(idx); }">
+                            <i class="ti ti-x text-xs"></i>
+                        </button>
+                    </div>
+                }
+                @if (_counters.Count == 0)
+                {
+                    <p class="text-xs text-gray-400 italic">No counters defined. Add one above.</p>
+                }
+            </div>
+        </div>
+
+        @* Reset rules *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-refresh mr-1"></i> Reset Rules</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="AddResetRule" disabled="@(_counters.Count == 0)">
+                    <i class="ti ti-plus mr-0.5"></i> Add rule
+                </button>
+            </div>
+            <div class="space-y-2">
+                @for (int i = 0; i < _resetRules.Count; i++)
+                {
+                    int idx = i;
+                    <div class="flex items-center gap-2 text-xs">
+                        <input type="text" placeholder="selector (e.g. body)"
+                               class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_resetRules[idx].Selector"
+                               @onchange="async (ChangeEventArgs e) => { _resetRules[idx].Selector = e.Value?.ToString() ?? string.Empty; await SaveState(); }" />
+                        <select class="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                value="@_resetRules[idx].CounterName"
+                                @onchange="async (ChangeEventArgs e) => { _resetRules[idx].CounterName = e.Value?.ToString() ?? string.Empty; await SaveState(); }">
+                            <option value="">-- counter --</option>
+                            @foreach (CssCountersBuilderCore.CounterDef c in _counters)
+                            {
+                                <option value="@c.Name">@c.Name</option>
+                            }
+                        </select>
+                        <label class="text-gray-400 whitespace-nowrap">to</label>
+                        <input type="number"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_resetRules[idx].ResetTo"
+                               @onchange="async (ChangeEventArgs e) => { _resetRules[idx].ResetTo = ParseInt(e.Value, 0); await SaveState(); }" />
+                        <button class="text-red-400 hover:text-red-600 cursor-pointer border-none bg-transparent"
+                                @onclick="async () => { _resetRules.RemoveAt(idx); await SaveState(); }">
+                            <i class="ti ti-x text-xs"></i>
+                        </button>
+                    </div>
+                }
+                @if (_resetRules.Count == 0)
+                {
+                    <p class="text-xs text-gray-400 italic">No reset rules.</p>
+                }
+            </div>
+        </div>
+
+        @* Increment rules *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-plus mr-1"></i> Increment Rules</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="AddIncrementRule" disabled="@(_counters.Count == 0)">
+                    <i class="ti ti-plus mr-0.5"></i> Add rule
+                </button>
+            </div>
+            <div class="space-y-2">
+                @for (int i = 0; i < _incrementRules.Count; i++)
+                {
+                    int idx = i;
+                    <div class="flex items-center gap-2 text-xs">
+                        <input type="text" placeholder="selector (e.g. h2)"
+                               class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_incrementRules[idx].Selector"
+                               @onchange="async (ChangeEventArgs e) => { _incrementRules[idx].Selector = e.Value?.ToString() ?? string.Empty; await SaveState(); }" />
+                        <select class="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                value="@_incrementRules[idx].CounterName"
+                                @onchange="async (ChangeEventArgs e) => { _incrementRules[idx].CounterName = e.Value?.ToString() ?? string.Empty; await SaveState(); }">
+                            <option value="">-- counter --</option>
+                            @foreach (CssCountersBuilderCore.CounterDef c in _counters)
+                            {
+                                <option value="@c.Name">@c.Name</option>
+                            }
+                        </select>
+                        <label class="text-gray-400 whitespace-nowrap">by</label>
+                        <input type="number"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_incrementRules[idx].IncrementBy"
+                               @onchange="async (ChangeEventArgs e) => { _incrementRules[idx].IncrementBy = ParseInt(e.Value, 1); await SaveState(); }" />
+                        <button class="text-red-400 hover:text-red-600 cursor-pointer border-none bg-transparent"
+                                @onclick="async () => { _incrementRules.RemoveAt(idx); await SaveState(); }">
+                            <i class="ti ti-x text-xs"></i>
+                        </button>
+                    </div>
+                }
+                @if (_incrementRules.Count == 0)
+                {
+                    <p class="text-xs text-gray-400 italic">No increment rules.</p>
+                }
+            </div>
+        </div>
+
+        @* Display rules *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-eye mr-1"></i> Display Rules</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="AddDisplayRule" disabled="@(_counters.Count == 0)">
+                    <i class="ti ti-plus mr-0.5"></i> Add rule
+                </button>
+            </div>
+            <div class="space-y-3">
+                @for (int i = 0; i < _displayRules.Count; i++)
+                {
+                    int idx = i;
+                    <div class="border border-gray-100 dark:border-gray-800 rounded p-3 space-y-2">
+                        <div class="flex items-center gap-2 text-xs">
+                            <input type="text" placeholder="selector (e.g. h2::before)"
+                                   class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                   value="@_displayRules[idx].Selector"
+                                   @onchange="async (ChangeEventArgs e) => { _displayRules[idx].Selector = e.Value?.ToString() ?? string.Empty; await SaveState(); }" />
+                            <button class="text-red-400 hover:text-red-600 cursor-pointer border-none bg-transparent"
+                                    @onclick="async () => { _displayRules.RemoveAt(idx); await SaveState(); }">
+                                <i class="ti ti-x text-xs"></i>
+                            </button>
+                        </div>
+                        <div class="text-xs">
+                            <label class="text-gray-400 block mb-1">Content template</label>
+                            <input type="text" placeholder='e.g. counter(section) ". "'
+                                   class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                   value="@_displayRules[idx].ContentTemplate"
+                                   @onchange="async (ChangeEventArgs e) => { _displayRules[idx].ContentTemplate = e.Value?.ToString() ?? string.Empty; await SaveState(); }" />
+                            <div class="flex flex-wrap gap-1 mt-1">
+                                @foreach (CssCountersBuilderCore.CounterDef c in _counters)
+                                {
+                                    string counterName = c.Name;
+                                    string sep = _displayRules[idx].Separator;
+                                    <button class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 cursor-pointer border-none text-xs"
+                                            @onclick="() => InsertCounterToken(idx, counterName, false)">
+                                        counter(@counterName)
+                                    </button>
+                                    <button class="px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 cursor-pointer border-none text-xs"
+                                            @onclick="() => InsertCounterToken(idx, counterName, true)">
+                                        counters(@counterName)
+                                    </button>
+                                }
+                                <button class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-pointer border-none text-xs"
+                                        @onclick="() => InsertDotSeparatorLiteral(idx)">
+                                    ". "
+                                </button>
+                                <button class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-pointer border-none text-xs"
+                                        @onclick="() => InsertSpaceLiteral(idx)">
+                                    " "
+                                </button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                                <label class="text-gray-400 block mb-1">Style</label>
+                                <select class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        value="@_displayRules[idx].Style"
+                                        @onchange="async (ChangeEventArgs e) => await SetDisplayRuleStyle(idx, e)">
+                                    @foreach (string style in _counterStyles)
+                                    {
+                                        <option value="@style">@style</option>
+                                    }
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-gray-400 block mb-1">Separator (for counters())</label>
+                                <input type="text" placeholder="."
+                                       class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                       value="@_displayRules[idx].Separator"
+                                       @onchange="async (ChangeEventArgs e) => await SetDisplayRuleSeparator(idx, e)" />
+                            </div>
+                        </div>
+                    </div>
+                }
+                @if (_displayRules.Count == 0)
+                {
+                    <p class="text-xs text-gray-400 italic">No display rules.</p>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* ── Right column: Preview + Output ── *@
+    <div class="space-y-3">
+        @* Live preview *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-eye mr-1"></i> Live Preview</h3>
+            <div class="bg-white dark:bg-gray-900/40 border border-gray-100 dark:border-gray-800 rounded p-3 text-xs font-mono space-y-1 max-h-80 overflow-y-auto">
+                @if (GeneratePreview() is { Count: 0 })
+                {
+                    <p class="text-gray-400 italic">Add counters and rules to see a preview.</p>
+                }
+                else
+                {
+                    @foreach (CssCountersBuilderCore.PreviewLine line in GeneratePreview())
+                    {
+                        <div style="padding-left: @(line.Depth * 20)px;" class="py-0.5">
+                            <span class="text-blue-600 dark:text-blue-400 font-semibold">@line.Number</span>
+                            <span class="text-gray-600 dark:text-gray-300">@line.Text</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        @* CSS output *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> Generated CSS</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="CopyCss">
+                    <i class="ti ti-copy mr-0.5"></i> Copy
+                </button>
+            </div>
+            <pre class="w-full p-3 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-900/30 text-xs font-mono text-gray-900 dark:text-gray-100 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">@GenerateCss()</pre>
+        </div>
+
+        @* Explanation *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-info-circle mr-1"></i> How CSS Counters Work</h3>
+            <div class="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                <p><code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">counter-reset</code> — Creates or resets a counter on an element.</p>
+                <p><code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">counter-increment</code> — Increases the counter value each time the element appears.</p>
+                <p><code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">counter(name)</code> — Outputs the current counter value (flat numbering).</p>
+                <p><code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">counters(name, sep)</code> — Outputs nested counter values joined by a separator.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/css-counters" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    
+    sealed record ToolState(
+        List<CssCountersBuilderCore.CounterDef> Counters,
+        List<CssCountersBuilderCore.ResetRule> ResetRules,
+        List<CssCountersBuilderCore.IncrementRule> IncrementRules,
+        List<CssCountersBuilderCore.DisplayRule> DisplayRules
+    );
+    
+    private string? _statusMessage;
+
+    private List<CssCountersBuilderCore.CounterDef> _counters = new();
+    private List<CssCountersBuilderCore.ResetRule> _resetRules = new();
+    private List<CssCountersBuilderCore.IncrementRule> _incrementRules = new();
+    private List<CssCountersBuilderCore.DisplayRule> _displayRules = new();
+
+    private readonly string[] _counterStyles =
+    [
+        "decimal", "decimal-leading-zero", "lower-roman", "upper-roman",
+        "lower-alpha", "upper-alpha", "lower-greek"
+    ];
+
+    private readonly List<CssCountersBuilderCore.CounterPreset> _presets =
+    [
+        new("Numbered Headings",
+            [new("section", 0, 1)],
+            [new("body", "section", 0)],
+            [new("h2", "section", 1)],
+            [new("h2::before", "counter(section) \". \"", "decimal", ".")]),
+
+        new("Nested List",
+            [new("item", 0, 1)],
+            [new("ol", "item", 0)],
+            [new("li", "item", 1)],
+            [new("li::before", "counters(item, \".\") \" \"", "decimal", ".")]),
+
+        new("Figure Numbering",
+            [new("figure", 0, 1)],
+            [new("body", "figure", 0)],
+            [new("figure", "figure", 1)],
+            [new("figcaption::before", "\"Figure \" counter(figure) \": \"", "decimal", ".")]),
+
+        new("Legal Document",
+            [new("section", 0, 1), new("subsection", 0, 1), new("clause", 0, 1)],
+            [new("body", "section", 0), new("h1", "subsection", 0), new("h2", "clause", 0)],
+            [new("h1", "section", 1), new("h2", "subsection", 1), new("h3", "clause", 1)],
+            [
+                new("h1::before", "counter(section) \". \"", "decimal", "."),
+                new("h2::before", "counter(section) \".\" counter(subsection) \" \"", "decimal", "."),
+                new("h3::before", "counter(section) \".\" counter(subsection) \".\" counter(clause) \" \"", "decimal", ".")
+            ])
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ApplyPreset(_presets[0]);
+    }
+
+    // ── Counter management ──
+
+    private async Task AddCounter()
+    {
+        string name = "counter" + (_counters.Count + 1).ToString();
+        _counters.Add(new CssCountersBuilderCore.CounterDef(name, 0, 1));
+        await SaveState();
+    }
+
+    private async Task RemoveCounter(int index)
+    {
+        if (index >= 0 && index < _counters.Count)
+        {
+            string removed = _counters[index].Name;
+            _counters.RemoveAt(index);
+            _resetRules.RemoveAll(r => r.CounterName == removed);
+            _incrementRules.RemoveAll(r => r.CounterName == removed);
+            await SaveState();
+        }
+    }
+
+    // ── Rule management ──
+
+    private async Task AddResetRule()
+    {
+        string firstCounter = _counters.Count > 0 ? _counters[0].Name : string.Empty;
+        _resetRules.Add(new CssCountersBuilderCore.ResetRule("body", firstCounter, 0));
+        await SaveState();
+    }
+
+    private async Task AddIncrementRule()
+    {
+        string firstCounter = _counters.Count > 0 ? _counters[0].Name : string.Empty;
+        _incrementRules.Add(new CssCountersBuilderCore.IncrementRule("h2", firstCounter, 1));
+        await SaveState();
+    }
+
+    private async Task AddDisplayRule()
+    {
+        string firstCounter = _counters.Count > 0 ? _counters[0].Name : string.Empty;
+        _displayRules.Add(new CssCountersBuilderCore.DisplayRule("h2::before", $"counter({firstCounter}) \". \"", "decimal", "."));
+        await SaveState();
+    }
+
+    private void InsertCounterToken(int ruleIndex, string counterName, bool nested)
+    {
+        if (ruleIndex < 0 || ruleIndex >= _displayRules.Count) return;
+        CssCountersBuilderCore.DisplayRule rule = _displayRules[ruleIndex];
+        string token = nested
+            ? $"counters({counterName}, \"{rule.Separator}\")"
+            : $"counter({counterName})";
+        rule.ContentTemplate = rule.ContentTemplate.TrimEnd() + " " + token;
+    }
+
+    private void InsertDotSeparatorLiteral(int ruleIndex) => InsertLiteral(ruleIndex, " \". \" ");
+
+    private void InsertSpaceLiteral(int ruleIndex) => InsertLiteral(ruleIndex, " \" \" ");
+
+    private void InsertLiteral(int ruleIndex, string literal)
+    {
+        if (ruleIndex < 0 || ruleIndex >= _displayRules.Count) return;
+        _displayRules[ruleIndex].ContentTemplate = _displayRules[ruleIndex].ContentTemplate.TrimEnd() + literal;
+    }
+
+    // ── Presets ──
+
+    private async Task ApplyPreset(CssCountersBuilderCore.CounterPreset preset)
+    {
+        _counters = preset.Counters.Select(c => new CssCountersBuilderCore.CounterDef(c.Name, c.Init, c.Inc)).ToList();
+        _resetRules = preset.Resets.Select(r => new CssCountersBuilderCore.ResetRule(r.Selector, r.Counter, r.To)).ToList();
+        _incrementRules = preset.Increments.Select(r => new CssCountersBuilderCore.IncrementRule(r.Selector, r.Counter, r.By)).ToList();
+        _displayRules = preset.Displays.Select(d => new CssCountersBuilderCore.DisplayRule(d.Selector, d.Content, d.Style, d.Sep)).ToList();
+        await SaveState();
+    }
+
+    // ── CSS generation ──
+
+    private string GenerateCss() => CssCountersBuilderCore.GenerateCss(_resetRules, _incrementRules, _displayRules);
+
+    // ── Preview generation ──
+
+    private List<CssCountersBuilderCore.PreviewLine> GeneratePreview() =>
+        CssCountersBuilderCore.GeneratePreview(_counters, _incrementRules, _displayRules);
+
+    private string GetStyleForCounter(string counterName) =>
+        CssCountersBuilderCore.GetStyleForCounter(counterName, _displayRules);
+
+    private string GetSeparatorText(string counterName) =>
+        CssCountersBuilderCore.GetSeparatorText(counterName, _displayRules);
+
+    private static string FormatCounter(int value, string style) =>
+        CssCountersBuilderCore.FormatCounter(value, style);
+
+    // ── Helpers ──
+
+    private static string SanitiseIdent(string? value) =>
+        CssCountersBuilderCore.SanitiseIdent(value);
+
+    private async Task SetDisplayRuleStyle(int idx, ChangeEventArgs e)
+    {
+        _displayRules[idx].Style = e.Value?.ToString() ?? "decimal";
+        await SaveState();
+    }
+
+    private async Task SetDisplayRuleSeparator(int idx, ChangeEventArgs e)
+    {
+        _displayRules[idx].Separator = e.Value?.ToString() ?? ".";
+        await SaveState();
+    }
+
+    private static int ParseInt(object? value, int fallback) =>
+        CssCountersBuilderCore.ParseInt(value, fallback);
+
+    private async Task CopyCss()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GenerateCss());
+        _statusMessage = "CSS copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+        
+        // Add recent entry when CSS is copied
+        await Storage.AddRecentAsync("tools/generators/css-counters", 
+            $"Counters: {string.Join(", ", _counters.Select(c => c.Name))}", 
+            new ToolState(_counters, _resetRules, _incrementRules, _displayRules));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    // ── localStorage persistence ──
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/generators/css-counters");
+            if (state is not null)
+            {
+                _counters = state.Counters;
+                _resetRules = state.ResetRules;
+                _incrementRules = state.IncrementRules;
+                _displayRules = state.DisplayRules;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/generators/css-counters", 
+            new ToolState(_counters, _resetRules, _incrementRules, _displayRules));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _counters = state.Counters;
+            _resetRules = state.ResetRules;
+            _incrementRules = state.IncrementRules;
+            _displayRules = state.DisplayRules;
+            StateHasChanged();
+        }
+    }
+}

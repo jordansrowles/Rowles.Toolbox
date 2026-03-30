@@ -1,0 +1,271 @@
+@page "/tools/image/resize"
+@using System.Text.Json
+@using Rowles.Toolbox.Core.Image
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>Image Resize - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Image Resize" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-resize mr-1"></i> Resize, convert &amp; compress images client-side</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Upload Image</h3>
+            <InputFile OnChange="OnFileSelected" accept="image/*"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+        </div>
+
+        @if (_originalDataUrl is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-photo mr-1"></i> Preview</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs text-gray-400 mb-1">Original (@(_originalWidth)×@(_originalHeight), @ImageResizeCore.FormatBytes(_originalSize))</p>
+                        <img src="@_originalDataUrl" alt="Original" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                    </div>
+                    @if (_resizedDataUrl is not null)
+                    {
+                        <div>
+                            <p class="text-xs text-gray-400 mb-1">Resized (@(_targetWidth)×@(_targetHeight), @ImageResizeCore.FormatBytes(_resizedSize))</p>
+                            <img src="@_resizedDataUrl" alt="Resized" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-dimensions mr-1"></i> Dimensions</h3>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-xs font-medium">Width (px)</label>
+                    <input type="number" min="1" max="10000"
+                           class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_targetWidth" @bind:event="oninput" @bind:after="OnWidthChangedAsync" />
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Height (px)</label>
+                    <input type="number" min="1" max="10000"
+                           class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_targetHeight" @bind:event="oninput" @bind:after="OnHeightChangedAsync" />
+                </div>
+                <label class="flex items-center gap-1 text-xs">
+                    <input type="checkbox" class="rounded" @bind="_lockAspectRatio" @bind:after="SaveState" />
+                    <i class="ti ti-lock text-gray-400"></i> Lock aspect ratio
+                </label>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-grid-dots mr-1"></i> Presets</h3>
+            <div class="flex flex-wrap gap-1">
+                @foreach ((int w, int h) in ImageResizeCore.Presets)
+                {
+                    int pw = w;
+                    int ph = h;
+                    <button class="px-2 py-0.5 text-[10px] rounded cursor-pointer border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            @onclick="() => ApplyPreset(pw, ph)">
+                        @(pw)×@(ph)
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-export mr-1"></i> Output</h3>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-xs font-medium">Format</label>
+                    <select class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_outputFormat" @bind:after="SaveState">
+                        <option value="png">PNG</option>
+                        <option value="jpeg">JPEG</option>
+                        <option value="webp">WebP</option>
+                    </select>
+                </div>
+                @if (_outputFormat is "jpeg" or "webp")
+                {
+                    <div>
+                        <label class="text-xs font-medium">Quality: @_quality%</label>
+                        <input type="range" min="1" max="100" class="w-full" @bind="_quality" @bind:event="oninput" @bind:after="SaveState" />
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="flex gap-2">
+            <button class="flex-1 bg-blue-600 text-white px-3 py-2 text-xs rounded hover:bg-blue-700 cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    @onclick="ResizeImage" disabled="@(_originalDataUrl is null || _isProcessing)">
+                <i class="ti ti-resize mr-0.5"></i> @(_isProcessing ? "Processing…" : "Resize")
+            </button>
+            @if (_resizedDataUrl is not null)
+            {
+                <button class="flex-1 bg-green-600 text-white px-3 py-2 text-xs rounded hover:bg-green-700 cursor-pointer border-none"
+                        @onclick="DownloadResult">
+                    <i class="ti ti-download mr-0.5"></i> Download
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="image-resize" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private IJSObjectReference? _jsModule;
+    private string? _originalDataUrl;
+    private string? _resizedDataUrl;
+    private string _fileName = string.Empty;
+    private long _originalSize;
+    private long _resizedSize;
+    private int _originalWidth;
+    private int _originalHeight;
+    private int _targetWidth = 256;
+    private int _targetHeight = 256;
+    private bool _lockAspectRatio = true;
+    private string _outputFormat = "png";
+    private int _quality = 85;
+    private bool _isProcessing;
+    private double _aspectRatio = 1.0;
+
+    sealed record ToolState(int TargetWidth, int TargetHeight, bool LockAspectRatio, string OutputFormat, int Quality);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/Image/ImageResize.razor.js");
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("image-resize");
+            if (state is not null)
+            {
+                _targetWidth = state.TargetWidth;
+                _targetHeight = state.TargetHeight;
+                _lockAspectRatio = state.LockAspectRatio;
+                _outputFormat = state.OutputFormat;
+                _quality = state.Quality;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        IBrowserFile file = e.File;
+        long maxSize = 50 * 1024 * 1024;
+        using System.IO.Stream stream = file.OpenReadStream(maxSize);
+        byte[] buffer = new byte[file.Size];
+        int bytesRead = await stream.ReadAsync(buffer);
+        string base64 = Convert.ToBase64String(buffer, 0, bytesRead);
+        _originalDataUrl = $"data:{file.ContentType};base64,{base64}";
+        _originalSize = file.Size;
+        _fileName = file.Name;
+
+        if (_jsModule is not null)
+        {
+            JsonElement dims = await _jsModule.InvokeAsync<JsonElement>("getImageDimensions", _originalDataUrl);
+            _originalWidth = dims.GetProperty("width").GetInt32();
+            _originalHeight = dims.GetProperty("height").GetInt32();
+            _targetWidth = _originalWidth;
+            _targetHeight = _originalHeight;
+            _aspectRatio = (double)_originalWidth / _originalHeight;
+        }
+
+        _resizedDataUrl = null;
+    }
+
+    private async Task OnWidthChangedAsync()
+    {
+        if (_lockAspectRatio && _aspectRatio > 0)
+        {
+            _targetHeight = ImageResizeCore.CalculateHeightFromWidth(_targetWidth, _aspectRatio);
+        }
+        await SaveState();
+    }
+
+    private async Task OnHeightChangedAsync()
+    {
+        if (_lockAspectRatio && _aspectRatio > 0)
+        {
+            _targetWidth = ImageResizeCore.CalculateWidthFromHeight(_targetHeight, _aspectRatio);
+        }
+        await SaveState();
+    }
+
+    private void ApplyPreset(int width, int height)
+    {
+        _targetWidth = width;
+        _targetHeight = height;
+        _lockAspectRatio = false;
+    }
+
+    private async Task ResizeImage()
+    {
+        if (_jsModule is null || _originalDataUrl is null) return;
+        _isProcessing = true;
+        StateHasChanged();
+
+        JsonElement result = await _jsModule.InvokeAsync<JsonElement>(
+            "resizeImage", _originalDataUrl, _targetWidth, _targetHeight, _outputFormat, _quality);
+
+        _resizedDataUrl = result.GetProperty("dataUrl").GetString();
+        _resizedSize = result.GetProperty("size").GetInt64();
+        _isProcessing = false;
+
+        string label = $"{_targetWidth}×{_targetHeight} {_outputFormat.ToUpperInvariant()}";
+        ToolState state = new(_targetWidth, _targetHeight, _lockAspectRatio, _outputFormat, _quality);
+        await Storage.AddRecentAsync("image-resize", label, state);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_targetWidth, _targetHeight, _lockAspectRatio, _outputFormat, _quality);
+        await Storage.SaveStateAsync("image-resize", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _targetWidth = state.TargetWidth;
+                _targetHeight = state.TargetHeight;
+                _lockAspectRatio = state.LockAspectRatio;
+                _outputFormat = state.OutputFormat;
+                _quality = state.Quality;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task DownloadResult()
+    {
+        if (_jsModule is null || _resizedDataUrl is null) return;
+        string ext = ImageResizeCore.GetOutputExtension(_outputFormat);
+        string outputName = $"{System.IO.Path.GetFileNameWithoutExtension(_fileName)}_resized.{ext}";
+        await _jsModule.InvokeVoidAsync("downloadDataUrl", _resizedDataUrl, outputName);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+}

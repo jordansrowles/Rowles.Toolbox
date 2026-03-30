@@ -1,0 +1,340 @@
+@page "/tools/inspect/xpath"
+
+@using System.Text.Json
+@using System.Xml
+@using System.Xml.XPath
+@using System.Xml.Linq
+@using Rowles.Toolbox.Core.Inspection
+@inject LocalStorageService Storage
+
+<PageTitle>XPath Tester - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="XPath Tester" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-code mr-1"></i> Evaluate XPath expressions against XML documents</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+    <div class="xl:col-span-3 space-y-4">
+
+        @* XML Input *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-file-code mr-1"></i> XML Input</label>
+            <textarea class="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter XML…"
+                      @bind="_xmlInput"
+                      @bind:event="oninput"
+                      @bind:after="SaveState"></textarea>
+        </div>
+
+        @* XPath Expression *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-search mr-1"></i> XPath Expression</label>
+            <div class="flex gap-2">
+                <input type="text"
+                       class="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="Enter XPath expression…"
+                       @bind="_xpathExpression"
+                       @bind:event="oninput"
+                       @bind:after="SaveState" />
+                <button type="button"
+                        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
+                        @onclick="Evaluate">
+                    <i class="ti ti-player-play mr-1"></i> Evaluate
+                </button>
+            </div>
+        </div>
+
+        @* Namespace Declarations *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <button type="button"
+                    class="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+                    @onclick="() => _namespacesExpanded = !_namespacesExpanded">
+                <i class="ti @(_namespacesExpanded ? "ti-chevron-down" : "ti-chevron-right") text-xs"></i>
+                <i class="ti ti-tag mr-1"></i> Namespace Declarations (@_namespaces.Count)
+            </button>
+            @if (_namespacesExpanded)
+            {
+                <div class="mt-3 space-y-2">
+                    @for (int i = 0; i < _namespaces.Count; i++)
+                    {
+                        int index = i;
+                        <div class="flex gap-2 items-center">
+                            <input type="text"
+                                   class="w-32 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="prefix"
+                                   value="@_namespaces[index].Prefix"
+                                   @oninput="e => OnNamespacePrefixChanged(index, e)" />
+                            <span class="text-gray-400 text-sm">=</span>
+                            <input type="text"
+                                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="http://example.com/namespace"
+                                   value="@_namespaces[index].Uri"
+                                   @oninput="e => OnNamespaceUriChanged(index, e)" />
+                            <button type="button"
+                                    class="p-2 text-red-500 hover:text-red-700 transition-colors"
+                                    @onclick="() => RemoveNamespace(index)">
+                                <i class="ti ti-trash"></i>
+                            </button>
+                        </div>
+                    }
+                    <button type="button"
+                            class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                            @onclick="AddNamespace">
+                        <i class="ti ti-plus mr-1"></i> Add Namespace
+                    </button>
+                </div>
+            }
+        </div>
+
+        @* Errors *@
+        @if (!string.IsNullOrEmpty(_xmlError))
+        {
+            <div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-700 dark:text-red-400">
+                <i class="ti ti-alert-circle mr-1"></i> <strong>XML Error:</strong> @_xmlError
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(_xpathError))
+        {
+            <div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-700 dark:text-red-400">
+                <i class="ti ti-alert-circle mr-1"></i> <strong>XPath Error:</strong> @_xpathError
+            </div>
+        }
+
+        @* Scalar Result *@
+        @if (_scalarResult is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-math-function mr-1"></i> Scalar Result</h3>
+                <div class="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-sm font-mono">
+                    <span class="text-xs text-gray-400 mr-2">(@_scalarResultType)</span>
+                    <span class="text-green-700 dark:text-green-400 font-bold">@_scalarResult</span>
+                </div>
+            </div>
+        }
+
+        @* Results *@
+        @if (_results.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Matching Nodes (@_results.Count)</h3>
+                <div class="space-y-2 max-h-96 overflow-y-auto">
+                    @for (int i = 0; i < _results.Count; i++)
+                    {
+                        XPathTesterCore.XPathResult result = _results[i];
+                        <div class="border border-gray-100 dark:border-gray-600 rounded p-3 bg-gray-50 dark:bg-gray-800">
+                            <div class="flex items-center gap-3 text-sm">
+                                <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded text-xs font-bold">@(i + 1)</span>
+                                <span class="px-2 py-0.5 rounded text-xs font-medium @XPathTesterCore.NodeTypeBadgeClass(result.NodeType)">@result.NodeType</span>
+                                <code class="text-green-600 dark:text-green-400 font-bold">@result.Name</code>
+                            </div>
+                            <div class="mt-2 ml-8 space-y-1">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">
+                                    <span class="font-semibold text-purple-600 dark:text-purple-400">Path:</span>
+                                    <code class="ml-1">@result.Path</code>
+                                </div>
+                                @if (!string.IsNullOrEmpty(result.Value))
+                                {
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                                        <span class="font-semibold text-purple-600 dark:text-purple-400">Value:</span>
+                                        <code class="ml-1 break-all">@XPathTesterCore.Truncate(result.Value, 200)</code>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        @* XML with Line Numbers *@
+        @if (_evaluated && !string.IsNullOrEmpty(_xmlInput))
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-text mr-1"></i> XML (highlighted matches)</h3>
+                <div class="bg-gray-50 dark:bg-gray-800 rounded overflow-x-auto text-sm font-mono max-h-96 overflow-y-auto">
+                    @{
+                        string[] xmlLines = _xmlInput.Split('\n');
+                    }
+                    @for (int i = 0; i < xmlLines.Length; i++)
+                    {
+                        int lineNum = i + 1;
+                        bool isHighlighted = _highlightedLines.Contains(lineNum);
+                        <div class="flex @(isHighlighted ? "bg-yellow-100 dark:bg-yellow-900/30" : "")">
+                            <span class="select-none w-10 text-right pr-3 text-gray-400 dark:text-gray-600 border-r border-gray-200 dark:border-gray-700 shrink-0">@lineNum</span>
+                            <pre class="pl-3 whitespace-pre overflow-x-visible">@xmlLines[i]</pre>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Sidebar — Common XPath Examples *@
+    <div class="space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-bookmarks mr-1"></i> Common XPath Examples</h3>
+            <div class="space-y-2">
+                @foreach (XPathTesterCore.XPathExample example in XPathTesterCore.Examples)
+                {
+                    <button type="button"
+                            class="w-full text-left p-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 text-sm transition-colors"
+                            @onclick="() => ApplyExample(example)">
+                        <code class="text-blue-600 dark:text-blue-400 break-all">@example.Expression</code>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">@example.Description</div>
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> XPath Axes</h3>
+            <div class="space-y-1 text-xs font-mono text-gray-600 dark:text-gray-400">
+                <div><span class="text-blue-500 font-bold">child::</span> Direct children</div>
+                <div><span class="text-blue-500 font-bold">parent::</span> Parent node</div>
+                <div><span class="text-blue-500 font-bold">ancestor::</span> All ancestors</div>
+                <div><span class="text-blue-500 font-bold">descendant::</span> All descendants</div>
+                <div><span class="text-blue-500 font-bold">following::</span> After closing tag</div>
+                <div><span class="text-blue-500 font-bold">preceding::</span> Before opening tag</div>
+                <div><span class="text-blue-500 font-bold">self::</span> Current node</div>
+                <div><span class="text-blue-500 font-bold">attribute::</span> Attributes (@@)</div>
+                <div><span class="text-blue-500 font-bold">/</span> Root or child step</div>
+                <div><span class="text-blue-500 font-bold">//</span> Descendant-or-self</div>
+                <div><span class="text-blue-500 font-bold">.</span> Current node</div>
+                <div><span class="text-blue-500 font-bold">..</span> Parent node</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/inspect/xpath" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _xmlInput = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <bookstore>
+          <book category="fiction" id="b1">
+            <title lang="en">The Great Gatsby</title>
+            <author>F. Scott Fitzgerald</author>
+            <year>1925</year>
+            <price>10.99</price>
+          </book>
+          <book category="non-fiction" id="b2">
+            <title lang="en">A Brief History of Time</title>
+            <author>Stephen Hawking</author>
+            <year>1988</year>
+            <price>15.50</price>
+          </book>
+          <book category="fiction" id="b3">
+            <title lang="fr">Le Petit Prince</title>
+            <author>Antoine de Saint-Exupéry</author>
+            <year>1943</year>
+            <price>8.99</price>
+          </book>
+        </bookstore>
+        """;
+
+    private string _xpathExpression = "//book[@category='fiction']/title";
+    private string? _xmlError;
+    private string? _xpathError;
+    private string? _scalarResult;
+    private string? _scalarResultType;
+    private bool _evaluated;
+    private bool _namespacesExpanded;
+
+    private List<XPathTesterCore.XPathResult> _results = [];
+    private HashSet<int> _highlightedLines = [];
+    private readonly List<XPathTesterCore.NamespaceEntry> _namespaces = [];
+
+    sealed record ToolState(string XmlInput, string XpathExpression);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/inspect/xpath");
+            if (state is not null)
+            {
+                _xmlInput = state.XmlInput;
+                _xpathExpression = state.XpathExpression;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/inspect/xpath", new ToolState(_xmlInput, _xpathExpression));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _xmlInput = state.XmlInput;
+            _xpathExpression = state.XpathExpression;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Evaluate()
+    {
+        _evaluated = true;
+
+        (List<XPathTesterCore.XPathResult> results, HashSet<int> highlightedLines, string? scalarResult,
+            string? scalarResultType, string? xmlError, string? xpathError) =
+            XPathTesterCore.Evaluate(_xmlInput, _xpathExpression, _namespaces);
+
+        _results = results;
+        _highlightedLines = highlightedLines;
+        _scalarResult = scalarResult;
+        _scalarResultType = scalarResultType;
+        _xmlError = xmlError;
+        _xpathError = xpathError;
+
+        if (_recentPanel is not null && _xmlError is null && _xpathError is null)
+        {
+            string label = _xpathExpression.Length > 40 ? _xpathExpression[..40] + "..." : _xpathExpression;
+            await Storage.AddRecentAsync("tools/inspect/xpath", label, new ToolState(_xmlInput, _xpathExpression));
+            await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task ApplyExample(XPathTesterCore.XPathExample example)
+    {
+        _xpathExpression = example.Expression;
+        await SaveState();
+    }
+
+    private void AddNamespace()
+    {
+        _namespaces.Add(new XPathTesterCore.NamespaceEntry { Prefix = "", Uri = "" });
+    }
+
+    private void RemoveNamespace(int index)
+    {
+        if (index >= 0 && index < _namespaces.Count)
+        {
+            _namespaces.RemoveAt(index);
+        }
+    }
+
+    private void OnNamespacePrefixChanged(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < _namespaces.Count)
+        {
+            _namespaces[index].Prefix = e.Value?.ToString() ?? "";
+        }
+    }
+
+    private void OnNamespaceUriChanged(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < _namespaces.Count)
+        {
+            _namespaces[index].Uri = e.Value?.ToString() ?? "";
+        }
+    }
+}

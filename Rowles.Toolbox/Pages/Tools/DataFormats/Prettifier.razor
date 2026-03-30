@@ -1,0 +1,229 @@
+@page "/tools/data/prettify"
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Data Prettifier - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Data Prettifier" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-code mr-1"></i> Prettify or minify JSON data</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="Prettify">
+        <i class="ti ti-indent-increase"></i> Prettify
+    </button>
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="Minify">
+        <i class="ti ti-indent-decrease"></i> Minify
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="CopyOutput">
+        <i class="ti ti-copy"></i> @(_copied ? "Copied!" : "Copy")
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="Clear">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+
+    <div class="flex items-center gap-2 ml-auto">
+        <label class="text-xs text-gray-500">Indent:</label>
+        <select class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800"
+                @bind="_indentSize"
+                @bind:after="SaveState">
+            <option value="2">2 spaces</option>
+            <option value="4">4 spaces</option>
+        </select>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@if (_detectedFormat is not null)
+{
+    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 p-2 rounded text-xs mb-3 inline-flex items-center gap-1">
+        <i class="ti ti-info-circle"></i> Detected format: <span class="font-semibold">@_detectedFormat</span>
+    </div>
+}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Input</label>
+        <textarea class="w-full h-96 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Paste JSON here..."
+                  @bind="_input"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Output</label>
+            @if (!string.IsNullOrEmpty(_output))
+            {
+                <span class="text-xs text-gray-400">@_output.Length.ToString("N0") chars</span>
+            }
+        </div>
+        <textarea class="w-full h-96 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  readonly
+                  @bind="_output"></textarea>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/prettify" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Input, int IndentSize);
+
+    private string _input = string.Empty;
+    private string _output = string.Empty;
+    private string? _error;
+    private string? _detectedFormat;
+    private int _indentSize = 2;
+    private bool _copied;
+
+    private async Task Prettify()
+    {
+        _error = null;
+        _detectedFormat = null;
+        _copied = false;
+        if (string.IsNullOrWhiteSpace(_input))
+        {
+            _error = "Input is empty.";
+            return;
+        }
+
+        string trimmed = _input.Trim();
+        if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
+        {
+            _detectedFormat = "JSON";
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(trimmed);
+                JsonSerializerOptions opts = new()
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                };
+                JsonNode? node = JsonNode.Parse(trimmed);
+                string indented = node?.ToJsonString(opts) ?? "null";
+                // Reformat with desired indent size
+                if (_indentSize != 2)
+                {
+                    indented = PrettifierCore.ReindentJson(indented, _indentSize);
+                }
+                _output = indented;
+                await SaveState();
+                string label = _input.Length > 50 ? "Prettify: " + _input[..50] + "..." : "Prettify: " + _input;
+                await Storage.AddRecentAsync("tools/data/prettify", label, new ToolState(_input, _indentSize));
+                if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+            }
+            catch (JsonException ex)
+            {
+                _error = $"Invalid JSON: {ex.Message}";
+            }
+        }
+        else
+        {
+            _error = "Could not detect format. Only JSON (starting with { or [) is supported.";
+        }
+    }
+
+    private async Task Minify()
+    {
+        _error = null;
+        _detectedFormat = null;
+        _copied = false;
+        if (string.IsNullOrWhiteSpace(_input))
+        {
+            _error = "Input is empty.";
+            return;
+        }
+
+        string trimmed = _input.Trim();
+        if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
+        {
+            _detectedFormat = "JSON";
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(trimmed);
+                _output = JsonSerializer.Serialize(doc.RootElement);
+                await SaveState();
+                string label = _input.Length > 50 ? "Minify: " + _input[..50] + "..." : "Minify: " + _input;
+                await Storage.AddRecentAsync("tools/data/prettify", label, new ToolState(_input, _indentSize));
+                if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+            }
+            catch (JsonException ex)
+            {
+                _error = $"Invalid JSON: {ex.Message}";
+            }
+        }
+        else
+        {
+            _error = "Could not detect format. Only JSON (starting with { or [) is supported.";
+        }
+    }
+
+    private async Task CopyOutput()
+    {
+        if (!string.IsNullOrEmpty(_output))
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", _output);
+            _copied = true;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copied = false;
+            StateHasChanged();
+        }
+    }
+
+    private void Clear()
+    {
+        _input = string.Empty;
+        _output = string.Empty;
+        _error = null;
+        _detectedFormat = null;
+        _copied = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/prettify");
+            if (state is not null)
+            {
+                _input = state.Input;
+                _indentSize = state.IndentSize;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/prettify", new ToolState(_input, _indentSize));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _input = state.Input;
+            _indentSize = state.IndentSize;
+            StateHasChanged();
+        }
+    }
+}

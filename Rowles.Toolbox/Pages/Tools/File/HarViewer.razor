@@ -1,0 +1,475 @@
+@page "/tools/file/har"
+@using System.Text.Json
+@using Rowles.Toolbox.Core.File
+@inject LocalStorageService Storage
+
+<PageTitle>HAR Viewer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="HAR Viewer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-file-analytics mr-1"></i> Inspect HTTP Archive (.har) files</span>
+    </Actions>
+</PageHeader>
+
+@if (_entries.Count == 0)
+{
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-6">
+        <label class="block text-sm font-medium mb-2">Upload HAR File</label>
+        <InputFile OnChange="HandleFileUpload" accept=".har,.json"
+                   class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <p class="text-red-500 text-xs mt-2"><i class="ti ti-alert-circle mr-1"></i>@_errorMessage</p>
+        }
+    </div>
+}
+else
+{
+    <div class="space-y-4">
+        @* -- Summary Stats -- *@
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-500 mb-1"><i class="ti ti-list-numbers mr-1"></i> Requests</div>
+                <div class="text-xl font-bold">@_entries.Count.ToString("N0")</div>
+            </div>
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-500 mb-1"><i class="ti ti-download mr-1"></i> Total Size</div>
+                <div class="text-xl font-bold">@HarViewerCore.FormatBytes(_entries.Sum(e => e.ResponseSize))</div>
+            </div>
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-500 mb-1"><i class="ti ti-clock mr-1"></i> Total Time</div>
+                <div class="text-xl font-bold">@_entries.Sum(e => e.Time).ToString("N0") ms</div>
+            </div>
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-500 mb-1"><i class="ti ti-file-type-css mr-1"></i> Content Types</div>
+                <div class="text-xl font-bold">@_contentTypeBreakdown.Count</div>
+            </div>
+        </div>
+
+        @* -- Content Type Breakdown -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-chart-bar mr-1"></i> Content Type Breakdown</h3>
+            <div class="space-y-1.5">
+                @foreach (KeyValuePair<string, int> kv in _contentTypeBreakdown.OrderByDescending(x => x.Value))
+                {
+                    int pct = (int)Math.Round(100.0 * kv.Value / _entries.Count);
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="w-36 truncate text-gray-600 dark:text-gray-400">@kv.Key</span>
+                        <div class="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-500 rounded-full" style="width: @pct%"></div>
+                        </div>
+                        <span class="text-gray-500 w-16 text-right">@kv.Value (@pct%)</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* -- Filters -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-filter mr-1"></i> Filters</h3>
+            <div class="flex flex-wrap gap-3 items-end">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Status Code</label>
+                    <select class="p-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                            @bind="_statusFilter" @bind:after="SaveState">
+                        <option value="">All</option>
+                        <option value="2xx">2xx Success</option>
+                        <option value="3xx">3xx Redirect</option>
+                        <option value="4xx">4xx Client Error</option>
+                        <option value="5xx">5xx Server Error</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Content Type</label>
+                    <select class="p-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                            @bind="_contentTypeFilter" @bind:after="SaveState">
+                        <option value="">All</option>
+                        @foreach (string ct in _contentTypeBreakdown.Keys.OrderBy(x => x))
+                        {
+                            <option value="@ct">@ct</option>
+                        }
+                    </select>
+                </div>
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-xs text-gray-500 mb-1">URL Pattern</label>
+                    <input type="text" placeholder="Filter by URL…"
+                           class="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                           @bind="_urlFilter" @bind:event="oninput" @bind:after="SaveState" />
+                </div>
+                <button class="px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+                        @onclick="ClearFilters">
+                    <i class="ti ti-x mr-1"></i> Clear
+                </button>
+                <button class="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded hover:bg-red-200 dark:hover:bg-red-900/50"
+                        @onclick="Reset">
+                    <i class="ti ti-trash mr-1"></i> New File
+                </button>
+            </div>
+        </div>
+
+        @* -- Waterfall Timing -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-chart-bar mr-1"></i> Waterfall</h3>
+            <div class="space-y-0.5 max-h-64 overflow-y-auto">
+                @{ double maxTime = FilteredEntries.Any() ? FilteredEntries.Max(e => e.StartedMs + e.Time) : 1; }
+                @foreach (HarViewerCore.HarEntry entry in FilteredEntries.Take(100))
+                {
+                    double leftPct = maxTime > 0 ? (entry.StartedMs / maxTime) * 100 : 0;
+                    double widthPct = maxTime > 0 ? Math.Max((entry.Time / maxTime) * 100, 0.5) : 0.5;
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="w-48 truncate text-gray-500" title="@entry.Url">@HarViewerCore.TruncateUrl(entry.Url)</span>
+                        <div class="flex-1 h-3 bg-gray-50 dark:bg-gray-800 rounded relative">
+                            <div class="absolute h-full rounded @HarViewerCore.StatusBarColor(entry.Status)" style="left: @leftPct.ToString("F1")%; width: @widthPct.ToString("F1")%"></div>
+                        </div>
+                        <span class="w-16 text-right text-gray-400">@entry.Time.ToString("F0")ms</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* -- Entries Table -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+            <div class="p-2 bg-gray-50 dark:bg-gray-800 text-xs text-gray-500">
+                Showing @FilteredEntries.Count of @_entries.Count entries
+            </div>
+            <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                        <tr>
+                            <th class="p-2 text-left text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @onclick='() => SortBy("method")'>
+                                Method @SortIcon("method")
+                            </th>
+                            <th class="p-2 text-left text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @onclick='() => SortBy("url")'>
+                                URL @SortIcon("url")
+                            </th>
+                            <th class="p-2 text-left text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @onclick='() => SortBy("status")'>
+                                Status @SortIcon("status")
+                            </th>
+                            <th class="p-2 text-right text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @onclick='() => SortBy("size")'>
+                                Size @SortIcon("size")
+                            </th>
+                            <th class="p-2 text-right text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @onclick='() => SortBy("time")'>
+                                Time @SortIcon("time")
+                            </th>
+                            <th class="p-2 text-left text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @onclick='() => SortBy("type")'>
+                                Type @SortIcon("type")
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (HarViewerCore.HarEntry entry in FilteredEntries)
+                        {
+                            <tr class="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
+                                @onclick="() => ToggleExpand(entry)">
+                                <td class="p-2">
+                                    <span class="px-1.5 py-0.5 rounded text-xs font-mono font-semibold @HarViewerCore.MethodColor(entry.Method)">@entry.Method</span>
+                                </td>
+                                <td class="p-2 max-w-xs truncate font-mono text-xs" title="@entry.Url">@entry.Url</td>
+                                <td class="p-2">
+                                    <span class="px-1.5 py-0.5 rounded text-xs font-mono @HarViewerCore.StatusColor(entry.Status)">@entry.Status</span>
+                                </td>
+                                <td class="p-2 text-right text-xs text-gray-500">@HarViewerCore.FormatBytes(entry.ResponseSize)</td>
+                                <td class="p-2 text-right text-xs text-gray-500">@entry.Time.ToString("F1") ms</td>
+                                <td class="p-2 text-xs text-gray-500 truncate max-w-[120px]">@entry.ContentType</td>
+                            </tr>
+                            @if (_expandedEntry == entry)
+                            {
+                                <tr class="bg-gray-50 dark:bg-gray-800/80">
+                                    <td colspan="6" class="p-4">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                                            @* Timing Breakdown *@
+                                            <div>
+                                                <h4 class="font-semibold text-gray-500 mb-2"><i class="ti ti-clock mr-1"></i> Timing</h4>
+                                                <div class="space-y-1">
+                                                    @foreach (KeyValuePair<string, double> t in entry.Timings)
+                                                    {
+                                                        <div class="flex justify-between">
+                                                            <span class="text-gray-600 dark:text-gray-400">@t.Key</span>
+                                                            <span class="font-mono">@(t.Value >= 0 ? $"{t.Value:F1} ms" : "—")</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                            @* Request Headers *@
+                                            <div>
+                                                <h4 class="font-semibold text-gray-500 mb-2"><i class="ti ti-arrow-up mr-1"></i> Request Headers</h4>
+                                                <div class="max-h-48 overflow-y-auto space-y-0.5">
+                                                    @foreach (KeyValuePair<string, string> h in entry.RequestHeaders)
+                                                    {
+                                                        <div class="flex gap-2">
+                                                            <span class="text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap">@h.Key:</span>
+                                                            <span class="text-gray-600 dark:text-gray-400 break-all">@h.Value</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                            @* Response Headers *@
+                                            <div class="md:col-span-2">
+                                                <h4 class="font-semibold text-gray-500 mb-2"><i class="ti ti-arrow-down mr-1"></i> Response Headers</h4>
+                                                <div class="max-h-48 overflow-y-auto space-y-0.5">
+                                                    @foreach (KeyValuePair<string, string> h in entry.ResponseHeaders)
+                                                    {
+                                                        <div class="flex gap-2">
+                                                            <span class="text-green-600 dark:text-green-400 font-medium whitespace-nowrap">@h.Key:</span>
+                                                            <span class="text-gray-600 dark:text-gray-400 break-all">@h.Value</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/file/har" OnRestore="RestoreState" />
+
+@code {
+    private List<HarViewerCore.HarEntry> _entries = [];
+    private Dictionary<string, int> _contentTypeBreakdown = new();
+    private string _errorMessage = string.Empty;
+    private string _statusFilter = string.Empty;
+    private string _contentTypeFilter = string.Empty;
+    private string _urlFilter = string.Empty;
+    private string _sortColumn = "time";
+    private bool _sortAscending;
+    private HarViewerCore.HarEntry? _expandedEntry;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string StatusFilter, string ContentTypeFilter, string UrlFilter, string SortColumn, bool SortAscending);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("har-viewer");
+            if (state is not null)
+            {
+                _statusFilter = state.StatusFilter;
+                _contentTypeFilter = state.ContentTypeFilter;
+                _urlFilter = state.UrlFilter;
+                _sortColumn = state.SortColumn;
+                _sortAscending = state.SortAscending;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private List<HarViewerCore.HarEntry> FilteredEntries =>
+        HarViewerCore.FilterEntries(_entries, _statusFilter, _contentTypeFilter, _urlFilter, _sortColumn, _sortAscending);
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        _errorMessage = string.Empty;
+        _entries.Clear();
+        _contentTypeBreakdown.Clear();
+        _expandedEntry = null;
+
+        try
+        {
+            IBrowserFile file = e.File;
+            using Stream stream = file.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
+            using JsonDocument doc = await JsonDocument.ParseAsync(stream);
+
+            JsonElement root = doc.RootElement;
+            if (!root.TryGetProperty("log", out JsonElement log) ||
+                !log.TryGetProperty("entries", out JsonElement entries))
+            {
+                _errorMessage = "Invalid HAR file: missing 'log.entries' structure.";
+                return;
+            }
+
+            double firstStarted = double.MaxValue;
+            List<HarViewerCore.HarEntry> tempEntries = [];
+
+            foreach (JsonElement entry in entries.EnumerateArray())
+            {
+                double startedMs = 0;
+                if (entry.TryGetProperty("startedDateTime", out JsonElement startedDt) &&
+                    DateTime.TryParse(startedDt.GetString(), out DateTime started))
+                {
+                    startedMs = started.ToUniversalTime().Subtract(DateTime.UnixEpoch).TotalMilliseconds;
+                    if (startedMs < firstStarted) firstStarted = startedMs;
+                }
+
+                JsonElement request = entry.GetProperty("request");
+                JsonElement response = entry.GetProperty("response");
+
+                string method = request.GetProperty("method").GetString() ?? "GET";
+                string url = request.GetProperty("url").GetString() ?? "";
+                int status = response.GetProperty("status").GetInt32();
+
+                long responseSize = 0;
+                if (response.TryGetProperty("content", out JsonElement content) &&
+                    content.TryGetProperty("size", out JsonElement sizeEl))
+                {
+                    responseSize = sizeEl.GetInt64();
+                }
+
+                double time = entry.TryGetProperty("time", out JsonElement timeEl) ? timeEl.GetDouble() : 0;
+
+                string contentType = "";
+                if (response.TryGetProperty("content", out JsonElement ct) &&
+                    ct.TryGetProperty("mimeType", out JsonElement mime))
+                {
+                    contentType = mime.GetString() ?? "";
+                    int semicolon = contentType.IndexOf(';');
+                    if (semicolon >= 0) contentType = contentType[..semicolon].Trim();
+                }
+
+                Dictionary<string, string> reqHeaders = [];
+                if (request.TryGetProperty("headers", out JsonElement reqH))
+                {
+                    foreach (JsonElement h in reqH.EnumerateArray())
+                    {
+                        string name = h.GetProperty("name").GetString() ?? "";
+                        string value = h.GetProperty("value").GetString() ?? "";
+                        reqHeaders[name] = value;
+                    }
+                }
+
+                Dictionary<string, string> resHeaders = [];
+                if (response.TryGetProperty("headers", out JsonElement resH))
+                {
+                    foreach (JsonElement h in resH.EnumerateArray())
+                    {
+                        string name = h.GetProperty("name").GetString() ?? "";
+                        string value = h.GetProperty("value").GetString() ?? "";
+                        resHeaders[name] = value;
+                    }
+                }
+
+                Dictionary<string, double> timings = new();
+                if (entry.TryGetProperty("timings", out JsonElement timingsEl))
+                {
+                    string[] timingKeys = ["blocked", "dns", "connect", "ssl", "send", "wait", "receive"];
+                    foreach (string key in timingKeys)
+                    {
+                        if (timingsEl.TryGetProperty(key, out JsonElement tv))
+                        {
+                            timings[key] = tv.GetDouble();
+                        }
+                    }
+                }
+
+                tempEntries.Add(new HarViewerCore.HarEntry
+                {
+                    Method = method,
+                    Url = url,
+                    Status = status,
+                    ResponseSize = responseSize,
+                    Time = time,
+                    ContentType = contentType,
+                    StartedMs = startedMs,
+                    RequestHeaders = reqHeaders,
+                    ResponseHeaders = resHeaders,
+                    Timings = timings
+                });
+            }
+
+            // Normalize start times relative to first request
+            if (firstStarted < double.MaxValue)
+            {
+                foreach (HarViewerCore.HarEntry entry in tempEntries)
+                {
+                    entry.StartedMs -= firstStarted;
+                }
+            }
+
+            _entries = tempEntries;
+
+            // Build content type breakdown
+            foreach (HarViewerCore.HarEntry entry in _entries)
+            {
+                string key = string.IsNullOrEmpty(entry.ContentType) ? "(none)" : entry.ContentType;
+                _contentTypeBreakdown.TryGetValue(key, out int count);
+                _contentTypeBreakdown[key] = count + 1;
+            }
+            
+            if (_entries.Count > 0)
+                await Storage.AddRecentAsync("har-viewer",
+                    $"HAR: {_entries.Count} requests from {file.Name}",
+                    new ToolState(_statusFilter, _contentTypeFilter, _urlFilter, _sortColumn, _sortAscending));
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to parse HAR file: {ex.Message}";
+        }
+    }
+
+    private void SortBy(string column)
+    {
+        if (_sortColumn == column)
+        {
+            _sortAscending = !_sortAscending;
+        }
+        else
+        {
+            _sortColumn = column;
+            _sortAscending = true;
+        }
+        _ = SaveState(); // Fire and forget
+    }
+
+    private void ToggleExpand(HarViewerCore.HarEntry entry)
+    {
+        _expandedEntry = _expandedEntry == entry ? null : entry;
+    }
+
+    private void ClearFilters()
+    {
+        _statusFilter = string.Empty;
+        _contentTypeFilter = string.Empty;
+        _urlFilter = string.Empty;
+        _ = SaveState(); // Fire and forget
+    }
+
+    private void Reset()
+    {
+        _entries.Clear();
+        _contentTypeBreakdown.Clear();
+        _expandedEntry = null;
+        _errorMessage = string.Empty;
+        ClearFilters();
+        _ = SaveState(); // Fire and forget
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("har-viewer", 
+            new ToolState(_statusFilter, _contentTypeFilter, _urlFilter, _sortColumn, _sortAscending));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _statusFilter = state.StatusFilter;
+                _contentTypeFilter = state.ContentTypeFilter;
+                _urlFilter = state.UrlFilter;
+                _sortColumn = state.SortColumn;
+                _sortAscending = state.SortAscending;
+                StateHasChanged();
+                await _recentPanel?.RefreshAsync()!;
+            }
+        }
+        catch { /* ignore invalid state */ }
+    }
+
+    private MarkupString SortIcon(string column)
+    {
+        if (_sortColumn != column) return new MarkupString("");
+        string icon = _sortAscending ? "ti-arrow-up" : "ti-arrow-down";
+        return new MarkupString($"<i class=\"ti {icon} text-xs\"></i>");
+    }
+
+}

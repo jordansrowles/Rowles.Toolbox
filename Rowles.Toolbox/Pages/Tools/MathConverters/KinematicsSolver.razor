@@ -1,0 +1,925 @@
+@page "/tools/math/kinematics"
+@namespace Rowles.Toolbox.Pages.Tools.MathConverters
+@using Rowles.Toolbox.Core.MathConverters
+@using System.Globalization
+@using System.Text.Json
+@inject LocalStorageService Storage
+
+<PageTitle>Kinematics Solver (SUVAT) - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Kinematics Solver" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400">
+            <i class="ti ti-atom-2 mr-1"></i>SUVAT — solve any 2 unknowns given 3 known values
+        </span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    @* ── Top row: presets + equation reference ────────────────── *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-2">
+            <h3 class="text-sm font-semibold text-gray-500">
+                <i class="ti ti-bookmark mr-1"></i>Presets
+            </h3>
+            <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    @onchange="OnPresetChange">
+                <option value="">— choose a scenario —</option>
+                <option value="freefall">Free fall from rest (u = 0, a = 9.81 m/s²)</option>
+                <option value="braking">Braking car (u = 30 m/s, v = 0, a = −5 m/s²)</option>
+                <option value="projectile">Horizontal projectile (a = 0, u = 20 m/s, t = 5 s)</option>
+            </select>
+            @if (!string.IsNullOrEmpty(_selectedPreset))
+            {
+                <p class="text-xs text-blue-600 dark:text-blue-400 italic">
+                    <i class="ti ti-info-circle mr-1"></i>@PresetHint(_selectedPreset)
+                </p>
+            }
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2">
+                <i class="ti ti-math-function mr-1"></i>Equations Reference
+            </h3>
+            <div class="space-y-0.5 text-xs font-mono">
+                <div class="flex items-center gap-2 py-0.5">
+                    <span class="w-4 text-center font-bold text-blue-500">①</span>
+                    <span class="text-gray-600 dark:text-gray-400 flex-1">v = u + at</span>
+                    <span class="text-gray-400">(no s)</span>
+                </div>
+                <div class="flex items-center gap-2 py-0.5">
+                    <span class="w-4 text-center font-bold text-blue-500">②</span>
+                    <span class="text-gray-600 dark:text-gray-400 flex-1">s = ut + ½at²</span>
+                    <span class="text-gray-400">(no v)</span>
+                </div>
+                <div class="flex items-center gap-2 py-0.5">
+                    <span class="w-4 text-center font-bold text-blue-500">③</span>
+                    <span class="text-gray-600 dark:text-gray-400 flex-1">v² = u² + 2as</span>
+                    <span class="text-gray-400">(no t)</span>
+                </div>
+                <div class="flex items-center gap-2 py-0.5">
+                    <span class="w-4 text-center font-bold text-blue-500">④</span>
+                    <span class="text-gray-600 dark:text-gray-400 flex-1">s = ½(u + v)t</span>
+                    <span class="text-gray-400">(no a)</span>
+                </div>
+                <div class="flex items-center gap-2 py-0.5">
+                    <span class="w-4 text-center font-bold text-blue-500">⑤</span>
+                    <span class="text-gray-600 dark:text-gray-400 flex-1">s = vt − ½at²</span>
+                    <span class="text-gray-400">(no u)</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    @* ── Variable input grid ───────────────────────────────────── *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+
+        <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-500">
+                <i class="ti ti-variable mr-1"></i>Variables
+            </h3>
+            <span class="text-xs text-gray-400">
+                leave unknowns empty ·
+                <span class="@(KnownCount >= 3 ? "text-green-600 dark:text-green-400 font-semibold" : "text-amber-500 font-semibold")">
+                    @KnownCount / 5 known
+                </span>
+                @if (KnownCount < 3)
+                {
+                    <span class="text-amber-400"> (need ≥ 3)</span>
+                }
+            </span>
+        </div>
+
+        @* Column header hint — hidden on xs *@
+        <div class="hidden sm:grid sm:grid-cols-[2rem_9rem_1fr_2.5rem_3.5rem] gap-2 sm:gap-3 px-1 pb-0.5 border-b border-gray-100 dark:border-gray-800">
+            <span class="text-xs text-gray-400">Var</span>
+            <span class="text-xs text-gray-400">Name</span>
+            <span class="text-xs text-gray-400">Value</span>
+            <span class="text-xs text-gray-400 text-center">Unit</span>
+            <span class="text-xs text-gray-400 text-right">Status</span>
+        </div>
+
+        <div class="divide-y divide-gray-100 dark:divide-gray-800 -mx-1">
+
+            @* ── s — displacement ── *@
+            <div class="flex items-center gap-2 sm:gap-3 px-1 py-2.5">
+                <span class="w-7 h-7 flex-shrink-0 inline-flex items-center justify-center rounded font-mono font-bold text-sm bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">s</span>
+                <span class="hidden sm:block w-36 flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">displacement</span>
+                <input type="text"
+                       inputmode="decimal"
+                       placeholder="unknown"
+                       class="flex-1 min-w-0 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-violet-500 focus:border-violet-500 placeholder:text-gray-300 dark:placeholder:text-gray-600"
+                       @bind="_sInput"
+                       @bind:event="oninput"
+                       @bind:after="SaveState" />
+                <span class="w-10 flex-shrink-0 text-center text-xs text-gray-400 font-mono">m</span>
+                <span class="w-14 flex-shrink-0 text-right">
+                    <span class="@BadgeCss(_sInput)">@BadgeLabel(_sInput)</span>
+                </span>
+            </div>
+
+            @* ── u — initial velocity ── *@
+            <div class="flex items-center gap-2 sm:gap-3 px-1 py-2.5">
+                <span class="w-7 h-7 flex-shrink-0 inline-flex items-center justify-center rounded font-mono font-bold text-sm bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">u</span>
+                <span class="hidden sm:block w-36 flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">initial velocity</span>
+                <input type="text"
+                       inputmode="decimal"
+                       placeholder="unknown"
+                       class="flex-1 min-w-0 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-violet-500 focus:border-violet-500 placeholder:text-gray-300 dark:placeholder:text-gray-600"
+                       @bind="_uInput"
+                       @bind:event="oninput"
+                       @bind:after="SaveState" />
+                <span class="w-10 flex-shrink-0 text-center text-xs text-gray-400 font-mono">m/s</span>
+                <span class="w-14 flex-shrink-0 text-right">
+                    <span class="@BadgeCss(_uInput)">@BadgeLabel(_uInput)</span>
+                </span>
+            </div>
+
+            @* ── v — final velocity ── *@
+            <div class="flex items-center gap-2 sm:gap-3 px-1 py-2.5">
+                <span class="w-7 h-7 flex-shrink-0 inline-flex items-center justify-center rounded font-mono font-bold text-sm bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">v</span>
+                <span class="hidden sm:block w-36 flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">final velocity</span>
+                <input type="text"
+                       inputmode="decimal"
+                       placeholder="unknown"
+                       class="flex-1 min-w-0 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-violet-500 focus:border-violet-500 placeholder:text-gray-300 dark:placeholder:text-gray-600"
+                       @bind="_vInput"
+                       @bind:event="oninput"
+                       @bind:after="SaveState" />
+                <span class="w-10 flex-shrink-0 text-center text-xs text-gray-400 font-mono">m/s</span>
+                <span class="w-14 flex-shrink-0 text-right">
+                    <span class="@BadgeCss(_vInput)">@BadgeLabel(_vInput)</span>
+                </span>
+            </div>
+
+            @* ── a — acceleration ── *@
+            <div class="flex items-center gap-2 sm:gap-3 px-1 py-2.5">
+                <span class="w-7 h-7 flex-shrink-0 inline-flex items-center justify-center rounded font-mono font-bold text-sm bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">a</span>
+                <span class="hidden sm:block w-36 flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">acceleration</span>
+                <input type="text"
+                       inputmode="decimal"
+                       placeholder="unknown"
+                       class="flex-1 min-w-0 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-violet-500 focus:border-violet-500 placeholder:text-gray-300 dark:placeholder:text-gray-600"
+                       @bind="_aInput"
+                       @bind:event="oninput"
+                       @bind:after="SaveState" />
+                <span class="w-10 flex-shrink-0 text-center text-xs text-gray-400 font-mono">m/s²</span>
+                <span class="w-14 flex-shrink-0 text-right">
+                    <span class="@BadgeCss(_aInput)">@BadgeLabel(_aInput)</span>
+                </span>
+            </div>
+
+            @* ── t — time ── *@
+            <div class="flex items-center gap-2 sm:gap-3 px-1 py-2.5">
+                <span class="w-7 h-7 flex-shrink-0 inline-flex items-center justify-center rounded font-mono font-bold text-sm bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">t</span>
+                <span class="hidden sm:block w-36 flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">time <span class="text-gray-400">(≥ 0)</span></span>
+                <input type="text"
+                       inputmode="decimal"
+                       placeholder="unknown (≥ 0)"
+                       class="flex-1 min-w-0 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-violet-500 focus:border-violet-500 placeholder:text-gray-300 dark:placeholder:text-gray-600"
+                       @bind="_tInput"
+                       @bind:event="oninput"
+                       @bind:after="SaveState" />
+                <span class="w-10 flex-shrink-0 text-center text-xs text-gray-400 font-mono">s</span>
+                <span class="w-14 flex-shrink-0 text-right">
+                    <span class="@BadgeCss(_tInput)">@BadgeLabel(_tInput)</span>
+                </span>
+            </div>
+
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+            <button type="button"
+                    class="px-3 py-1.5 text-xs font-medium rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    @onclick="Reset">
+                <i class="ti ti-refresh mr-1"></i>Clear
+            </button>
+            <button type="button"
+                    class="px-4 py-1.5 text-xs font-medium rounded transition-colors @(KnownCount < 3 ? "bg-blue-300 dark:bg-blue-900/50 text-white cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white")"
+                    disabled="@(KnownCount < 3)"
+                    @onclick="Solve">
+                <i class="ti ti-calculator mr-1"></i>Solve
+            </button>
+        </div>
+
+    </div>
+
+    @* ── Errors ────────────────────────────────────────────────── *@
+    @if (_errors.Count > 0)
+    {
+        <div class="border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 rounded p-3 space-y-1">
+            <p class="text-xs font-semibold text-red-700 dark:text-red-400">
+                <i class="ti ti-alert-triangle mr-1"></i>@(_errors.Count == 1 ? "Issue" : "Issues") detected
+            </p>
+            @foreach (string err in _errors)
+            {
+                <p class="text-xs text-red-600 dark:text-red-400 pl-3">• @err</p>
+            }
+        </div>
+    }
+
+    @* ── Results ───────────────────────────────────────────────── *@
+    @if (_hasSolved)
+    {
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+
+            <h3 class="text-sm font-semibold text-gray-500">
+                <i class="ti ti-circle-check mr-1 @(_errors.Count == 0 ? "text-green-500" : "text-amber-500")"></i>
+                @(_errors.Count == 0 ? "Solution" : "Partial Solution")
+            </h3>
+
+            @* ── Results table ── *@
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700 text-left">
+                            <th class="pb-2 pr-4 text-xs font-medium text-gray-500 w-8">Var</th>
+                            <th class="pb-2 pr-4 text-xs font-medium text-gray-500">Description</th>
+                            <th class="pb-2 pr-4 text-xs font-medium text-gray-500 text-right">Value</th>
+                            <th class="pb-2 pr-4 text-xs font-medium text-gray-500 text-center w-14">Unit</th>
+                            <th class="pb-2 text-xs font-medium text-gray-500 text-center w-16">Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="border-b border-gray-100 dark:border-gray-800">
+                            <td class="py-2 pr-4 font-mono font-bold text-sm text-violet-600 dark:text-violet-400">s</td>
+                            <td class="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400">displacement</td>
+                            <td class="py-2 pr-4 text-right font-mono text-sm font-semibold @SolvedValueCss(_sSolved)">@FmtDisplay(_sSolved)</td>
+                            <td class="py-2 pr-4 text-center text-xs text-gray-400 font-mono">m</td>
+                            <td class="py-2 text-center">
+                                <span class="@SourceCss(_sInput, _sSolved)">@SourceLabel(_sInput, _sSolved)</span>
+                            </td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800">
+                            <td class="py-2 pr-4 font-mono font-bold text-sm text-violet-600 dark:text-violet-400">u</td>
+                            <td class="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400">initial velocity</td>
+                            <td class="py-2 pr-4 text-right font-mono text-sm font-semibold @SolvedValueCss(_uSolved)">@FmtDisplay(_uSolved)</td>
+                            <td class="py-2 pr-4 text-center text-xs text-gray-400 font-mono">m/s</td>
+                            <td class="py-2 text-center">
+                                <span class="@SourceCss(_uInput, _uSolved)">@SourceLabel(_uInput, _uSolved)</span>
+                            </td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800">
+                            <td class="py-2 pr-4 font-mono font-bold text-sm text-violet-600 dark:text-violet-400">v</td>
+                            <td class="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400">final velocity</td>
+                            <td class="py-2 pr-4 text-right font-mono text-sm font-semibold @SolvedValueCss(_vSolved)">@FmtDisplay(_vSolved)</td>
+                            <td class="py-2 pr-4 text-center text-xs text-gray-400 font-mono">m/s</td>
+                            <td class="py-2 text-center">
+                                <span class="@SourceCss(_vInput, _vSolved)">@SourceLabel(_vInput, _vSolved)</span>
+                            </td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800">
+                            <td class="py-2 pr-4 font-mono font-bold text-sm text-violet-600 dark:text-violet-400">a</td>
+                            <td class="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400">acceleration</td>
+                            <td class="py-2 pr-4 text-right font-mono text-sm font-semibold @SolvedValueCss(_aSolved)">@FmtDisplay(_aSolved)</td>
+                            <td class="py-2 pr-4 text-center text-xs text-gray-400 font-mono">m/s²</td>
+                            <td class="py-2 text-center">
+                                <span class="@SourceCss(_aInput, _aSolved)">@SourceLabel(_aInput, _aSolved)</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="py-2 pr-4 font-mono font-bold text-sm text-violet-600 dark:text-violet-400">t</td>
+                            <td class="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400">time</td>
+                            <td class="py-2 pr-4 text-right font-mono text-sm font-semibold @SolvedValueCss(_tSolved)">@FmtDisplay(_tSolved)</td>
+                            <td class="py-2 pr-4 text-center text-xs text-gray-400 font-mono">s</td>
+                            <td class="py-2 text-center">
+                                <span class="@SourceCss(_tInput, _tSolved)">@SourceLabel(_tInput, _tSolved)</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            @* ── Equations applied ── *@
+            @if (_steps.Count > 0)
+            {
+                <div class="pt-3 border-t border-gray-100 dark:border-gray-800 space-y-2">
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        <i class="ti ti-math-function mr-1"></i>Equations Applied
+                    </h4>
+                    <div class="space-y-2">
+                        @for (int i = 0; i < _steps.Count; i++)
+                        {
+                            KinematicsSolverCore.SolverStep step = _steps[i];
+                            <div class="flex items-start gap-2.5 text-xs">
+                                <span class="flex-shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold leading-none">@(i + 1)</span>
+                                <div class="font-mono leading-relaxed min-w-0 break-words">
+                                    <span class="text-gray-500 dark:text-gray-400">@step.Equation</span>
+                                    <span class="text-gray-300 dark:text-gray-600 mx-1">→</span>
+                                    <span class="text-gray-700 dark:text-gray-300">@step.Substituted</span>
+                                    <span class="text-gray-300 dark:text-gray-600 mx-1">=</span>
+                                    <span class="font-bold text-green-600 dark:text-green-400">@Fmt(step.Value)</span>
+                                    <span class="text-gray-400 ml-0.5">@step.Unit</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+        </div>
+    }
+
+    <RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/kinematics" OnRestore="RestoreState" />
+
+</div>
+
+@code {
+    // ── Input strings (empty string = unknown) ────────────────────
+    private string _sInput = string.Empty;
+    private string _uInput = string.Empty;
+    private string _vInput = string.Empty;
+    private string _aInput = string.Empty;
+    private string _tInput = string.Empty;
+
+    // ── Solved output values ──────────────────────────────────────
+    private double? _sSolved;
+    private double? _uSolved;
+    private double? _vSolved;
+    private double? _aSolved;
+    private double? _tSolved;
+
+    // ── UI state ──────────────────────────────────────────────────
+    private List<KinematicsSolverCore.SolverStep> _steps  = new();
+    private List<string>     _errors = new();
+    private bool             _hasSolved;
+    private string           _selectedPreset = string.Empty;
+
+    // ── Persistence ──────────────────────────────────────────────
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string SInput, string UInput, string VInput, string AInput, string TInput, string SelectedPreset);
+
+    // ── Delegate wrappers for extracted static methods ──────────
+    private static bool TryParse(string raw, out double result) => KinematicsSolverCore.TryParse(raw, out result);
+    private static bool IsKnown(string raw) => KinematicsSolverCore.IsKnown(raw);
+    private static string Fmt(double value) => KinematicsSolverCore.Fmt(value);
+    private static string FmtDisplay(double? v) => KinematicsSolverCore.FmtDisplay(v);
+    private static string BadgeCss(string raw) => KinematicsSolverCore.BadgeCss(raw);
+    private static string BadgeLabel(string raw) => KinematicsSolverCore.BadgeLabel(raw);
+    private static string SourceCss(string input, double? solved) => KinematicsSolverCore.SourceCss(input, solved);
+    private static string SourceLabel(string input, double? solved) => KinematicsSolverCore.SourceLabel(input, solved);
+    private static string SolvedValueCss(double? v) => KinematicsSolverCore.SolvedValueCss(v);
+    private static string PresetHint(string preset) => KinematicsSolverCore.PresetHint(preset);
+    private static double PickPositiveRoot(double r1, double r2) => KinematicsSolverCore.PickPositiveRoot(r1, r2);
+
+    private int KnownCount =>
+        (IsKnown(_sInput) ? 1 : 0) + (IsKnown(_uInput) ? 1 : 0) +
+        (IsKnown(_vInput) ? 1 : 0) + (IsKnown(_aInput) ? 1 : 0) +
+        (IsKnown(_tInput) ? 1 : 0);
+
+    // ── Preset handling ───────────────────────────────────────────
+    private async Task OnPresetChange(ChangeEventArgs e)
+    {
+        string preset = e.Value?.ToString() ?? string.Empty;
+        ApplyPreset(preset);
+        await SaveState();
+    }
+
+    private void ApplyPreset(string preset)
+    {
+        _selectedPreset = preset;
+        _sInput = string.Empty;
+        _uInput = string.Empty;
+        _vInput = string.Empty;
+        _aInput = string.Empty;
+        _tInput = string.Empty;
+        ClearResults();
+
+        switch (preset)
+        {
+            case "freefall":
+                _uInput = "0";
+                _aInput = "9.81";
+                break;
+
+            case "braking":
+                _uInput = "30";
+                _vInput = "0";
+                _aInput = "-5";
+                break;
+
+            case "projectile":
+                _aInput = "0";
+                _uInput = "20";
+                _tInput = "5";
+                break;
+        }
+    }
+
+    // ── Reset ─────────────────────────────────────────────────────
+    private void Reset()
+    {
+        _sInput         = string.Empty;
+        _uInput         = string.Empty;
+        _vInput         = string.Empty;
+        _aInput         = string.Empty;
+        _tInput         = string.Empty;
+        _selectedPreset = string.Empty;
+        ClearResults();
+    }
+
+    private void ClearResults()
+    {
+        _sSolved   = null;
+        _uSolved   = null;
+        _vSolved   = null;
+        _aSolved   = null;
+        _tSolved   = null;
+        _steps     = new List<KinematicsSolverCore.SolverStep>();
+        _errors    = new List<string>();
+        _hasSolved = false;
+    }
+
+    // ── Persistence ───────────────────────────────────────────────
+    private const string ToolKey = "tools/math/kinematics";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>(ToolKey);
+            if (state is not null)
+            {
+                _sInput         = state.SInput;
+                _uInput         = state.UInput;
+                _vInput         = state.VInput;
+                _aInput         = state.AInput;
+                _tInput         = state.TInput;
+                _selectedPreset = state.SelectedPreset;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync(ToolKey, new ToolState(_sInput, _uInput, _vInput, _aInput, _tInput, _selectedPreset));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _sInput         = state.SInput;
+            _uInput         = state.UInput;
+            _vInput         = state.VInput;
+            _aInput         = state.AInput;
+            _tInput         = state.TInput;
+            _selectedPreset = state.SelectedPreset;
+            ClearResults();
+            StateHasChanged();
+        }
+    }
+
+    // ── Main SUVAT solver ─────────────────────────────────────────
+    private async Task Solve()
+    {
+        _steps  = new List<KinematicsSolverCore.SolverStep>();
+        _errors = new List<string>();
+        HashSet<string> errorSet = new(StringComparer.Ordinal);
+        _hasSolved = false;
+
+        // Parse all user inputs into nullable doubles
+        double? s = TryParse(_sInput, out double sv) ? sv : (double?)null;
+        double? u = TryParse(_uInput, out double uv) ? uv : (double?)null;
+        double? v = TryParse(_vInput, out double vv) ? vv : (double?)null;
+        double? a = TryParse(_aInput, out double av) ? av : (double?)null;
+        double? t = TryParse(_tInput, out double tv) ? tv : (double?)null;
+
+        // ── Early guards ──────────────────────────────────────────
+        int initialKnown = (s != null ? 1 : 0) + (u != null ? 1 : 0) +
+                           (v != null ? 1 : 0) + (a != null ? 1 : 0) + (t != null ? 1 : 0);
+        if (initialKnown < 3)
+        {
+            _errors = new List<string> { "At least 3 variables must be known to solve the system." };
+            return;
+        }
+
+        if (t != null && t.Value < 0.0)
+        {
+            _errors = new List<string> { $"Time (t) must be ≥ 0. You entered t = {Fmt(t.Value)} s." };
+            return;
+        }
+
+        // ── Iterative substitution loop ───────────────────────────
+        // Each pass attempts every rearrangement of the 5 SUVAT equations.
+        // When a variable is newly solved it is marked known and the loop
+        // repeats until no further progress can be made (or all 5 are known).
+        bool anyProgress = true;
+        int  guard       = 15;   // prevents runaway in degenerate edge-cases
+
+        while (anyProgress && guard-- > 0 &&
+               (s == null || u == null || v == null || a == null || t == null))
+        {
+            anyProgress = false;
+
+            // ── Eq ①  v = u + at  (rearranges for v, u, a, t) ────
+            if (v == null && u != null && a != null && t != null)
+            {
+                double result = u.Value + a.Value * t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "v = u + at",
+                    $"v = {Fmt(u.Value)} + ({Fmt(a.Value)})({Fmt(t.Value)})",
+                    result, "m/s"));
+                v = result;
+                anyProgress = true;
+            }
+
+            if (u == null && v != null && a != null && t != null)
+            {
+                double result = v.Value - a.Value * t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "v = u + at → u = v − at",
+                    $"u = {Fmt(v.Value)} − ({Fmt(a.Value)})({Fmt(t.Value)})",
+                    result, "m/s"));
+                u = result;
+                anyProgress = true;
+            }
+
+            if (a == null && v != null && u != null && t != null && t.Value != 0.0)
+            {
+                double result = (v.Value - u.Value) / t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "v = u + at → a = (v − u) / t",
+                    $"a = ({Fmt(v.Value)} − {Fmt(u.Value)}) / {Fmt(t.Value)}",
+                    result, "m/s²"));
+                a = result;
+                anyProgress = true;
+            }
+
+            if (t == null && v != null && u != null && a != null && a.Value != 0.0)
+            {
+                double result = (v.Value - u.Value) / a.Value;
+                if (result < 0.0)
+                    errorSet.Add($"Eq ①: t = (v − u) / a = {Fmt(result)} s — negative time; inputs may be contradictory.");
+                else
+                {
+                    _steps.Add(new KinematicsSolverCore.SolverStep(
+                        "v = u + at → t = (v − u) / a",
+                        $"t = ({Fmt(v.Value)} − {Fmt(u.Value)}) / {Fmt(a.Value)}",
+                        result, "s"));
+                    t = result;
+                    anyProgress = true;
+                }
+            }
+
+            // ── Eq ②  s = ut + ½at²  (rearranges for s, u, a, t) ─
+            if (s == null && u != null && a != null && t != null)
+            {
+                double result = u.Value * t.Value + 0.5 * a.Value * t.Value * t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = ut + ½at²",
+                    $"s = ({Fmt(u.Value)})({Fmt(t.Value)}) + ½({Fmt(a.Value)})({Fmt(t.Value)})²",
+                    result, "m"));
+                s = result;
+                anyProgress = true;
+            }
+
+            if (u == null && s != null && a != null && t != null && t.Value != 0.0)
+            {
+                double result = (s.Value - 0.5 * a.Value * t.Value * t.Value) / t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = ut + ½at² → u = (s − ½at²) / t",
+                    $"u = ({Fmt(s.Value)} − ½({Fmt(a.Value)})({Fmt(t.Value)})²) / {Fmt(t.Value)}",
+                    result, "m/s"));
+                u = result;
+                anyProgress = true;
+            }
+
+            if (a == null && s != null && u != null && t != null && t.Value != 0.0)
+            {
+                double result = 2.0 * (s.Value - u.Value * t.Value) / (t.Value * t.Value);
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = ut + ½at² → a = 2(s − ut) / t²",
+                    $"a = 2({Fmt(s.Value)} − ({Fmt(u.Value)})({Fmt(t.Value)})) / ({Fmt(t.Value)})²",
+                    result, "m/s²"));
+                a = result;
+                anyProgress = true;
+            }
+
+            // Eq ② quadratic for t:  ½at² + ut − s = 0  ⟹  at² + 2ut − 2s = 0
+            if (t == null && s != null && u != null && a != null)
+            {
+                if (a.Value == 0.0)
+                {
+                    // Degenerate linear: ut = s
+                    if (u.Value == 0.0)
+                    {
+                        if (s.Value != 0.0)
+                            errorSet.Add("Eq ②: a = 0 and u = 0 but s ≠ 0 — no solution for t.");
+                    }
+                    else
+                    {
+                        double result = s.Value / u.Value;
+                        if (result < 0.0)
+                            errorSet.Add($"Eq ②: degenerate (a = 0) gives t = {Fmt(result)} s — negative.");
+                        else
+                        {
+                            _steps.Add(new KinematicsSolverCore.SolverStep(
+                                "s = ut (a = 0) → t = s / u",
+                                $"t = {Fmt(s.Value)} / {Fmt(u.Value)}",
+                                result, "s"));
+                            t = result;
+                            anyProgress = true;
+                        }
+                    }
+                }
+                else
+                {
+                    double qA   =  a.Value;
+                    double qB   =  2.0 * u.Value;
+                    double qC   = -2.0 * s.Value;
+                    double disc = qB * qB - 4.0 * qA * qC;
+
+                    if (disc < 0.0)
+                        errorSet.Add("Eq ②: no real solution for t (discriminant < 0) — check inputs.");
+                    else
+                    {
+                        double r1      = (-qB + Math.Sqrt(disc)) / (2.0 * qA);
+                        double r2      = (-qB - Math.Sqrt(disc)) / (2.0 * qA);
+                        double tResult = PickPositiveRoot(r1, r2);
+
+                        if (double.IsNaN(tResult))
+                            errorSet.Add($"Eq ②: both roots non-positive (t₁ = {Fmt(r1)}, t₂ = {Fmt(r2)}) — check inputs.");
+                        else
+                        {
+                            string rootNote = (disc > 0.0 && r1 >= 0.0 && r2 >= 0.0)
+                                ? $" (smallest root chosen; discarded t = {Fmt(Math.Max(r1, r2))} s)"
+                                : string.Empty;
+                            _steps.Add(new KinematicsSolverCore.SolverStep(
+                                "s = ut + ½at² → quadratic for t",
+                                $"½({Fmt(a.Value)})t² + ({Fmt(u.Value)})t − {Fmt(s.Value)} = 0 → t = {Fmt(tResult)}{rootNote}",
+                                tResult, "s"));
+                            t = tResult;
+                            anyProgress = true;
+                        }
+                    }
+                }
+            }
+
+            // ── Eq ③  v² = u² + 2as  (rearranges for v, u, a, s) ─
+            if (v == null && u != null && a != null && s != null)
+            {
+                double disc = u.Value * u.Value + 2.0 * a.Value * s.Value;
+                if (disc < 0.0)
+                    errorSet.Add("Eq ③: v² = u² + 2as < 0 — inputs are physically contradictory.");
+                else
+                {
+                    double sqrtVal = Math.Sqrt(disc);
+                    // Sign heuristic: take the negative root only when both u and a are negative
+                    // (object moving and accelerating in the negative direction throughout).
+                    double result = (u.Value < 0.0 && a.Value <= 0.0) ? -sqrtVal : sqrtVal;
+                    _steps.Add(new KinematicsSolverCore.SolverStep(
+                        "v² = u² + 2as → v = √(u² + 2as)",
+                        $"v = √(({Fmt(u.Value)})² + 2({Fmt(a.Value)})({Fmt(s.Value)}))",
+                        result, "m/s"));
+                    v = result;
+                    anyProgress = true;
+                }
+            }
+
+            if (u == null && v != null && a != null && s != null)
+            {
+                double disc = v.Value * v.Value - 2.0 * a.Value * s.Value;
+                if (disc < 0.0)
+                    errorSet.Add("Eq ③: u² = v² − 2as < 0 — inputs are physically contradictory.");
+                else
+                {
+                    double sqrtVal = Math.Sqrt(disc);
+                    double result  = (v.Value < 0.0 && a.Value >= 0.0) ? -sqrtVal : sqrtVal;
+                    _steps.Add(new KinematicsSolverCore.SolverStep(
+                        "v² = u² + 2as → u = √(v² − 2as)",
+                        $"u = √(({Fmt(v.Value)})² − 2({Fmt(a.Value)})({Fmt(s.Value)}))",
+                        result, "m/s"));
+                    u = result;
+                    anyProgress = true;
+                }
+            }
+
+            if (a == null && v != null && u != null && s != null && s.Value != 0.0)
+            {
+                double result = (v.Value * v.Value - u.Value * u.Value) / (2.0 * s.Value);
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "v² = u² + 2as → a = (v² − u²) / (2s)",
+                    $"a = (({Fmt(v.Value)})² − ({Fmt(u.Value)})²) / (2 × {Fmt(s.Value)})",
+                    result, "m/s²"));
+                a = result;
+                anyProgress = true;
+            }
+
+            if (s == null && v != null && u != null && a != null && a.Value != 0.0)
+            {
+                double result = (v.Value * v.Value - u.Value * u.Value) / (2.0 * a.Value);
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "v² = u² + 2as → s = (v² − u²) / (2a)",
+                    $"s = (({Fmt(v.Value)})² − ({Fmt(u.Value)})²) / (2 × {Fmt(a.Value)})",
+                    result, "m"));
+                s = result;
+                anyProgress = true;
+            }
+
+            // ── Eq ④  s = ½(u + v)t  (rearranges for s, u, v, t) ─
+            if (s == null && u != null && v != null && t != null)
+            {
+                double result = 0.5 * (u.Value + v.Value) * t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = ½(u + v)t",
+                    $"s = ½({Fmt(u.Value)} + {Fmt(v.Value)})({Fmt(t.Value)})",
+                    result, "m"));
+                s = result;
+                anyProgress = true;
+            }
+
+            if (u == null && s != null && v != null && t != null && t.Value != 0.0)
+            {
+                double result = 2.0 * s.Value / t.Value - v.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = ½(u + v)t → u = 2s/t − v",
+                    $"u = 2({Fmt(s.Value)}) / {Fmt(t.Value)} − {Fmt(v.Value)}",
+                    result, "m/s"));
+                u = result;
+                anyProgress = true;
+            }
+
+            if (v == null && s != null && u != null && t != null && t.Value != 0.0)
+            {
+                double result = 2.0 * s.Value / t.Value - u.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = ½(u + v)t → v = 2s/t − u",
+                    $"v = 2({Fmt(s.Value)}) / {Fmt(t.Value)} − {Fmt(u.Value)}",
+                    result, "m/s"));
+                v = result;
+                anyProgress = true;
+            }
+
+            if (t == null && s != null && u != null && v != null)
+            {
+                double denom = u.Value + v.Value;
+                if (denom == 0.0)
+                    errorSet.Add("Eq ④: u + v = 0 — cannot solve for t (division by zero).");
+                else
+                {
+                    double result = 2.0 * s.Value / denom;
+                    if (result < 0.0)
+                        errorSet.Add($"Eq ④: t = 2s / (u + v) = {Fmt(result)} s — negative time; check inputs.");
+                    else
+                    {
+                        _steps.Add(new KinematicsSolverCore.SolverStep(
+                            "s = ½(u + v)t → t = 2s / (u + v)",
+                            $"t = 2({Fmt(s.Value)}) / ({Fmt(u.Value)} + {Fmt(v.Value)})",
+                            result, "s"));
+                        t = result;
+                        anyProgress = true;
+                    }
+                }
+            }
+
+            // ── Eq ⑤  s = vt − ½at²  (rearranges for s, v, a, t) ─
+            if (s == null && v != null && a != null && t != null)
+            {
+                double result = v.Value * t.Value - 0.5 * a.Value * t.Value * t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = vt − ½at²",
+                    $"s = ({Fmt(v.Value)})({Fmt(t.Value)}) − ½({Fmt(a.Value)})({Fmt(t.Value)})²",
+                    result, "m"));
+                s = result;
+                anyProgress = true;
+            }
+
+            if (v == null && s != null && a != null && t != null && t.Value != 0.0)
+            {
+                double result = (s.Value + 0.5 * a.Value * t.Value * t.Value) / t.Value;
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = vt − ½at² → v = (s + ½at²) / t",
+                    $"v = ({Fmt(s.Value)} + ½({Fmt(a.Value)})({Fmt(t.Value)})²) / {Fmt(t.Value)}",
+                    result, "m/s"));
+                v = result;
+                anyProgress = true;
+            }
+
+            if (a == null && s != null && v != null && t != null && t.Value != 0.0)
+            {
+                double result = 2.0 * (v.Value * t.Value - s.Value) / (t.Value * t.Value);
+                _steps.Add(new KinematicsSolverCore.SolverStep(
+                    "s = vt − ½at² → a = 2(vt − s) / t²",
+                    $"a = 2(({Fmt(v.Value)})({Fmt(t.Value)}) − {Fmt(s.Value)}) / ({Fmt(t.Value)})²",
+                    result, "m/s²"));
+                a = result;
+                anyProgress = true;
+            }
+
+            // Eq ⑤ quadratic for t:  ½at² − vt + s = 0  ⟹  at² − 2vt + 2s = 0
+            if (t == null && s != null && v != null && a != null)
+            {
+                if (a.Value == 0.0)
+                {
+                    // Degenerate linear: vt = s
+                    if (v.Value == 0.0)
+                    {
+                        if (s.Value != 0.0)
+                            errorSet.Add("Eq ⑤: a = 0 and v = 0 but s ≠ 0 — no solution for t.");
+                    }
+                    else
+                    {
+                        double result = s.Value / v.Value;
+                        if (result < 0.0)
+                            errorSet.Add($"Eq ⑤: degenerate (a = 0) gives t = {Fmt(result)} s — negative.");
+                        else
+                        {
+                            _steps.Add(new KinematicsSolverCore.SolverStep(
+                                "s = vt (a = 0) → t = s / v",
+                                $"t = {Fmt(s.Value)} / {Fmt(v.Value)}",
+                                result, "s"));
+                            t = result;
+                            anyProgress = true;
+                        }
+                    }
+                }
+                else
+                {
+                    double qA   =  a.Value;
+                    double qB   = -2.0 * v.Value;
+                    double qC   =  2.0 * s.Value;
+                    double disc = qB * qB - 4.0 * qA * qC;
+
+                    if (disc < 0.0)
+                        errorSet.Add("Eq ⑤: no real solution for t (discriminant < 0) — check inputs.");
+                    else
+                    {
+                        double r1      = (-qB + Math.Sqrt(disc)) / (2.0 * qA);
+                        double r2      = (-qB - Math.Sqrt(disc)) / (2.0 * qA);
+                        double tResult = PickPositiveRoot(r1, r2);
+
+                        if (double.IsNaN(tResult))
+                            errorSet.Add($"Eq ⑤: both roots non-positive (t₁ = {Fmt(r1)}, t₂ = {Fmt(r2)}) — check inputs.");
+                        else
+                        {
+                            string rootNote = (disc > 0.0 && r1 >= 0.0 && r2 >= 0.0)
+                                ? $" (smallest root chosen; discarded t = {Fmt(Math.Max(r1, r2))} s)"
+                                : string.Empty;
+                            _steps.Add(new KinematicsSolverCore.SolverStep(
+                                "s = vt − ½at² → quadratic for t",
+                                $"½({Fmt(a.Value)})t² − ({Fmt(v.Value)})t + {Fmt(s.Value)} = 0 → t = {Fmt(tResult)}{rootNote}",
+                                tResult, "s"));
+                            t = tResult;
+                            anyProgress = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Commit solved values ──────────────────────────────────
+        _sSolved   = s;
+        _uSolved   = u;
+        _vSolved   = v;
+        _aSolved   = a;
+        _tSolved   = t;
+        _hasSolved = true;
+
+        // ── Post-solve diagnostics ────────────────────────────────
+        List<string> unsolved = new();
+        if (s == null) unsolved.Add("s");
+        if (u == null) unsolved.Add("u");
+        if (v == null) unsolved.Add("v");
+        if (a == null) unsolved.Add("a");
+        if (t == null) unsolved.Add("t");
+
+        if (unsolved.Count > 0)
+            errorSet.Add($"Could not determine: {string.Join(", ", unsolved)}. " +
+                         "The system may be under-constrained or the inputs contradictory.");
+
+        if (t != null && t.Value < 0.0)
+            errorSet.Add($"Solved time is negative ({Fmt(t.Value)} s) — physically impossible. Check inputs.");
+
+        // Full cross-check: verify residuals when all five variables are known
+        if (s != null && u != null && v != null && a != null && t != null)
+        {
+            const double Tol    = 1e-4;
+            double       scale  = Math.Max(1.0, Math.Abs(v.Value) + Math.Abs(u.Value) + Math.Abs(s.Value));
+            double       resEq1 = Math.Abs(v.Value - (u.Value + a.Value * t.Value));
+            double       resEq3 = Math.Abs(v.Value * v.Value - (u.Value * u.Value + 2.0 * a.Value * s.Value));
+
+            if (resEq1 > Tol * scale || resEq3 > Tol * scale * scale)
+                errorSet.Add("Warning: non-trivial residual detected — the supplied values may be mutually contradictory.");
+        }
+
+        _errors = errorSet.ToList();
+
+        // ── Add recent entry ─────────────────────────────────────
+        List<string> knownParts = new();
+        if (IsKnown(_sInput)) knownParts.Add($"s={_sInput}");
+        if (IsKnown(_uInput)) knownParts.Add($"u={_uInput}");
+        if (IsKnown(_vInput)) knownParts.Add($"v={_vInput}");
+        if (IsKnown(_aInput)) knownParts.Add($"a={_aInput}");
+        if (IsKnown(_tInput)) knownParts.Add($"t={_tInput}");
+        string label = string.Join(", ", knownParts);
+        await Storage.AddRecentAsync(ToolKey, label, new ToolState(_sInput, _uInput, _vInput, _aInput, _tInput, _selectedPreset));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+}

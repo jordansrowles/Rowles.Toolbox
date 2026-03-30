@@ -1,0 +1,200 @@
+@page "/tools/generators/uuid"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+
+<PageTitle>UUID Generator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="UUID Generator" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-id mr-1"></i> Generate v4 &amp; v7 UUIDs with formatting options</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+    <div class="lg:col-span-1 space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Options</h3>
+
+            <label class="block text-xs font-medium mb-1">Count (1–100)</label>
+            <input type="number" min="1" max="100"
+                   class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                   @bind="_count" @bind:after="SaveState" />
+
+            <label class="block text-xs font-medium mt-3 mb-1">Format</label>
+            <select class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    @bind="_format" @bind:after="SaveState">
+                <option value="Lower">lowercase (default)</option>
+                <option value="Upper">UPPERCASE</option>
+                <option value="NoHyphens">No hyphens</option>
+                <option value="UpperNoHyphens">UPPERCASE no hyphens</option>
+                <option value="Braces">With braces {…}</option>
+                <option value="Urn">URN format</option>
+            </select>
+
+            <div class="mt-4 space-y-2">
+                <button class="w-full bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                        @onclick="GenerateV4">
+                    <i class="ti ti-refresh mr-1"></i> Generate v4
+                </button>
+                <button class="w-full bg-indigo-600 text-white px-3 py-1.5 text-xs rounded hover:bg-indigo-700 cursor-pointer border-none"
+                        @onclick="GenerateV7">
+                    <i class="ti ti-clock mr-1"></i> Generate v7
+                </button>
+                <button class="w-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                        @onclick="Clear">
+                    <i class="ti ti-trash mr-1"></i> Clear
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="lg:col-span-3">
+        @if (_results.Count > 0)
+        {
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs text-gray-500">@_results.Count UUID(s) — @_lastVersion</span>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="CopyAll">
+                    <i class="ti ti-copy mr-0.5"></i> Copy all
+                </button>
+            </div>
+
+            <div class="space-y-1 max-h-[70vh] overflow-y-auto">
+                @foreach (UuidGeneratorCore.UuidResult item in _results)
+                {
+                    <div class="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded px-3 py-1.5 bg-white dark:bg-gray-800">
+                        <code class="flex-1 text-xs font-mono text-gray-900 dark:text-gray-100 select-all">@item.Formatted</code>
+                        @if (item.Timestamp is not null)
+                        {
+                            <span class="text-[10px] text-gray-400 whitespace-nowrap" title="Extracted timestamp">
+                                <i class="ti ti-clock mr-0.5"></i> @item.Timestamp.Value.ToString("yyyy-MM-dd HH:mm:ss.fff") UTC
+                            </span>
+                        }
+                        <button class="text-gray-400 hover:text-blue-500 cursor-pointer border-none bg-transparent"
+                                @onclick="() => CopyOne(item.Formatted)" title="Copy">
+                            <i class="ti ti-copy text-xs"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="flex items-center justify-center h-48 text-gray-400 dark:text-gray-600 text-sm">
+                <i class="ti ti-id text-5xl"></i>
+            </div>
+        }
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/uuid" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private int _count = 1;
+    private string _format = "Lower";
+    private List<UuidGeneratorCore.UuidResult> _results = [];
+    private string _lastVersion = string.Empty;
+    private string? _statusMessage;
+
+    sealed record ToolState(int Count, string Format);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/generators/uuid");
+            if (state is not null)
+            {
+                _count = state.Count;
+                _format = state.Format;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/generators/uuid", new ToolState(_count, _format));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _count = state.Count;
+            _format = state.Format;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GenerateV4()
+    {
+        int safeCount = Math.Clamp(_count, 1, 100);
+        _results.Clear();
+        _lastVersion = "v4 (random)";
+        for (int i = 0; i < safeCount; i++)
+        {
+            Guid guid = Guid.NewGuid();
+            _results.Add(new UuidGeneratorCore.UuidResult(FormatGuid(guid), null));
+        }
+        await AddRecentEntryAsync("v4");
+    }
+
+    private async Task GenerateV7()
+    {
+        int safeCount = Math.Clamp(_count, 1, 100);
+        _results.Clear();
+        _lastVersion = "v7 (time-ordered)";
+        for (int i = 0; i < safeCount; i++)
+        {
+            Guid guid = UuidGeneratorCore.CreateUuidV7();
+            DateTimeOffset timestamp = UuidGeneratorCore.ExtractV7Timestamp(guid);
+            _results.Add(new UuidGeneratorCore.UuidResult(FormatGuid(guid), timestamp));
+        }
+        await AddRecentEntryAsync("v7");
+    }
+
+    private async Task AddRecentEntryAsync(string version)
+    {
+        string label = $"Generated {_count} UUID {version} ({_format})";
+        await Storage.AddRecentAsync("tools/generators/uuid", label, new ToolState(_count, _format));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private string FormatGuid(Guid guid) => UuidGeneratorCore.FormatGuid(guid, _format);
+
+    private void Clear()
+    {
+        _results.Clear();
+        _lastVersion = string.Empty;
+    }
+
+    private async Task CopyOne(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        _statusMessage = "Copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+
+    private async Task CopyAll()
+    {
+        string all = string.Join(Environment.NewLine, _results.Select(r => r.Formatted));
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", all);
+        _statusMessage = $"Copied {_results.Count} UUIDs!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+}

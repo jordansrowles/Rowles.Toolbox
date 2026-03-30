@@ -1,0 +1,338 @@
+@page "/tools/data/protobuf"
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Protobuf Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Protobuf Inspector" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary-tree mr-1"></i> Decode Protocol Buffers wire format without a .proto schema</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-500">Format:</label>
+        <button class="@(_inputFormat == ProtobufInspectorCore.InputFormat.Hex ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick="() => SetInputFormat(ProtobufInspectorCore.InputFormat.Hex)">
+            Hex
+        </button>
+        <button class="@(_inputFormat == ProtobufInspectorCore.InputFormat.Base64 ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick="() => SetInputFormat(ProtobufInspectorCore.InputFormat.Base64)">
+            Base64
+        </button>
+    </div>
+
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="Decode">
+        <i class="ti ti-analyze"></i> Decode
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="CopyJson">
+        <i class="ti ti-copy"></i> @(_copied ? "Copied!" : "Copy JSON")
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="Clear">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+
+    <div class="flex items-center gap-2 ml-auto">
+        <label class="text-xs text-gray-500">Samples:</label>
+        <button class="bg-green-600 text-white px-2.5 py-1 text-xs font-medium rounded hover:bg-green-700 transition-colors"
+                @onclick="LoadSimple">
+            Simple
+        </button>
+        <button class="bg-green-600 text-white px-2.5 py-1 text-xs font-medium rounded hover:bg-green-700 transition-colors"
+                @onclick="LoadNested">
+            Nested
+        </button>
+        <button class="bg-green-600 text-white px-2.5 py-1 text-xs font-medium rounded hover:bg-green-700 transition-colors"
+                @onclick="LoadTypes">
+            All Types
+        </button>
+    </div>
+</div>
+
+<div class="mb-3">
+    <label class="block text-sm font-medium mb-1">Input (@(_inputFormat == ProtobufInspectorCore.InputFormat.Hex ? "Hex string" : "Base64"))</label>
+    <textarea class="w-full h-28 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="@(_inputFormat == ProtobufInspectorCore.InputFormat.Hex ? "Paste hex-encoded protobuf bytes (e.g. 08960112074a6f7264616e)" : "Paste base64-encoded protobuf bytes...")"
+              @bind="_input"
+              @bind:event="oninput"
+              @bind:after="SaveState"></textarea>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@if (_flatRows is not null && _flatRows.Count > 0)
+{
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+        <!-- Field table -->
+        <div>
+            <h2 class="text-sm font-semibold mb-2">Decoded Fields</h2>
+            <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+                <div class="bg-gray-50 dark:bg-gray-800 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 font-mono text-[10px] text-gray-400 grid grid-cols-12 gap-1">
+                    <span class="col-span-1">#</span>
+                    <span class="col-span-2">Field</span>
+                    <span class="col-span-3">Wire Type</span>
+                    <span class="col-span-6">Value / Interpretations</span>
+                </div>
+                <div class="max-h-[500px] overflow-y-auto">
+                    @for (int ri = 0; ri < _flatRows.Count; ri++)
+                    {
+                        var row = _flatRows[ri];
+                        string indent = row.Depth > 0 ? $"padding-left:{row.Depth * 16}px" : "";
+                        string wireColor = row.Field.WireType switch
+                        {
+                            0 => "text-purple-600 dark:text-purple-400",
+                            1 => "text-blue-600 dark:text-blue-400",
+                            2 => "text-green-600 dark:text-green-400",
+                            5 => "text-orange-600 dark:text-orange-400",
+                            _ => "text-gray-500"
+                        };
+
+                        <div class="grid grid-cols-12 gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 text-[11px] font-mono">
+                            <span class="col-span-1 text-gray-400">@(ri + 1)</span>
+                            <span class="col-span-2" style="@indent">@row.Field.FieldNumber</span>
+                            <span class="col-span-3 @wireColor">@row.Field.WireTypeName</span>
+                            <span class="col-span-6 break-all">
+                                <span class="text-gray-700 dark:text-gray-300">@row.Field.DisplayValue</span>
+                                @if (row.Field.Interpretations.Count > 0)
+                                {
+                                    <details class="mt-0.5">
+                                        <summary class="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300">
+                                            @row.Field.Interpretations.Count interpretation(s)
+                                        </summary>
+                                        <ul class="text-[10px] text-gray-500 mt-0.5 space-y-0">
+                                            @foreach (var interp in row.Field.Interpretations)
+                                            {
+                                                <li>@interp</li>
+                                            }
+                                        </ul>
+                                    </details>
+                                }
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- JSON representation -->
+        <div>
+            <h2 class="text-sm font-semibold mb-2">JSON-like Representation</h2>
+            <pre class="w-full max-h-[500px] overflow-auto p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono whitespace-pre-wrap">@_jsonOutput</pre>
+        </div>
+    </div>
+
+    <!-- Tree view -->
+    <div class="mb-4">
+        <h2 class="text-sm font-semibold mb-2">Tree View</h2>
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-3 bg-white dark:bg-gray-800 max-h-[400px] overflow-auto font-mono text-xs">
+            @foreach (var row in _flatRows)
+            {
+                string treePad = new string(' ', row.Depth * 4);
+                string icon = row.Field.Children is not null && row.Field.Children.Count > 0 ? "+" : "-";
+                string wireColor = row.Field.WireType switch
+                {
+                    0 => "text-purple-600 dark:text-purple-400",
+                    1 => "text-blue-600 dark:text-blue-400",
+                    2 => "text-green-600 dark:text-green-400",
+                    5 => "text-orange-600 dark:text-orange-400",
+                    _ => "text-gray-500"
+                };
+
+                <div>
+                    <span class="text-gray-400">@(treePad)[<span>@icon</span>]</span>
+                    <span class="text-gray-300 dark:text-gray-500">field_@(row.Field.FieldNumber)</span>
+                    <span class="@wireColor">(@row.Field.WireTypeName)</span>
+                    <span class="text-gray-700 dark:text-gray-300">= @row.Field.DisplayValue</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Wire type reference card -->
+<div class="mb-4">
+    <button class="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+            @onclick="() => _showReference = !_showReference">
+        <i class="ti @(_showReference ? "ti-chevron-down" : "ti-chevron-right")"></i>
+        Wire Type Reference
+    </button>
+
+    @if (_showReference)
+    {
+        <div class="mt-2 border border-gray-200 dark:border-gray-700 rounded overflow-hidden text-xs">
+            <table class="w-full">
+                <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                        <th class="px-3 py-1.5 text-left text-gray-500 font-medium">Wire Type</th>
+                        <th class="px-3 py-1.5 text-left text-gray-500 font-medium">ID</th>
+                        <th class="px-3 py-1.5 text-left text-gray-500 font-medium">Protobuf Types</th>
+                        <th class="px-3 py-1.5 text-left text-gray-500 font-medium">Encoding</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                    <tr>
+                        <td class="px-3 py-1.5 font-medium text-purple-600 dark:text-purple-400">Varint</td>
+                        <td class="px-3 py-1.5 font-mono">0</td>
+                        <td class="px-3 py-1.5">int32, int64, uint32, uint64, sint32, sint64, bool, enum</td>
+                        <td class="px-3 py-1.5 text-gray-500">Variable-length integer encoding (LEB128)</td>
+                    </tr>
+                    <tr>
+                        <td class="px-3 py-1.5 font-medium text-blue-600 dark:text-blue-400">64-bit</td>
+                        <td class="px-3 py-1.5 font-mono">1</td>
+                        <td class="px-3 py-1.5">fixed64, sfixed64, double</td>
+                        <td class="px-3 py-1.5 text-gray-500">Fixed 8 bytes, little-endian</td>
+                    </tr>
+                    <tr>
+                        <td class="px-3 py-1.5 font-medium text-green-600 dark:text-green-400">Length-delimited</td>
+                        <td class="px-3 py-1.5 font-mono">2</td>
+                        <td class="px-3 py-1.5">string, bytes, embedded messages, packed repeated</td>
+                        <td class="px-3 py-1.5 text-gray-500">Length prefix + payload bytes</td>
+                    </tr>
+                    <tr>
+                        <td class="px-3 py-1.5 font-medium text-orange-600 dark:text-orange-400">32-bit</td>
+                        <td class="px-3 py-1.5 font-mono">5</td>
+                        <td class="px-3 py-1.5">fixed32, sfixed32, float</td>
+                        <td class="px-3 py-1.5 text-gray-500">Fixed 4 bytes, little-endian</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/protobuf" OnRestore="RestoreState" />
+
+@code {
+    private string _input = string.Empty;
+    private string? _error;
+    private string _jsonOutput = string.Empty;
+    private bool _copied;
+    private bool _showReference;
+    private ProtobufInspectorCore.InputFormat _inputFormat = ProtobufInspectorCore.InputFormat.Hex;
+    private List<ProtobufInspectorCore.FlatRow>? _flatRows;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Input, string InputFormat);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/protobuf");
+            if (state is not null)
+            {
+                _input = state.Input;
+                if (Enum.TryParse<ProtobufInspectorCore.InputFormat>(state.InputFormat, out ProtobufInspectorCore.InputFormat fmt))
+                    _inputFormat = fmt;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/protobuf", new ToolState(_input, _inputFormat.ToString()));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _input = state.Input;
+            if (Enum.TryParse<ProtobufInspectorCore.InputFormat>(state.InputFormat, out ProtobufInspectorCore.InputFormat fmt))
+                _inputFormat = fmt;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetInputFormat(ProtobufInspectorCore.InputFormat format)
+    {
+        _inputFormat = format;
+        await SaveState();
+    }
+
+    private async Task LoadSimple()
+    {
+        _inputFormat = ProtobufInspectorCore.InputFormat.Hex;
+        _input = "08960112064a6f7264616e";
+        await Decode();
+    }
+
+    private async Task LoadNested()
+    {
+        _inputFormat = ProtobufInspectorCore.InputFormat.Hex;
+        _input = "082a120a0a0568656c6c6f1063";
+        await Decode();
+    }
+
+    private async Task LoadTypes()
+    {
+        _inputFormat = ProtobufInspectorCore.InputFormat.Hex;
+        _input = "08ac021204746573741dc3f54840214560e5d022db0540";
+        await Decode();
+    }
+
+    private async Task Decode()
+    {
+        _error = null;
+        _flatRows = null;
+        _jsonOutput = string.Empty;
+        _copied = false;
+
+        if (string.IsNullOrWhiteSpace(_input))
+        {
+            _error = "Input is empty.";
+            return;
+        }
+
+        try
+        {
+            byte[] data = ProtobufInspectorCore.ParseInputBytes(_input, _inputFormat);
+            var fields = ProtobufInspectorCore.DecodeMessage(data, 0, data.Length, 0);
+            _flatRows = ProtobufInspectorCore.FlattenFields(fields, 0);
+            _jsonOutput = ProtobufInspectorCore.BuildJson(fields, 0);
+            await SaveState();
+            string label = _input.Length > 50 ? _input[..50] + "..." : _input;
+            await Storage.AddRecentAsync("tools/data/protobuf", $"Decode: {label}", new ToolState(_input, _inputFormat.ToString()));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Decode error: {ex.Message}";
+            _flatRows = null;
+        }
+    }
+
+    private async Task CopyJson()
+    {
+        if (!string.IsNullOrEmpty(_jsonOutput))
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", _jsonOutput);
+            _copied = true;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copied = false;
+            StateHasChanged();
+        }
+    }
+
+    private void Clear()
+    {
+        _input = string.Empty;
+        _error = null;
+        _flatRows = null;
+        _jsonOutput = string.Empty;
+        _copied = false;
+    }
+}

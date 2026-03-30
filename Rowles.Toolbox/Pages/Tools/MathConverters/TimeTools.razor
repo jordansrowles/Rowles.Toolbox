@@ -1,0 +1,430 @@
+@page "/tools/math/time"
+@using Rowles.Toolbox.Core.MathConverters
+@using System.Text.Json
+@inject LocalStorageService Storage
+
+<PageTitle>Time Tools - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Time Tools" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-hourglass mr-1"></i> Date, duration &amp; time calculators</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="flex flex-wrap gap-2">
+        @foreach (TimeToolsCore.TimeTab tab in Enum.GetValues<TimeToolsCore.TimeTab>())
+        {
+            <button type="button"
+                    class="@TabButtonClass(tab)"
+                    @onclick="() => SetTab(tab)">
+                <i class="ti @TabIcon(tab) mr-1"></i> @TabLabel(tab)
+            </button>
+        }
+    </div>
+
+    @switch (_activeTab)
+    {
+        case TimeToolsCore.TimeTab.Duration:
+            @* Duration Between Dates *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-arrows-horizontal mr-1"></i> Duration Between Dates</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Start Date &amp; Time</label>
+                        <input type="datetime-local"
+                               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               @bind="_durationStart" @bind:after="SaveState" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">End Date &amp; Time</label>
+                        <input type="datetime-local"
+                               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               @bind="_durationEnd" @bind:after="SaveState" />
+                    </div>
+                </div>
+                @{ TimeSpan dur = _durationEnd - _durationStart; }
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    @foreach ((string label, string value) item in GetDurationParts(dur))
+                    {
+                        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                            <div class="text-xl font-bold text-blue-600 dark:text-blue-400">@item.value</div>
+                            <div class="text-xs text-gray-500">@item.label</div>
+                        </div>
+                    }
+                </div>
+                <div class="space-y-1 text-sm text-gray-500">
+                    <p>Total: <strong class="text-gray-700 dark:text-gray-300">@FormatTotalDuration(dur)</strong></p>
+                    <p>Also: <strong class="text-gray-700 dark:text-gray-300">@($"{dur.TotalDays:N2}") days / @($"{dur.TotalHours:N2}") hours / @($"{dur.TotalMinutes:N0}") minutes / @($"{dur.TotalSeconds:N0}") seconds</strong></p>
+                </div>
+            </div>
+            break;
+
+        case TimeToolsCore.TimeTab.AddSubtract:
+            @* Add/Subtract Duration *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-plus-minus mr-1"></i> Add / Subtract Duration</h3>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Start Date &amp; Time</label>
+                    <input type="datetime-local"
+                           class="w-full max-w-md p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_addSubDate" @bind:after="SaveState" />
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <select class="p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            @bind="_addSubOperation" @bind:after="SaveState">
+                        <option value="add">Add (+)</option>
+                        <option value="sub">Subtract (−)</option>
+                    </select>
+                    <div class="flex items-center gap-1">
+                        <input type="number" min="0" class="w-16 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm text-center" @bind="_addYears" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-500">yr</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" min="0" class="w-16 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm text-center" @bind="_addMonths" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-500">mo</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" min="0" class="w-16 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm text-center" @bind="_addDays" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-500">d</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" min="0" class="w-16 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm text-center" @bind="_addHours" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-500">h</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" min="0" class="w-16 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm text-center" @bind="_addMinutes" @bind:event="oninput" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-500">m</span>
+                    </div>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+                    <span class="text-sm text-gray-500">Result: </span>
+                    <span class="text-lg font-bold text-blue-600 dark:text-blue-400">@CalculateAddSubResult()</span>
+                </div>
+            </div>
+            break;
+
+        case TimeToolsCore.TimeTab.TimeSince:
+            @* Time Since *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-history mr-1"></i> Time Since</h3>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Past Date &amp; Time</label>
+                    <input type="datetime-local"
+                           class="w-full max-w-md p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_timeSinceDate" @bind:after="SaveState" />
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+                    <span class="text-lg font-bold text-blue-600 dark:text-blue-400">@FormatTimeSince()</span>
+                    <span class="text-sm text-gray-500 ml-1">ago</span>
+                </div>
+            </div>
+            break;
+
+        case TimeToolsCore.TimeTab.TimeUntil:
+            @* Time Until *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-clock-forward mr-1"></i> Time Until</h3>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Future Date &amp; Time</label>
+                    <input type="datetime-local"
+                           class="w-full max-w-md p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_timeUntilDate" @bind:after="SaveState" />
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+                    @{ TimeSpan untilSpan = _timeUntilDate - DateTimeOffset.Now; }
+                    @if (untilSpan.TotalSeconds > 0)
+                    {
+                        <span class="text-lg font-bold text-blue-600 dark:text-blue-400">@FormatTimeUntil()</span>
+                        <span class="text-sm text-gray-500 ml-1">remaining</span>
+                    }
+                    else
+                    {
+                        <span class="text-lg font-bold text-red-600 dark:text-red-400">Date has passed</span>
+                    }
+                </div>
+            </div>
+            break;
+
+        case TimeToolsCore.TimeTab.DurationFormat:
+            @* Duration Formatter *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-clock mr-1"></i> Duration Formatter</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-3">
+                        <h4 class="text-xs font-medium text-gray-400 uppercase">Seconds → Formatted</h4>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Total Seconds</label>
+                            <input type="number" step="1" min="0"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   @bind="_formatSeconds" @bind:event="oninput" @bind:after="SaveState" />
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                            <span class="text-lg font-bold text-blue-600 dark:text-blue-400 font-mono">@FormatSeconds(_formatSeconds)</span>
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <h4 class="text-xs font-medium text-gray-400 uppercase">Formatted → Seconds</h4>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Duration String (e.g. 2d 5h 30m 15s)</label>
+                            <input type="text"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="1d 2h 30m 45s"
+                                   @bind="_parseDurationText" @bind:event="oninput" @bind:after="SaveState" />
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                            <span class="text-lg font-bold text-blue-600 dark:text-blue-400 font-mono">@ParseDurationToSeconds(_parseDurationText) seconds</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            break;
+
+        case TimeToolsCore.TimeTab.WorkingDays:
+            @* Working Days Calculator *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-briefcase mr-1"></i> Working Days Calculator</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Start Date</label>
+                        <input type="date"
+                               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               @bind="_workStart" @bind:after="SaveState" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">End Date</label>
+                        <input type="date"
+                               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               @bind="_workEnd" @bind:after="SaveState" />
+                    </div>
+                </div>
+                @{
+                    (int total, int working, int weekendDays) = CountWorkingDays(_workStart, _workEnd);
+                }
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-blue-600 dark:text-blue-400">@total</div>
+                        <div class="text-xs text-gray-500">Total Days</div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-green-600 dark:text-green-400">@working</div>
+                        <div class="text-xs text-gray-500">Working Days</div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-orange-600 dark:text-orange-400">@weekendDays</div>
+                        <div class="text-xs text-gray-500">Weekend Days</div>
+                    </div>
+                </div>
+            </div>
+            break;
+
+        case TimeToolsCore.TimeTab.WeekNumber:
+            @* Week Number *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-calendar mr-1"></i> Week Number &amp; Day of Year</h3>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Date</label>
+                    <input type="date"
+                           class="w-full max-w-md p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_weekDate" @bind:after="SaveState" />
+                </div>
+                @{
+                    int isoWeek = System.Globalization.ISOWeek.GetWeekOfYear(_weekDate.DateTime);
+                    int dayOfYear = _weekDate.DayOfYear;
+                    int isoYear = System.Globalization.ISOWeek.GetYear(_weekDate.DateTime);
+                }
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-blue-600 dark:text-blue-400">@isoWeek</div>
+                        <div class="text-xs text-gray-500">ISO Week</div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-blue-600 dark:text-blue-400">@dayOfYear</div>
+                        <div class="text-xs text-gray-500">Day of Year</div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-blue-600 dark:text-blue-400">@_weekDate.DayOfWeek</div>
+                        <div class="text-xs text-gray-500">Day of Week</div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-blue-600 dark:text-blue-400">@isoYear-W@(isoWeek.ToString("D2"))</div>
+                        <div class="text-xs text-gray-500">ISO Format</div>
+                    </div>
+                </div>
+                <div class="text-sm text-gray-500">
+                    <p>Remaining days in year: <strong class="text-gray-700 dark:text-gray-300">@(DateTime.IsLeapYear(_weekDate.Year) ? 366 - dayOfYear : 365 - dayOfYear)</strong></p>
+                    <p>Quarter: <strong class="text-gray-700 dark:text-gray-300">Q@((_weekDate.Month - 1) / 3 + 1)</strong></p>
+                    <p>Leap year: <strong class="text-gray-700 dark:text-gray-300">@(DateTime.IsLeapYear(_weekDate.Year) ? "Yes" : "No")</strong></p>
+                </div>
+            </div>
+            break;
+    }
+
+    <RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/time" OnRestore="RestoreState" />
+</div>
+
+@code {
+    private TimeToolsCore.TimeTab _activeTab = TimeToolsCore.TimeTab.Duration;
+    private RecentEntryPanel? _recentPanel;
+
+    // Duration Between Dates
+    private DateTimeOffset _durationStart = DateTimeOffset.Now.Date;
+    private DateTimeOffset _durationEnd = DateTimeOffset.Now.Date.AddDays(30);
+
+    // Add/Subtract
+    private DateTimeOffset _addSubDate = DateTimeOffset.Now;
+    private string _addSubOperation = "add";
+    private int _addYears;
+    private int _addMonths;
+    private int _addDays;
+    private int _addHours;
+    private int _addMinutes;
+
+    // Time Since
+    private DateTimeOffset _timeSinceDate = DateTimeOffset.Now.AddYears(-1);
+
+    // Time Until
+    private DateTimeOffset _timeUntilDate = DateTimeOffset.Now.AddMonths(3);
+
+    // Duration Formatter
+    private long _formatSeconds = 90061;
+    private string _parseDurationText = "1d 1h 1m 1s";
+
+    // Working Days
+    private DateTimeOffset _workStart = DateTimeOffset.Now.Date;
+    private DateTimeOffset _workEnd = DateTimeOffset.Now.Date.AddDays(30);
+
+    // Week Number
+    private DateTimeOffset _weekDate = DateTimeOffset.Now;
+
+    sealed record ToolState(
+        TimeToolsCore.TimeTab ActiveTab,
+        DateTimeOffset DurationStart, DateTimeOffset DurationEnd,
+        DateTimeOffset AddSubDate, string AddSubOperation,
+        int AddYears, int AddMonths, int AddDays, int AddHours, int AddMinutes,
+        DateTimeOffset TimeSinceDate, DateTimeOffset TimeUntilDate,
+        long FormatSeconds, string ParseDurationText,
+        DateTimeOffset WorkStart, DateTimeOffset WorkEnd,
+        DateTimeOffset WeekDate);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/math/time");
+            if (state is not null)
+            {
+                _activeTab = state.ActiveTab;
+                _durationStart = state.DurationStart;
+                _durationEnd = state.DurationEnd;
+                _addSubDate = state.AddSubDate;
+                _addSubOperation = state.AddSubOperation;
+                _addYears = state.AddYears;
+                _addMonths = state.AddMonths;
+                _addDays = state.AddDays;
+                _addHours = state.AddHours;
+                _addMinutes = state.AddMinutes;
+                _timeSinceDate = state.TimeSinceDate;
+                _timeUntilDate = state.TimeUntilDate;
+                _formatSeconds = state.FormatSeconds;
+                _parseDurationText = state.ParseDurationText;
+                _workStart = state.WorkStart;
+                _workEnd = state.WorkEnd;
+                _weekDate = state.WeekDate;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/math/time", new ToolState(
+            _activeTab,
+            _durationStart, _durationEnd,
+            _addSubDate, _addSubOperation,
+            _addYears, _addMonths, _addDays, _addHours, _addMinutes,
+            _timeSinceDate, _timeUntilDate,
+            _formatSeconds, _parseDurationText,
+            _workStart, _workEnd,
+            _weekDate));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _activeTab = state.ActiveTab;
+            _durationStart = state.DurationStart;
+            _durationEnd = state.DurationEnd;
+            _addSubDate = state.AddSubDate;
+            _addSubOperation = state.AddSubOperation;
+            _addYears = state.AddYears;
+            _addMonths = state.AddMonths;
+            _addDays = state.AddDays;
+            _addHours = state.AddHours;
+            _addMinutes = state.AddMinutes;
+            _timeSinceDate = state.TimeSinceDate;
+            _timeUntilDate = state.TimeUntilDate;
+            _formatSeconds = state.FormatSeconds;
+            _parseDurationText = state.ParseDurationText;
+            _workStart = state.WorkStart;
+            _workEnd = state.WorkEnd;
+            _weekDate = state.WeekDate;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetTab(TimeToolsCore.TimeTab tab)
+    {
+        _activeTab = tab;
+        await SaveState();
+    }
+
+    private static List<(string label, string value)> GetDurationParts(TimeSpan span) => TimeToolsCore.GetDurationParts(span);
+    private static string FormatTotalDuration(TimeSpan span) => TimeToolsCore.FormatTotalDuration(span);
+    private static string FormatSeconds(long totalSeconds) => TimeToolsCore.FormatSeconds(totalSeconds);
+    private static long ParseDurationToSeconds(string input) => TimeToolsCore.ParseDurationToSeconds(input);
+    private static (int total, int working, int weekend) CountWorkingDays(DateTimeOffset start, DateTimeOffset end) => TimeToolsCore.CountWorkingDays(start, end);
+    private static string TabIcon(TimeToolsCore.TimeTab tab) => TimeToolsCore.TabIcon(tab);
+    private static string TabLabel(TimeToolsCore.TimeTab tab) => TimeToolsCore.TabLabel(tab);
+
+    private string CalculateAddSubResult()
+    {
+        try
+        {
+            DateTimeOffset result = _addSubOperation == "add"
+                ? _addSubDate.AddYears(_addYears).AddMonths(_addMonths).AddDays(_addDays).AddHours(_addHours).AddMinutes(_addMinutes)
+                : _addSubDate.AddYears(-_addYears).AddMonths(-_addMonths).AddDays(-_addDays).AddHours(-_addHours).AddMinutes(-_addMinutes);
+            return result.ToString("dddd, dd MMMM yyyy HH:mm");
+        }
+        catch
+        {
+            return "Invalid date range";
+        }
+    }
+
+    private string FormatTimeSince()
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        TimeSpan span = now - _timeSinceDate;
+        if (span.TotalSeconds < 0) return "Date is in the future";
+        return FormatTotalDuration(span);
+    }
+
+    private string FormatTimeUntil()
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        TimeSpan span = _timeUntilDate - now;
+        if (span.TotalSeconds <= 0) return "Date has passed";
+        return FormatTotalDuration(span);
+    }
+
+    private string TabButtonClass(TimeToolsCore.TimeTab tab)
+    {
+        string baseClass = "px-3 py-1.5 text-sm rounded font-medium transition-colors";
+        return tab == _activeTab
+            ? $"{baseClass} bg-blue-600 text-white"
+            : $"{baseClass} bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700";
+    }
+}

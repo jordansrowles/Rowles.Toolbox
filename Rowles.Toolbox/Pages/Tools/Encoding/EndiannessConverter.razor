@@ -1,0 +1,443 @@
+@page "/tools/encoding/endianness"
+@using Rowles.Toolbox.Core.Encoding
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Endianness Converter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Endianness Converter" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-arrows-exchange mr-1"></i> Swap byte order and visualize endianness</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @* Input panel *@
+    <div class="lg:col-span-1">
+        <label class="block text-sm font-medium mb-1">Input Value</label>
+        <input type="text"
+               class="w-full p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               @bind="_inputValue" @bind:event="oninput" @bind:after="SaveState"
+               placeholder="Decimal, 0x hex, or 0b binary" />
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <i class="ti ti-info-circle mr-0.5"></i>
+            Prefix with <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">0x</code> for hex,
+            <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">0b</code> for binary
+        </p>
+
+        <label class="block text-sm font-medium mt-3 mb-1">Bit Width</label>
+        <div class="flex gap-1">
+            @foreach (int width in s_bitWidths)
+            {
+                <button type="button"
+                        class="@GetWidthButtonClass(width)"
+                        @onclick="() => SetBitWidth(width)">
+                    @(width)-bit
+                </button>
+            }
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 mt-3">
+            <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                    @onclick="ConvertValue">
+                <i class="ti ti-arrows-exchange mr-0.5"></i> Convert
+            </button>
+            <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                    @onclick="Clear">
+                <i class="ti ti-eraser mr-0.5"></i> Clear
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="mt-3 p-2 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_error
+            </div>
+        }
+
+        <div class="mt-4">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                <i class="ti ti-sparkles mr-0.5"></i> Quick Examples
+            </label>
+            <div class="flex flex-wrap gap-1">
+                @foreach ((string label, string val, int w, string desc) in s_examples)
+                {
+                    <button type="button"
+                            class="px-2 py-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                            title="@desc"
+                            @onclick="() => LoadExample(val, w)">
+                        @label
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Results panel *@
+    <div class="lg:col-span-2">
+        @if (_hasResult)
+        {
+            @* Big Endian byte visualization *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-3">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold">
+                        <i class="ti ti-arrow-right mr-0.5"></i> Big Endian
+                        <span class="text-xs font-normal text-gray-400 ml-1">(Network Byte Order / MSB first)</span>
+                    </h3>
+                    <button type="button" class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                            @onclick="() => CopyResult(FormatByteString(_bigEndianBytes), FieldBigEndianBytes)">
+                        <i class="ti @GetCopyIcon(FieldBigEndianBytes) text-sm"></i> Copy
+                    </button>
+                </div>
+                <div class="flex items-end gap-2 flex-wrap">
+                    @for (int i = 0; i < _bigEndianBytes.Length; i++)
+                    {
+                        int idx = i;
+                        <div class="flex flex-col items-center">
+                            <span class="px-3 py-2 font-mono text-sm font-bold rounded border transition-all @GetByteColorClass(idx)">
+                                @_bigEndianBytes[idx].ToString("X2")
+                            </span>
+                            <span class="text-[10px] text-gray-400 mt-0.5">0x@(idx.ToString("X2"))</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Swap direction indicator *@
+            <div class="flex items-center justify-center gap-2 py-1 mb-3">
+                <div class="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600"></div>
+                <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                    <i class="ti ti-arrows-sort text-base text-blue-500"></i>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">Byte order reversed</span>
+                    <i class="ti ti-arrows-sort text-base text-blue-500"></i>
+                </div>
+                <div class="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600"></div>
+            </div>
+
+            @* Little Endian byte visualization *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold">
+                        <i class="ti ti-arrow-left mr-0.5"></i> Little Endian
+                        <span class="text-xs font-normal text-gray-400 ml-1">(x86 / ARM / LSB first)</span>
+                    </h3>
+                    <button type="button" class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                            @onclick="() => CopyResult(FormatByteString(_littleEndianBytes), FieldLittleEndianBytes)">
+                        <i class="ti @GetCopyIcon(FieldLittleEndianBytes) text-sm"></i> Copy
+                    </button>
+                </div>
+                <div class="flex items-end gap-2 flex-wrap">
+                    @for (int i = 0; i < _littleEndianBytes.Length; i++)
+                    {
+                        int idx = i;
+                        int originalIdx = _littleEndianBytes.Length - 1 - idx;
+                        <div class="flex flex-col items-center">
+                            <span class="px-3 py-2 font-mono text-sm font-bold rounded border transition-all @GetByteColorClass(originalIdx)">
+                                @_littleEndianBytes[idx].ToString("X2")
+                            </span>
+                            <span class="text-[10px] text-gray-400 mt-0.5">0x@(idx.ToString("X2"))</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Original value representations *@
+            <h3 class="text-sm font-semibold mb-2"><i class="ti ti-list mr-1"></i> Original Value</h3>
+            <div class="space-y-2 mb-4">
+                @foreach ((string label, string value, string fieldKey) in GetOriginalRows())
+                {
+                    <div class="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded px-3 py-2">
+                        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 w-16 shrink-0">@label</span>
+                        <code class="flex-1 text-xs font-mono break-all text-gray-700 dark:text-gray-300">@value</code>
+                        <button type="button" class="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer"
+                                @onclick="() => CopyResult(value, fieldKey)">
+                            <i class="ti @GetCopyIcon(fieldKey) text-sm"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+
+            @* Byte-swapped value representations *@
+            <h3 class="text-sm font-semibold mb-2"><i class="ti ti-switch-horizontal mr-1"></i> Byte-Swapped Value</h3>
+            <div class="space-y-2 mb-4">
+                @foreach ((string label, string value, string fieldKey) in GetSwappedRows())
+                {
+                    <div class="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded px-3 py-2">
+                        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 w-16 shrink-0">@label</span>
+                        <code class="flex-1 text-xs font-mono break-all text-gray-700 dark:text-gray-300">@value</code>
+                        <button type="button" class="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer"
+                                @onclick="() => CopyResult(value, fieldKey)">
+                            <i class="ti @GetCopyIcon(fieldKey) text-sm"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+
+            @* Memory layout table *@
+            <h3 class="text-sm font-semibold mb-2"><i class="ti ti-layout-grid mr-1"></i> Memory Layout</h3>
+            <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-gray-50 dark:bg-gray-800/50">
+                            <th class="px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 text-left border-b border-gray-200 dark:border-gray-700">Address</th>
+                            <th class="px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 text-left border-b border-gray-200 dark:border-gray-700">Big Endian</th>
+                            <th class="px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 text-left border-b border-gray-200 dark:border-gray-700">Little Endian</th>
+                            <th class="px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 text-left border-b border-gray-200 dark:border-gray-700">Significance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int i = 0; i < _bigEndianBytes.Length; i++)
+                        {
+                            int idx = i;
+                            int leOriginalIdx = _bigEndianBytes.Length - 1 - idx;
+                            <tr class="border-t border-gray-200 dark:border-gray-700">
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400">0x@(idx.ToString("X2"))</td>
+                                <td class="px-3 py-1.5">
+                                    <span class="inline-block px-2 py-0.5 font-mono text-xs font-bold rounded @GetByteColorClass(idx)">
+                                        @_bigEndianBytes[idx].ToString("X2")
+                                    </span>
+                                </td>
+                                <td class="px-3 py-1.5">
+                                    <span class="inline-block px-2 py-0.5 font-mono text-xs font-bold rounded @GetByteColorClass(leOriginalIdx)">
+                                        @_littleEndianBytes[idx].ToString("X2")
+                                    </span>
+                                </td>
+                                <td class="px-3 py-1.5 text-xs text-gray-400">@GetByteSignificance(idx)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                <i class="ti ti-info-circle mr-0.5"></i>
+                Colours follow each byte through the swap. Identical colours mark the same byte at its new address.
+            </p>
+        }
+        else
+        {
+            <div class="flex flex-col items-center justify-center h-48 text-sm text-gray-400 dark:text-gray-500">
+                <i class="ti ti-arrows-exchange text-3xl mb-2"></i>
+                <p>Enter a value and click Convert to visualize byte order.</p>
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/endianness" OnRestore="RestoreState" />
+
+@code {
+    private string _inputValue = string.Empty;
+    private int _bitWidth = 32;
+    private string? _error;
+    private byte[] _bigEndianBytes = Array.Empty<byte>();
+    private byte[] _littleEndianBytes = Array.Empty<byte>();
+    private bool _hasResult;
+    private ulong _parsedValue;
+    private ulong _swappedValue;
+    private string? _copiedField;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string InputValue, int BitWidth);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/endianness");
+            if (state is not null)
+            {
+                _inputValue = state.InputValue;
+                _bitWidth = state.BitWidth;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/endianness", new ToolState(_inputValue, _bitWidth));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputValue = state.InputValue;
+            _bitWidth = state.BitWidth;
+            StateHasChanged();
+        }
+    }
+
+    private const string FieldBigEndianBytes = "be-bytes";
+    private const string FieldLittleEndianBytes = "le-bytes";
+
+    private static readonly int[] s_bitWidths = [16, 32, 64];
+
+    private static readonly string[] s_byteColors =
+    [
+        "bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-600",
+        "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600",
+        "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-600",
+        "bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-200 border-rose-300 dark:border-rose-600",
+        "bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200 border-violet-300 dark:border-violet-600",
+        "bg-cyan-100 dark:bg-cyan-900/40 text-cyan-800 dark:text-cyan-200 border-cyan-300 dark:border-cyan-600",
+        "bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-200 border-orange-300 dark:border-orange-600",
+        "bg-pink-100 dark:bg-pink-900/40 text-pink-800 dark:text-pink-200 border-pink-300 dark:border-pink-600"
+    ];
+
+    private static readonly (string Label, string Value, int Width, string Desc)[] s_examples =
+    [
+        ("0xDEADBEEF", "0xDEADBEEF", 32, "Classic debug marker value"),
+        ("0xCAFEBABE", "0xCAFEBABE", 32, "Java class file magic number"),
+        ("0x01020304", "0x01020304", 32, "Sequential bytes for clarity"),
+        ("0x0050", "0x0050", 16, "Port 80 in network byte order"),
+        ("0x01BB", "0x01BB", 16, "Port 443 in network byte order"),
+        ("0x0102030405060708", "0x0102030405060708", 64, "64-bit sequential bytes")
+    ];
+
+    private async Task ConvertValue()
+    {
+        _error = null;
+        _hasResult = false;
+        _copiedField = null;
+
+        string input = _inputValue.Trim();
+        if (string.IsNullOrEmpty(input))
+        {
+            _error = "Please enter a value to convert.";
+            return;
+        }
+
+        try
+        {
+            _parsedValue = EndiannessConverterCore.ParseInput(input);
+            EndiannessConverterCore.ValidateWidth(_parsedValue, _bitWidth);
+
+            _bigEndianBytes = EndiannessConverterCore.ToBigEndianBytes(_parsedValue, _bitWidth);
+            _littleEndianBytes = EndiannessConverterCore.ToLittleEndianBytes(_bigEndianBytes);
+            _swappedValue = EndiannessConverterCore.ComputeSwappedValue(_littleEndianBytes);
+            _hasResult = true;
+            string label = _inputValue.Length > 40 ? _inputValue[..40] + "..." : _inputValue;
+            await Storage.AddRecentAsync("tools/encoding/endianness", $"Convert: {label} ({_bitWidth}-bit)", new ToolState(_inputValue, _bitWidth));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (OverflowException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (FormatException)
+        {
+            _error = "Invalid input format. Enter a decimal number, hex with 0x prefix, or binary with 0b prefix.";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Conversion failed: {ex.Message}";
+        }
+    }
+
+    private string FormatHexValue(ulong value) => EndiannessConverterCore.FormatHexValue(value, _bitWidth);
+
+    private static string FormatBinaryGrouped(byte[] bytes) => EndiannessConverterCore.FormatBinaryGrouped(bytes);
+
+    private static string FormatByteString(byte[] bytes) => EndiannessConverterCore.FormatByteString(bytes);
+
+    private static string GetByteColorClass(int index)
+    {
+        return s_byteColors[index % s_byteColors.Length];
+    }
+
+    private string GetWidthButtonClass(int width)
+    {
+        if (width == _bitWidth)
+        {
+            return "bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded cursor-pointer border-none transition-colors";
+        }
+        return "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded border border-gray-300 dark:border-gray-600 cursor-pointer transition-colors";
+    }
+
+    private string GetByteSignificance(int addressIndex)
+    {
+        int byteCount = _bigEndianBytes.Length;
+        if (addressIndex == 0)
+        {
+            return "MSB (BE) / LSB (LE)";
+        }
+        if (addressIndex == byteCount - 1)
+        {
+            return "LSB (BE) / MSB (LE)";
+        }
+        return $"Byte {addressIndex}";
+    }
+
+    private (string Label, string Value, string Field)[] GetOriginalRows()
+    {
+        return
+        [
+            ("Decimal", _parsedValue.ToString("N0"), "orig-dec"),
+            ("Hex", FormatHexValue(_parsedValue), "orig-hex"),
+            ("Binary", FormatBinaryGrouped(_bigEndianBytes), "orig-bin"),
+            ("Bytes", FormatByteString(_bigEndianBytes), "orig-bytes")
+        ];
+    }
+
+    private (string Label, string Value, string Field)[] GetSwappedRows()
+    {
+        return
+        [
+            ("Decimal", _swappedValue.ToString("N0"), "swap-dec"),
+            ("Hex", FormatHexValue(_swappedValue), "swap-hex"),
+            ("Binary", FormatBinaryGrouped(_littleEndianBytes), "swap-bin"),
+            ("Bytes", FormatByteString(_littleEndianBytes), "swap-bytes")
+        ];
+    }
+
+    private async Task SetBitWidth(int width)
+    {
+        _bitWidth = width;
+        await SaveState();
+        if (_hasResult)
+        {
+            await ConvertValue();
+        }
+    }
+
+    private async Task LoadExample(string value, int width)
+    {
+        _inputValue = value;
+        _bitWidth = width;
+        await ConvertValue();
+    }
+
+    private async Task CopyResult(string value, string field)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+        _copiedField = field;
+        StateHasChanged();
+        await Task.Delay(1500);
+        if (_copiedField == field)
+        {
+            _copiedField = null;
+            StateHasChanged();
+        }
+    }
+
+    private string GetCopyIcon(string field)
+    {
+        return _copiedField == field ? "ti-check text-green-500" : "ti-copy";
+    }
+
+    private void Clear()
+    {
+        _inputValue = string.Empty;
+        _error = null;
+        _hasResult = false;
+        _bigEndianBytes = Array.Empty<byte>();
+        _littleEndianBytes = Array.Empty<byte>();
+        _parsedValue = 0;
+        _swappedValue = 0;
+        _copiedField = null;
+    }
+}

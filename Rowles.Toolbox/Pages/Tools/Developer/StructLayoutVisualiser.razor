@@ -1,0 +1,611 @@
+@page "/tools/dev/struct-layout"
+
+@using System.Text
+@using Rowles.Toolbox.Core.Developer
+
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Struct Layout Visualiser - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Struct Layout Visualiser" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-layout-grid mr-1"></i> Visualise C# struct memory layout, padding, and alignment</span>
+    </Actions>
+</PageHeader>
+
+@* Preset buttons *@
+<div class="flex flex-wrap gap-2 mb-4">
+    <span class="text-xs text-gray-500 dark:text-gray-400 self-center mr-1"><i class="ti ti-template mr-0.5"></i> Presets:</span>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-amber-600 hover:bg-amber-700 text-white transition-colors"
+            @onclick="LoadPaddingExample">
+        <i class="ti ti-alert-triangle mr-1"></i> Typical Padding
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+            @onclick="LoadOptimised">
+        <i class="ti ti-sparkles mr-1"></i> Optimised
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-sky-600 hover:bg-sky-700 text-white transition-colors"
+            @onclick="LoadNetworkPacket">
+        <i class="ti ti-network mr-1"></i> Network Packet
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-violet-600 hover:bg-violet-700 text-white transition-colors"
+            @onclick="LoadVector3">
+        <i class="ti ti-vector mr-1"></i> Vector3
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-gray-500 hover:bg-gray-600 text-white ml-auto transition-colors"
+            @onclick="ClearAll">
+        <i class="ti ti-trash mr-1"></i> Clear
+    </button>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    @* ==================== LEFT: Field Editor ==================== *@
+    <div class="space-y-4">
+
+        @* Layout mode selector *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-3">
+                <i class="ti ti-settings mr-1"></i> Layout Mode
+            </h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (StructLayoutVisualiserCore.PackOption packOpt in StructLayoutVisualiserCore.PackOptions)
+                {
+                    string btnClass = _selectedPack == packOpt.Value
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600";
+                    <button class="@($"px-3 py-1.5 text-xs rounded transition-colors {btnClass}")"
+                            @onclick="() => SetPack(packOpt.Value)">
+                        @packOpt.Label
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Field list *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400">
+                    <i class="ti ti-list mr-1"></i> Fields (@_fields.Count)
+                </h3>
+                <button class="px-3 py-1.5 text-xs font-medium rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                        @onclick="AddField">
+                    <i class="ti ti-plus mr-1"></i> Add Field
+                </button>
+            </div>
+
+            @if (_fields.Count == 0)
+            {
+                <p class="text-xs text-gray-400 dark:text-gray-500 italic py-4 text-center">
+                    No fields yet. Add one or load a preset.
+                </p>
+            }
+            else
+            {
+                <div class="space-y-2">
+                    @for (int idx = 0; idx < _fields.Count; idx++)
+                    {
+                        int i = idx;
+                        StructLayoutVisualiserCore.StructField field = _fields[i];
+                        string colourDot = StructLayoutVisualiserCore.GetFieldColourClass(i);
+                        <div class="flex items-center gap-2 p-2 rounded bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700">
+                            @* Colour indicator *@
+                            <span class="@($"w-3 h-3 rounded-sm flex-shrink-0 {colourDot}")" title="Field colour"></span>
+
+                            @* Field name *@
+                            <input type="text"
+                                   class="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="fieldName"
+                                   value="@field.Name"
+                                   @onchange="(ChangeEventArgs e) => UpdateFieldName(i, e)" />
+
+                            @* Type selector *@
+                            <select class="w-28 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    value="@field.TypeName"
+                                    @onchange="(ChangeEventArgs e) => UpdateFieldType(i, e)">
+                                @foreach (StructLayoutVisualiserCore.TypeInfo typeInfo in StructLayoutVisualiserCore.TypeInfos)
+                                {
+                                    <option value="@typeInfo.Name">@typeInfo.Name (@typeInfo.Size B)</option>
+                                }
+                            </select>
+
+                            @* Size badge *@
+                            <span class="text-[10px] font-mono text-gray-400 w-6 text-center flex-shrink-0">@(field.Size)B</span>
+
+                            @* Move up *@
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-30 transition-colors"
+                                    disabled="@(i == 0)"
+                                    @onclick="() => MoveFieldUp(i)"
+                                    title="Move up">
+                                <i class="ti ti-arrow-up text-xs"></i>
+                            </button>
+
+                            @* Move down *@
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-30 transition-colors"
+                                    disabled="@(i == _fields.Count - 1)"
+                                    @onclick="() => MoveFieldDown(i)"
+                                    title="Move down">
+                                <i class="ti ti-arrow-down text-xs"></i>
+                            </button>
+
+                            @* Remove *@
+                            <button class="p-1 text-red-400 hover:text-red-600 transition-colors"
+                                    @onclick="() => RemoveField(i)"
+                                    title="Remove field">
+                                <i class="ti ti-x text-xs"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @* Optimisation suggestion *@
+        @if (_fields.Count >= 2 && _optimisedFields.Count > 0 && !IsAlreadyOptimal())
+        {
+            <div class="border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 rounded p-4">
+                <h3 class="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-2">
+                    <i class="ti ti-sparkles mr-1"></i> Optimal Field Ordering
+                </h3>
+                <p class="text-xs text-emerald-600 dark:text-emerald-500 mb-2">
+                    Reorder fields by alignment (descending) to minimise padding.
+                    Saves @(_layoutResult.TotalSize - _optimisedLayout.TotalSize) byte(s).
+                </p>
+                <div class="flex flex-wrap gap-1 mb-3">
+                    @for (int oi = 0; oi < _optimisedFields.Count; oi++)
+                    {
+                        int oIdx = oi;
+                        StructLayoutVisualiserCore.StructField optField = _optimisedFields[oIdx];
+                        <span class="px-2 py-0.5 text-[10px] font-mono rounded bg-emerald-100 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300">
+                            @optField.TypeName @optField.Name
+                        </span>
+                    }
+                </div>
+                <div class="flex gap-2">
+                    <button class="px-3 py-1.5 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                            @onclick="ApplyOptimised">
+                        <i class="ti ti-check mr-1"></i> Apply Optimal Order
+                    </button>
+                    <span class="text-[10px] text-emerald-600 dark:text-emerald-400 self-center">
+                        @_optimisedLayout.TotalSize bytes total (vs @_layoutResult.TotalSize current)
+                    </span>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* ==================== RIGHT: Visualisation ==================== *@
+    <div class="space-y-4">
+
+        @* Summary stats *@
+        @if (_fields.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-3">
+                    <i class="ti ti-chart-bar mr-1"></i> Summary
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div class="text-center">
+                        <div class="text-lg font-bold text-blue-600 dark:text-blue-400">@_layoutResult.TotalSize</div>
+                        <div class="text-[10px] text-gray-500">Total Size (bytes)</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-lg font-bold text-green-600 dark:text-green-400">@_layoutResult.PayloadSize</div>
+                        <div class="text-[10px] text-gray-500">Payload (bytes)</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-lg font-bold text-amber-600 dark:text-amber-400">@_layoutResult.PaddingSize</div>
+                        <div class="text-[10px] text-gray-500">Padding (bytes)</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-lg font-bold @GetWasteColourClass()">@_layoutResult.WastePercent.ToString("F1")%</div>
+                        <div class="text-[10px] text-gray-500">Waste</div>
+                    </div>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
+                    <span><i class="ti ti-ruler mr-0.5"></i> Largest alignment: @_layoutResult.LargestAlignment B</span>
+                    <span><i class="ti ti-package mr-0.5"></i> Pack: @(_selectedPack == 0 ? "default" : _selectedPack.ToString())</span>
+                </div>
+            </div>
+
+            @* Visual memory map *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400">
+                        <i class="ti ti-grid-dots mr-1"></i> Memory Map
+                    </h3>
+                    <div class="flex gap-2">
+                        <button class="px-2 py-1 text-[10px] rounded transition-colors @(_bytesPerRow == 8 ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300")"
+                                @onclick="() => SetBytesPerRow(8)">8 B/row</button>
+                        <button class="px-2 py-1 text-[10px] rounded transition-colors @(_bytesPerRow == 16 ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300")"
+                                @onclick="() => SetBytesPerRow(16)">16 B/row</button>
+                    </div>
+                </div>
+
+                @* Legend *@
+                <div class="flex flex-wrap gap-2 mb-3">
+                    @for (int li = 0; li < _fields.Count; li++)
+                    {
+                        int legendIdx = li;
+                        StructLayoutVisualiserCore.StructField legendField = _fields[legendIdx];
+                        string legendColour = StructLayoutVisualiserCore.GetFieldColourClass(legendIdx);
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800">
+                            <span class="@($"w-2.5 h-2.5 rounded-sm {legendColour}")"></span>
+                            @legendField.Name
+                        </span>
+                    }
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800">
+                        <span class="w-2.5 h-2.5 rounded-sm bg-gray-300 dark:bg-gray-600" style="background-image: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px);"></span>
+                        padding
+                    </span>
+                </div>
+
+                @* Byte grid *@
+                <div class="overflow-x-auto">
+                    @* Header row *@
+                    <div class="flex items-center mb-1">
+                        <div class="w-12 flex-shrink-0"></div>
+                        @for (int h = 0; h < _bytesPerRow; h++)
+                        {
+                            <div class="w-9 flex-shrink-0 text-center text-[9px] font-mono text-gray-400">+@h</div>
+                        }
+                    </div>
+
+                    @{ int totalBytes = _layoutResult.TotalSize; }
+                    @for (int row = 0; row * _bytesPerRow < totalBytes; row++)
+                    {
+                        int rowStart = row * _bytesPerRow;
+                        <div class="flex items-center mb-0.5">
+                            @* Offset label *@
+                            <div class="w-12 flex-shrink-0 text-[10px] font-mono text-gray-500 dark:text-gray-400 text-right pr-2">0x@(rowStart.ToString("X2"))</div>
+                            @for (int col = 0; col < _bytesPerRow; col++)
+                            {
+                                int byteOffset = rowStart + col;
+                                if (byteOffset < totalBytes)
+                                {
+                                    StructLayoutVisualiserCore.ByteCell cell = _byteMap[byteOffset];
+                                    if (cell.IsPadding)
+                                    {
+                                        <div class="w-9 h-8 flex-shrink-0 border border-gray-200 dark:border-gray-600 flex items-center justify-center text-[9px] font-mono text-gray-400 bg-gray-200 dark:bg-gray-700"
+                                             style="background-image: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);"
+                                             title="@($"Offset 0x{byteOffset:X2} - Padding")">
+                                            <span class="opacity-50">--</span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        string cellBg = StructLayoutVisualiserCore.GetFieldBgClass(cell.FieldIndex);
+                                        string cellText = StructLayoutVisualiserCore.GetFieldTextClass(cell.FieldIndex);
+                                        string cellBorder = StructLayoutVisualiserCore.GetFieldBorderClass(cell.FieldIndex);
+                                        <div class="@($"w-9 h-8 flex-shrink-0 border flex items-center justify-center text-[9px] font-mono {cellBg} {cellText} {cellBorder}")"
+                                             title="@($"Offset 0x{byteOffset:X2} - {cell.FieldName} ({_fields[cell.FieldIndex].TypeName}) byte {cell.ByteWithinField}/{_fields[cell.FieldIndex].Size}")">
+                                            @cell.ShortLabel
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="w-9 h-8 flex-shrink-0"></div>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* Field detail table *@
+                <div class="mt-4 overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-1.5 text-gray-500">Offset</th>
+                                <th class="text-left p-1.5 text-gray-500">Field</th>
+                                <th class="text-left p-1.5 text-gray-500">Type</th>
+                                <th class="text-right p-1.5 text-gray-500">Size</th>
+                                <th class="text-right p-1.5 text-gray-500">Align</th>
+                                <th class="text-right p-1.5 text-gray-500">Pad Before</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (StructLayoutVisualiserCore.FieldLayoutInfo fli in _layoutResult.FieldLayouts)
+                            {
+                                string rowBg = StructLayoutVisualiserCore.GetFieldBgClass(fli.FieldIndex);
+                                <tr class="@($"border-b border-gray-100 dark:border-gray-800 {rowBg}")">
+                                    <td class="p-1.5 font-mono">0x@(fli.Offset.ToString("X2"))</td>
+                                    <td class="p-1.5 font-mono font-medium">@fli.Name</td>
+                                    <td class="p-1.5 font-mono">@fli.TypeName</td>
+                                    <td class="p-1.5 text-right font-mono">@fli.Size</td>
+                                    <td class="p-1.5 text-right font-mono">@fli.Alignment</td>
+                                    <td class="p-1.5 text-right font-mono @(fli.PaddingBefore > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-gray-400")">@fli.PaddingBefore</td>
+                                </tr>
+                            }
+                            @if (_layoutResult.TailPadding > 0)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800 bg-gray-100 dark:bg-gray-800/50">
+                                    <td class="p-1.5 font-mono" colspan="5">
+                                        <span class="text-gray-500 italic">Tail padding (alignment to @_layoutResult.LargestAlignment B)</span>
+                                    </td>
+                                    <td class="p-1.5 text-right font-mono text-amber-600 dark:text-amber-400 font-bold">@_layoutResult.TailPadding</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            @* C# code output *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400">
+                        <i class="ti ti-code mr-1"></i> C# Declaration
+                    </h3>
+                    <button class="px-2.5 py-1 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                            @onclick="CopyCode">
+                        <i class="ti ti-clipboard"></i> Copy
+                    </button>
+                </div>
+                <pre class="p-3 rounded bg-gray-900 text-gray-100 text-xs font-mono overflow-x-auto whitespace-pre">@StructLayoutVisualiserCore.GenerateCode(_fields, _selectedPack, _layoutResult)</pre>
+            </div>
+        }
+        else
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-8 text-center">
+                <i class="ti ti-layout-grid text-4xl text-gray-300 dark:text-gray-600 mb-2"></i>
+                <p class="text-sm text-gray-400 dark:text-gray-500">Add fields or load a preset to visualise the struct layout.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(int SelectedPack, int BytesPerRow);
+
+    List<StructLayoutVisualiserCore.StructField> _fields = new();
+    int _selectedPack = 0;
+    int _bytesPerRow = 8;
+    StructLayoutVisualiserCore.LayoutResult _layoutResult = new(0, 0, 0, 0, 0, 0, new());
+    List<StructLayoutVisualiserCore.ByteCell> _byteMap = new();
+    List<StructLayoutVisualiserCore.StructField> _optimisedFields = new();
+    StructLayoutVisualiserCore.LayoutResult _optimisedLayout = new(0, 0, 0, 0, 0, 0, new());
+
+    protected override void OnInitialized()
+    {
+        LoadPaddingExample();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/struct-layout");
+            if (state is not null)
+            {
+                _selectedPack = state.SelectedPack;
+                _bytesPerRow = state.BytesPerRow;
+                Recalculate();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/struct-layout", new ToolState(_selectedPack, _bytesPerRow));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _selectedPack = state.SelectedPack;
+            _bytesPerRow = state.BytesPerRow;
+            Recalculate();
+            StateHasChanged();
+        }
+    }
+
+    private async Task RecalculateAndSave()
+    {
+        Recalculate();
+        await SaveState();
+    }
+
+    private async Task ClearAllAndSave()
+    {
+        ClearAll();
+        await SaveState();
+    }
+
+    string GetWasteColourClass()
+    {
+        double pct = _layoutResult.WastePercent;
+        if (pct <= 0) return "text-green-600 dark:text-green-400";
+        if (pct < 15) return "text-amber-600 dark:text-amber-400";
+        return "text-red-600 dark:text-red-400";
+    }
+
+    void SetPack(int pack)
+    {
+        _selectedPack = pack;
+        Recalculate();
+    }
+
+    void SetBytesPerRow(int count)
+    {
+        _bytesPerRow = count;
+    }
+
+    void AddField()
+    {
+        int nextNum = _fields.Count + 1;
+        _fields.Add(new StructLayoutVisualiserCore.StructField { Name = "field" + nextNum, TypeName = "int", Size = 4, Alignment = 4 });
+        Recalculate();
+    }
+
+    void RemoveField(int index)
+    {
+        if (index >= 0 && index < _fields.Count)
+        {
+            _fields.RemoveAt(index);
+            Recalculate();
+        }
+    }
+
+    void MoveFieldUp(int index)
+    {
+        if (index > 0 && index < _fields.Count)
+        {
+            StructLayoutVisualiserCore.StructField temp = _fields[index];
+            _fields[index] = _fields[index - 1];
+            _fields[index - 1] = temp;
+            Recalculate();
+        }
+    }
+
+    void MoveFieldDown(int index)
+    {
+        if (index >= 0 && index < _fields.Count - 1)
+        {
+            StructLayoutVisualiserCore.StructField temp = _fields[index];
+            _fields[index] = _fields[index + 1];
+            _fields[index + 1] = temp;
+            Recalculate();
+        }
+    }
+
+    void UpdateFieldName(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < _fields.Count)
+        {
+            _fields[index].Name = e.Value?.ToString() ?? "";
+            Recalculate();
+        }
+    }
+
+    void UpdateFieldType(int index, ChangeEventArgs e)
+    {
+        if (index >= 0 && index < _fields.Count)
+        {
+            string typeName = e.Value?.ToString() ?? "int";
+            StructLayoutVisualiserCore.TypeInfo? info = StructLayoutVisualiserCore.TypeInfos.Find(t => t.Name == typeName);
+            if (info is not null)
+            {
+                _fields[index].TypeName = info.Name;
+                _fields[index].Size = info.Size;
+                _fields[index].Alignment = info.Alignment;
+            }
+            Recalculate();
+        }
+    }
+
+    void SetFields(List<StructLayoutVisualiserCore.StructField> newFields)
+    {
+        _fields = newFields;
+        Recalculate();
+    }
+
+    void ClearAll()
+    {
+        _fields.Clear();
+        Recalculate();
+    }
+
+    void LoadPaddingExample()
+    {
+        SetFields(new List<StructLayoutVisualiserCore.StructField>
+        {
+            new() { Name = "flag", TypeName = "bool", Size = 1, Alignment = 1 },
+            new() { Name = "value", TypeName = "double", Size = 8, Alignment = 8 },
+            new() { Name = "count", TypeName = "int", Size = 4, Alignment = 4 },
+            new() { Name = "letter", TypeName = "char", Size = 2, Alignment = 2 }
+        });
+    }
+
+    void LoadOptimised()
+    {
+        SetFields(new List<StructLayoutVisualiserCore.StructField>
+        {
+            new() { Name = "value", TypeName = "double", Size = 8, Alignment = 8 },
+            new() { Name = "count", TypeName = "int", Size = 4, Alignment = 4 },
+            new() { Name = "letter", TypeName = "char", Size = 2, Alignment = 2 },
+            new() { Name = "flag", TypeName = "bool", Size = 1, Alignment = 1 }
+        });
+    }
+
+    void LoadNetworkPacket()
+    {
+        SetFields(new List<StructLayoutVisualiserCore.StructField>
+        {
+            new() { Name = "srcAddr", TypeName = "uint", Size = 4, Alignment = 4 },
+            new() { Name = "port", TypeName = "ushort", Size = 2, Alignment = 2 },
+            new() { Name = "flags", TypeName = "byte", Size = 1, Alignment = 1 },
+            new() { Name = "ttl", TypeName = "byte", Size = 1, Alignment = 1 },
+            new() { Name = "payload", TypeName = "uint", Size = 4, Alignment = 4 }
+        });
+    }
+
+    void LoadVector3()
+    {
+        SetFields(new List<StructLayoutVisualiserCore.StructField>
+        {
+            new() { Name = "X", TypeName = "float", Size = 4, Alignment = 4 },
+            new() { Name = "Y", TypeName = "float", Size = 4, Alignment = 4 },
+            new() { Name = "Z", TypeName = "float", Size = 4, Alignment = 4 }
+        });
+    }
+
+    void ApplyOptimised()
+    {
+        List<StructLayoutVisualiserCore.StructField> cloned = _optimisedFields
+            .Select(f => new StructLayoutVisualiserCore.StructField { Name = f.Name, TypeName = f.TypeName, Size = f.Size, Alignment = f.Alignment })
+            .ToList();
+        SetFields(cloned);
+    }
+
+    bool IsAlreadyOptimal()
+    {
+        if (_fields.Count != _optimisedFields.Count) return false;
+        for (int i = 0; i < _fields.Count; i++)
+        {
+            if (_fields[i].Name != _optimisedFields[i].Name || _fields[i].TypeName != _optimisedFields[i].TypeName)
+                return false;
+        }
+        return true;
+    }
+
+    void Recalculate()
+    {
+        _layoutResult = StructLayoutVisualiserCore.ComputeLayout(_fields, _selectedPack);
+        _byteMap = StructLayoutVisualiserCore.BuildByteMap(_fields, _layoutResult);
+        ComputeOptimised();
+    }
+
+    void ComputeOptimised()
+    {
+        if (_fields.Count < 2)
+        {
+            _optimisedFields = new List<StructLayoutVisualiserCore.StructField>();
+            _optimisedLayout = new StructLayoutVisualiserCore.LayoutResult(0, 0, 0, 0, 0, 0, new());
+            return;
+        }
+
+        _optimisedFields = _fields
+            .Select(f => new StructLayoutVisualiserCore.StructField { Name = f.Name, TypeName = f.TypeName, Size = f.Size, Alignment = f.Alignment })
+            .OrderByDescending(f => f.Alignment)
+            .ThenByDescending(f => f.Size)
+            .ThenBy(f => f.Name)
+            .ToList();
+
+        _optimisedLayout = StructLayoutVisualiserCore.ComputeLayout(_optimisedFields, _selectedPack);
+    }
+
+    private async Task CopyCode()
+    {
+        string code = StructLayoutVisualiserCore.GenerateCode(_fields, _selectedPack, _layoutResult);
+        await Js.InvokeVoidAsync("navigator.clipboard.writeText", code);
+    }
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/struct-layout" OnRestore="RestoreState" />

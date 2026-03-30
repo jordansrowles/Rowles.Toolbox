@@ -1,0 +1,399 @@
+@page "/tools/text/diff"
+@using Rowles.Toolbox.Core.Text
+@inject LocalStorageService Storage
+
+<PageTitle>Diff Viewer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Diff Viewer" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-arrows-diff mr-1"></i> Compare text, JSON, YAML, XML, and CSS</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-4">
+    @foreach (DiffTab tab in Enum.GetValues<DiffTab>())
+    {
+        <button class="px-4 py-2 text-sm font-medium cursor-pointer border-none bg-transparent @TabClass(_activeTab == tab)"
+                @onclick="() => SetTab(tab)">
+            <i class="@($"ti ti-{TabIcon(tab)} mr-1")"></i> @tab
+        </button>
+    }
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div>
+        <label class="block text-sm font-medium text-gray-500 mb-1">Original</label>
+        <textarea class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  rows="14"
+                  placeholder="Paste original content..."
+                  @bind="_inputA"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+    <div>
+        <label class="block text-sm font-medium text-gray-500 mb-1">Modified</label>
+        <textarea class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  rows="14"
+                  placeholder="Paste modified content..."
+                  @bind="_inputB"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+</div>
+
+<div class="flex flex-wrap gap-2 mb-4 items-center">
+    <button class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+            @onclick="RunCompare">
+        <i class="ti ti-arrows-diff mr-1"></i> Compare
+    </button>
+    <button class="px-3 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+            @onclick="SwapInputs">
+        <i class="ti ti-arrows-exchange mr-1"></i> Swap
+    </button>
+    <button class="px-3 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+            @onclick="ClearAll">
+        <i class="ti ti-trash mr-1"></i> Clear
+    </button>
+
+    @if (_activeTab == DiffTab.Text)
+    {
+        <div class="flex gap-0.5 ml-4 border border-gray-200 dark:border-gray-700 rounded p-0.5">
+            <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @ViewToggleClass(_sideBySide)"
+                    @onclick="() => _sideBySide = true">
+                Side-by-Side
+            </button>
+            <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @ViewToggleClass(!_sideBySide)"
+                    @onclick="() => _sideBySide = false">
+                Unified
+            </button>
+        </div>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="p-3 mb-4 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
+        <i class="ti ti-alert-triangle mr-1"></i> @_error
+    </div>
+}
+
+@if (_stats is not null)
+{
+    <div class="flex gap-4 mb-4 text-xs font-medium">
+        @if (_stats.Additions > 0)
+        {
+            <span class="text-green-600 dark:text-green-400"><i class="ti ti-plus mr-0.5"></i> @_stats.Additions added</span>
+        }
+        @if (_stats.Removals > 0)
+        {
+            <span class="text-red-600 dark:text-red-400"><i class="ti ti-minus mr-0.5"></i> @_stats.Removals removed</span>
+        }
+        @if (_stats.Modifications > 0)
+        {
+            <span class="text-amber-600 dark:text-amber-400"><i class="ti ti-pencil mr-0.5"></i> @_stats.Modifications modified</span>
+        }
+        @if (_stats.Unchanged > 0)
+        {
+            <span class="text-gray-500"><i class="ti ti-equal mr-0.5"></i> @_stats.Unchanged unchanged</span>
+        }
+        @if (_stats.Additions == 0 && _stats.Removals == 0 && _stats.Modifications == 0)
+        {
+            <span class="text-green-600 dark:text-green-400"><i class="ti ti-checks mr-0.5"></i> Documents are identical</span>
+        }
+    </div>
+}
+
+@if (_activeTab == DiffTab.Text && _lineDiff is not null && HasTextChanges)
+{
+    <div class="border border-gray-200 dark:border-gray-700 rounded overflow-auto max-h-[600px]">
+        @if (_sideBySide && _sideBySidePairs is not null)
+        {
+            <table class="w-full text-xs font-mono border-collapse">
+                <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+                    <tr>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium w-12">#</th>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium">Original</th>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium w-12">#</th>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium">Modified</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (DiffViewerCore.SideBySidePair pair in _sideBySidePairs)
+                    {
+                        <tr class="border-b border-gray-100 dark:border-gray-800">
+                            <td class="px-2 py-0.5 text-gray-400 select-none @SbsLeftBg(pair.Left)">@(pair.Left?.LineA?.ToString() ?? "")</td>
+                            <td class="px-2 py-0.5 whitespace-pre-wrap @SbsLeftCell(pair.Left)">@(pair.Left?.Content ?? "")</td>
+                            <td class="px-2 py-0.5 text-gray-400 select-none @SbsRightBg(pair.Right)">@(pair.Right?.LineB?.ToString() ?? "")</td>
+                            <td class="px-2 py-0.5 whitespace-pre-wrap @SbsRightCell(pair.Right)">@(pair.Right?.Content ?? "")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <table class="w-full text-xs font-mono border-collapse">
+                <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+                    <tr>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium w-12">L</th>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium w-12">R</th>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium">Content</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (DiffViewerCore.DiffLine dl in _lineDiff)
+                    {
+                        <tr class="border-b border-gray-100 dark:border-gray-800 @UnifiedRowBg(dl)">
+                            <td class="px-2 py-0.5 text-gray-400 select-none">@(dl.LineA?.ToString() ?? "")</td>
+                            <td class="px-2 py-0.5 text-gray-400 select-none">@(dl.LineB?.ToString() ?? "")</td>
+                            <td class="px-2 py-0.5 whitespace-pre-wrap">@UnifiedPrefix(dl)@dl.Content</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@if (_activeTab != DiffTab.Text && _structuralChanges is not null && _structuralChanges.Count > 0)
+{
+    <div class="border border-gray-200 dark:border-gray-700 rounded overflow-auto max-h-[600px]">
+        <table class="w-full text-xs font-mono border-collapse">
+            <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+                <tr>
+                    <th class="px-3 py-1.5 text-left text-gray-500 font-medium">Path</th>
+                    <th class="px-3 py-1.5 text-left text-gray-500 font-medium w-20">Change</th>
+                    <th class="px-3 py-1.5 text-left text-gray-500 font-medium">Original</th>
+                    <th class="px-3 py-1.5 text-left text-gray-500 font-medium">Modified</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (DiffViewerCore.StructuralChange ch in _structuralChanges)
+                {
+                    <tr class="border-b border-gray-100 dark:border-gray-800 @StructuralRowBg(ch)">
+                        <td class="px-3 py-1 text-blue-600 dark:text-blue-400 break-all">@ch.Path</td>
+                        <td class="px-3 py-1">@ChangeBadge(ch.Type)</td>
+                        <td class="px-3 py-1 whitespace-pre-wrap break-all @OriginalValueClass(ch)">@(ch.ValueA ?? "")</td>
+                        <td class="px-3 py-1 whitespace-pre-wrap break-all @ModifiedValueClass(ch)">@(ch.ValueB ?? "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/diff" OnRestore="RestoreState" />
+
+@code {
+    enum DiffTab { Text, Json, Yaml, Xml, Css }
+
+    private DiffTab _activeTab = DiffTab.Text;
+    private string _inputA = "";
+    private string _inputB = "";
+    private bool _sideBySide = true;
+    private string _error = "";
+    private RecentEntryPanel? _recentPanel;
+
+    private List<DiffViewerCore.DiffLine>? _lineDiff;
+    private List<DiffViewerCore.SideBySidePair>? _sideBySidePairs;
+    private List<DiffViewerCore.StructuralChange>? _structuralChanges;
+    private DiffViewerCore.DiffStats? _stats;
+
+    sealed record ToolState(string ActiveTab, string InputA, string InputB, bool SideBySide);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/diff");
+            if (state is not null)
+            {
+                _activeTab = Enum.TryParse<DiffTab>(state.ActiveTab, out DiffTab tab) ? tab : DiffTab.Text;
+                _inputA = state.InputA;
+                _inputB = state.InputB;
+                _sideBySide = state.SideBySide;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/diff", new ToolState(_activeTab.ToString(), _inputA, _inputB, _sideBySide));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _activeTab = Enum.TryParse<DiffTab>(state.ActiveTab, out DiffTab tab) ? tab : DiffTab.Text;
+            _inputA = state.InputA;
+            _inputB = state.InputB;
+            _sideBySide = state.SideBySide;
+            ClearResults();
+            StateHasChanged();
+        }
+    }
+
+    private bool HasTextChanges => _stats is not null
+        && (_stats.Additions > 0 || _stats.Removals > 0);
+
+    private async Task SetTab(DiffTab tab)
+    {
+        _activeTab = tab;
+        ClearResults();
+        await SaveState();
+    }
+
+    private async Task RunCompare()
+    {
+        _error = "";
+        ClearResults();
+
+        if (string.IsNullOrWhiteSpace(_inputA) && string.IsNullOrWhiteSpace(_inputB))
+        {
+            _error = "Please enter content in both fields.";
+            return;
+        }
+
+        try
+        {
+            switch (_activeTab)
+            {
+                case DiffTab.Text:
+                    _lineDiff = DiffViewerCore.ComputeLineDiff(_inputA, _inputB);
+                    _sideBySidePairs = DiffViewerCore.ToSideBySide(_lineDiff);
+                    _stats = DiffViewerCore.GetLineDiffStats(_lineDiff);
+                    break;
+                case DiffTab.Json:
+                    _structuralChanges = DiffViewerCore.ComputeJsonDiff(_inputA, _inputB);
+                    _stats = DiffViewerCore.GetStructuralDiffStats(_structuralChanges);
+                    break;
+                case DiffTab.Yaml:
+                    _structuralChanges = DiffViewerCore.ComputeYamlDiff(_inputA, _inputB);
+                    _stats = DiffViewerCore.GetStructuralDiffStats(_structuralChanges);
+                    break;
+                case DiffTab.Xml:
+                    _structuralChanges = DiffViewerCore.ComputeXmlDiff(_inputA, _inputB);
+                    _stats = DiffViewerCore.GetStructuralDiffStats(_structuralChanges);
+                    break;
+                case DiffTab.Css:
+                    _structuralChanges = DiffViewerCore.ComputeCssDiff(_inputA, _inputB);
+                    _stats = DiffViewerCore.GetStructuralDiffStats(_structuralChanges);
+                    break;
+            }
+
+            string label = $"{_activeTab} diff ({_inputA.Length + _inputB.Length} chars)";
+            await Storage.AddRecentAsync("tools/text/diff", label, new ToolState(_activeTab.ToString(), _inputA, _inputB, _sideBySide));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task SwapInputs()
+    {
+        (_inputA, _inputB) = (_inputB, _inputA);
+        ClearResults();
+        await SaveState();
+    }
+
+    private async Task ClearAll()
+    {
+        _inputA = "";
+        _inputB = "";
+        ClearResults();
+        await SaveState();
+    }
+
+    private void ClearResults()
+    {
+        _lineDiff = null;
+        _sideBySidePairs = null;
+        _structuralChanges = null;
+        _stats = null;
+        _error = "";
+    }
+
+    // ── Styling helpers ──────────────────────────────────────
+
+    private static string TabClass(bool active) => active
+        ? "border-b-2 border-blue-500 text-blue-600 dark:text-blue-400"
+        : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300";
+
+    private static string TabIcon(DiffTab tab) => tab switch
+    {
+        DiffTab.Text => "file-text",
+        DiffTab.Json => "braces",
+        DiffTab.Yaml => "file-type-doc",
+        DiffTab.Xml => "file-code",
+        DiffTab.Css => "brush",
+        _ => "file"
+    };
+
+    private static string ViewToggleClass(bool active) => active
+        ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300"
+        : "text-gray-500";
+
+    private static string SbsLeftBg(DiffViewerCore.DiffLine? line) =>
+        line?.Type == DiffViewerCore.ChangeType.Removed
+            ? "bg-red-50 dark:bg-red-900/20" : "";
+
+    private static string SbsLeftCell(DiffViewerCore.DiffLine? line) =>
+        line?.Type == DiffViewerCore.ChangeType.Removed
+            ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400" : "";
+
+    private static string SbsRightBg(DiffViewerCore.DiffLine? right) =>
+        right?.Type == DiffViewerCore.ChangeType.Added
+            ? "bg-green-50 dark:bg-green-900/20" : "";
+
+    private static string SbsRightCell(DiffViewerCore.DiffLine? right) =>
+        right?.Type == DiffViewerCore.ChangeType.Added
+            ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" : "";
+
+    private static string UnifiedRowBg(DiffViewerCore.DiffLine dl) => dl.Type switch
+    {
+        DiffViewerCore.ChangeType.Added => "bg-green-50 dark:bg-green-900/20",
+        DiffViewerCore.ChangeType.Removed => "bg-red-50 dark:bg-red-900/20",
+        _ => ""
+    };
+
+    private static string UnifiedPrefix(DiffViewerCore.DiffLine dl) => dl.Type switch
+    {
+        DiffViewerCore.ChangeType.Added => "+ ",
+        DiffViewerCore.ChangeType.Removed => "- ",
+        _ => "  "
+    };
+
+    private static string StructuralRowBg(DiffViewerCore.StructuralChange ch) => ch.Type switch
+    {
+        DiffViewerCore.ChangeType.Added => "bg-green-50 dark:bg-green-900/20",
+        DiffViewerCore.ChangeType.Removed => "bg-red-50 dark:bg-red-900/20",
+        DiffViewerCore.ChangeType.Modified => "bg-amber-50 dark:bg-amber-900/20",
+        _ => ""
+    };
+
+    private static string OriginalValueClass(DiffViewerCore.StructuralChange ch) =>
+        ch.Type is DiffViewerCore.ChangeType.Removed or DiffViewerCore.ChangeType.Modified
+            ? "text-red-600 dark:text-red-400" : "text-gray-400";
+
+    private static string ModifiedValueClass(DiffViewerCore.StructuralChange ch) =>
+        ch.Type is DiffViewerCore.ChangeType.Added or DiffViewerCore.ChangeType.Modified
+            ? "text-green-600 dark:text-green-400" : "text-gray-400";
+
+    private static MarkupString ChangeBadge(DiffViewerCore.ChangeType type)
+    {
+        (string label, string cls) = type switch
+        {
+            DiffViewerCore.ChangeType.Added => ("added", "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"),
+            DiffViewerCore.ChangeType.Removed => ("removed", "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"),
+            DiffViewerCore.ChangeType.Modified => ("changed", "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"),
+            _ => ("equal", "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300")
+        };
+        return new MarkupString(
+            $"<span class=\"px-1.5 py-0.5 rounded text-[10px] font-semibold {cls}\">{label}</span>");
+    }
+}

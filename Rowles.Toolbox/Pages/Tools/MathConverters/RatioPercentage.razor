@@ -1,0 +1,359 @@
+@page "/tools/math/ratio"
+@using Rowles.Toolbox.Core.MathConverters
+@inject LocalStorageService Storage
+
+<PageTitle>Ratio &amp; Percentage - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Ratio &amp; Percentage" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-percentage mr-1"></i> Percentage, ratio &amp; proportion calculators</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    @* Percentage of Value *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-percentage mr-1"></i> Percentage of Value
+        </h3>
+        <p class="text-xs text-gray-400">What is X% of Y?</p>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-sm font-medium mb-1">Percentage (%)</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_pctOfPercent" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Value</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_pctOfValue" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+            <span class="text-sm text-gray-500">Result: </span>
+            <span class="text-lg font-bold text-blue-600 dark:text-blue-400">@FormatResult(_pctOfPercent / 100.0 * _pctOfValue)</span>
+        </div>
+    </div>
+
+    @* Value as Percentage *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-chart-pie mr-1"></i> Value as Percentage
+        </h3>
+        <p class="text-xs text-gray-400">X is what % of Y?</p>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-sm font-medium mb-1">Value (X)</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_valAsPctX" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Total (Y)</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_valAsPctY" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+            <span class="text-sm text-gray-500">Result: </span>
+            <span class="text-lg font-bold text-blue-600 dark:text-blue-400">
+                @(_valAsPctY != 0 ? $"{FormatResult(_valAsPctX / _valAsPctY * 100.0)}%" : "—")
+            </span>
+        </div>
+    </div>
+
+    @* Percentage Change *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-trending-up mr-1"></i> Percentage Change
+        </h3>
+        <p class="text-xs text-gray-400">Change from X to Y = ?%</p>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-sm font-medium mb-1">Original Value</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_pctChangeFrom" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">New Value</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_pctChangeTo" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center">
+            @{ double pctChange = _pctChangeFrom != 0 ? (_pctChangeTo - _pctChangeFrom) / _pctChangeFrom * 100.0 : 0; }
+            <span class="text-sm text-gray-500">Change: </span>
+            <span class="text-lg font-bold @(pctChange >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")">
+                @(pctChange >= 0 ? "+" : "")@FormatResult(pctChange)%
+                <span class="text-xs font-normal text-gray-400">@(pctChange >= 0 ? "increase" : "decrease")</span>
+            </span>
+        </div>
+    </div>
+
+    @* Ratio Calculator *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-arrows-split mr-1"></i> Ratio Calculator
+        </h3>
+        <p class="text-xs text-gray-400">If 100% = X, what is Y%?</p>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-sm font-medium mb-1">Total (100%)</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_ratioTotal" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Percentage (%)</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_ratioPercent" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+            <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">@FormatResult(_ratioPercent)% of @FormatResult(_ratioTotal) =</span>
+                <span class="font-bold text-blue-600 dark:text-blue-400">@FormatResult(_ratioTotal * _ratioPercent / 100.0)</span>
+            </div>
+            <div class="flex items-center justify-between text-sm mt-1">
+                <span class="text-gray-500">@FormatResult(_ratioTotal) is @FormatResult(_ratioPercent)% of</span>
+                <span class="font-bold text-blue-600 dark:text-blue-400">
+                    @(_ratioPercent != 0 ? FormatResult(_ratioTotal / _ratioPercent * 100.0) : "—")
+                </span>
+            </div>
+        </div>
+    </div>
+
+    @* Proportion Solver *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-equal mr-1"></i> Proportion Solver
+        </h3>
+        <p class="text-xs text-gray-400">A : B = C : ? — solve for the missing value</p>
+        <div class="grid grid-cols-4 gap-2 items-end">
+            <div>
+                <label class="block text-sm font-medium mb-1">A</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_propA" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">B</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_propB" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">C</label>
+                <input type="number" step="any"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_propC" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">? (D)</label>
+                <input type="text" readonly
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-bold text-blue-600 dark:text-blue-400"
+                       value="@(_propA != 0 ? FormatResult(_propB * _propC / _propA) : "—")" />
+            </div>
+        </div>
+        <p class="text-xs text-gray-400 text-center">
+            @FormatResult(_propA) : @FormatResult(_propB) = @FormatResult(_propC) : @(_propA != 0 ? FormatResult(_propB * _propC / _propA) : "?")
+        </p>
+    </div>
+
+    @* Discount Calculator *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-tag mr-1"></i> Discount Calculator
+        </h3>
+        <p class="text-xs text-gray-400">Original price, discount %, final price</p>
+        <div class="grid grid-cols-3 gap-2">
+            <div>
+                <label class="block text-sm font-medium mb-1">Original Price</label>
+                <input type="number" step="any" min="0"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_discountOriginal" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Discount (%)</label>
+                <input type="number" step="any" min="0" max="100"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_discountPercent" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Final Price</label>
+                <input type="text" readonly
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-bold text-blue-600 dark:text-blue-400"
+                       value="@FormatResult(_discountOriginal * (1.0 - _discountPercent / 100.0))" />
+            </div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-center text-sm">
+            <span class="text-gray-500">You save: </span>
+            <span class="font-bold text-green-600 dark:text-green-400">@FormatResult(_discountOriginal * _discountPercent / 100.0)</span>
+        </div>
+    </div>
+
+    @* Markup Calculator *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-cash mr-1"></i> Markup Calculator
+        </h3>
+        <p class="text-xs text-gray-400">Cost, markup %, selling price</p>
+        <div class="grid grid-cols-3 gap-2">
+            <div>
+                <label class="block text-sm font-medium mb-1">Cost</label>
+                <input type="number" step="any" min="0"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_markupCost" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Markup (%)</label>
+                <input type="number" step="any" min="0"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_markupPercent" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Selling Price</label>
+                <input type="text" readonly
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-bold text-blue-600 dark:text-blue-400"
+                       value="@FormatResult(_markupCost * (1.0 + _markupPercent / 100.0))" />
+            </div>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+            <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">Profit:</span>
+                <span class="font-bold text-green-600 dark:text-green-400">@FormatResult(_markupCost * _markupPercent / 100.0)</span>
+            </div>
+            <div class="flex items-center justify-between text-sm mt-1">
+                <span class="text-gray-500">Margin:</span>
+                <span class="font-bold text-blue-600 dark:text-blue-400">
+                    @{ double sellingPrice = _markupCost * (1.0 + _markupPercent / 100.0); }
+                    @(sellingPrice != 0 ? $"{FormatResult((_markupCost * _markupPercent / 100.0) / sellingPrice * 100.0)}%" : "—")
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/ratio" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    
+    sealed record ToolState(
+        double PctOfPercent,
+        double PctOfValue,
+        double ValAsPctX,
+        double ValAsPctY,
+        double PctChangeFrom,
+        double PctChangeTo,
+        double RatioTotal,
+        double RatioPercent,
+        double PropA,
+        double PropB,
+        double PropC,
+        double DiscountOriginal,
+        double DiscountPercent,
+        double MarkupCost,
+        double MarkupPercent);
+    // Percentage of Value
+    private double _pctOfPercent = 25;
+    private double _pctOfValue = 200;
+
+    // Value as Percentage
+    private double _valAsPctX = 50;
+    private double _valAsPctY = 200;
+
+    // Percentage Change
+    private double _pctChangeFrom = 100;
+    private double _pctChangeTo = 125;
+
+    // Ratio Calculator
+    private double _ratioTotal = 500;
+    private double _ratioPercent = 20;
+
+    // Proportion Solver
+    private double _propA = 2;
+    private double _propB = 5;
+    private double _propC = 10;
+
+    // Discount Calculator
+    private double _discountOriginal = 100;
+    private double _discountPercent = 20;
+
+    // Markup Calculator
+    private double _markupCost = 50;
+    private double _markupPercent = 40;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/math/ratio");
+            if (state is not null)
+            {
+                _pctOfPercent = state.PctOfPercent;
+                _pctOfValue = state.PctOfValue;
+                _valAsPctX = state.ValAsPctX;
+                _valAsPctY = state.ValAsPctY;
+                _pctChangeFrom = state.PctChangeFrom;
+                _pctChangeTo = state.PctChangeTo;
+                _ratioTotal = state.RatioTotal;
+                _ratioPercent = state.RatioPercent;
+                _propA = state.PropA;
+                _propB = state.PropB;
+                _propC = state.PropC;
+                _discountOriginal = state.DiscountOriginal;
+                _discountPercent = state.DiscountPercent;
+                _markupCost = state.MarkupCost;
+                _markupPercent = state.MarkupPercent;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(
+            _pctOfPercent, _pctOfValue, _valAsPctX, _valAsPctY,
+            _pctChangeFrom, _pctChangeTo, _ratioTotal, _ratioPercent,
+            _propA, _propB, _propC, _discountOriginal, _discountPercent,
+            _markupCost, _markupPercent);
+        await Storage.SaveStateAsync("tools/math/ratio", state);
+    }
+
+    private void RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _pctOfPercent = state.PctOfPercent;
+                _pctOfValue = state.PctOfValue;
+                _valAsPctX = state.ValAsPctX;
+                _valAsPctY = state.ValAsPctY;
+                _pctChangeFrom = state.PctChangeFrom;
+                _pctChangeTo = state.PctChangeTo;
+                _ratioTotal = state.RatioTotal;
+                _ratioPercent = state.RatioPercent;
+                _propA = state.PropA;
+                _propB = state.PropB;
+                _propC = state.PropC;
+                _discountOriginal = state.DiscountOriginal;
+                _discountPercent = state.DiscountPercent;
+                _markupCost = state.MarkupCost;
+                _markupPercent = state.MarkupPercent;
+            }
+        }
+        catch { /* ignore */ }
+    }
+
+    private static string FormatResult(double value) => RatioPercentageCore.FormatResult(value);
+}

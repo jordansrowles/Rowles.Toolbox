@@ -1,0 +1,585 @@
+@page "/tools/dev/string-interpolation"
+
+@using System.Text.RegularExpressions
+@using Rowles.Toolbox.Core.Developer
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>String Interpolation - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="String Interpolation" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-code mr-1"></i> Preview string.Format &amp; C# interpolation output</span>
+    </Actions>
+</PageHeader>
+
+@* Preset examples *@
+<div class="flex flex-wrap gap-2 mb-4">
+    @for (int i = 0; i < StringInterpolationTesterCore.Presets.Length; i++)
+    {
+        int idx = i;
+        <button class="px-3 py-1.5 text-xs font-medium rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-400 transition-colors"
+                @onclick="() => LoadPreset(idx)">
+            <i class="@StringInterpolationTesterCore.Presets[idx].Icon mr-1"></i> @StringInterpolationTesterCore.Presets[idx].Label
+        </button>
+    }
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @* Main panel *@
+    <div class="lg:col-span-2 space-y-4">
+
+        @* Format string input *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500">
+                    <i class="ti ti-braces mr-1"></i> Format String
+                </h3>
+                <div class="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded p-0.5">
+                    <button class="px-3 py-1 text-xs rounded transition-colors @GetModeButtonClass(false)"
+                            @onclick="() => SetModeAndSave(false)">
+                        string.Format
+                    </button>
+                    <button class="px-3 py-1 text-xs rounded transition-colors @GetModeButtonClass(true)"
+                            @onclick="() => SetModeAndSave(true)">
+                        $&quot;...&quot;
+                    </button>
+                </div>
+            </div>
+
+            <input type="text"
+                   class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="e.g. Hello, {0}! You have {1:C} in your account."
+                   value="@_formatString"
+                   @oninput="HandleFormatInput" />
+
+            @if (_useInterpolationMode && _arguments.Count > 0)
+            {
+                <div class="mt-2 p-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded">
+                    <span class="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                        <i class="ti ti-transform mr-1"></i> Interpolated:
+                    </span>
+                    <code class="text-xs font-mono text-purple-800 dark:text-purple-300 ml-1">@GetInterpolationPreview()</code>
+                </div>
+            }
+        </div>
+
+        @* Arguments panel *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-list-numbers mr-1"></i> Arguments
+                @if (_arguments.Count > 0)
+                {
+                    <span class="ml-1 text-xs font-normal text-gray-400">(@_arguments.Count detected)</span>
+                }
+            </h3>
+
+            @if (_arguments.Count == 0)
+            {
+                <p class="text-sm text-gray-400 italic">
+                    <i class="ti ti-info-circle mr-1"></i>
+                    No placeholders detected. Use @("{0}"), @("{1}"), etc. in your format string.
+                </p>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500 font-medium w-14">Index</th>
+                                @if (_useInterpolationMode)
+                                {
+                                    <th class="text-left p-2 text-gray-500 font-medium w-28">Name</th>
+                                }
+                                <th class="text-left p-2 text-gray-500 font-medium w-28">Type</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (FormatArgument arg in _arguments)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2">
+                                        <span class="inline-flex items-center justify-center w-7 h-7 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-bold font-mono">
+                                            @arg.Index
+                                        </span>
+                                    </td>
+                                    @if (_useInterpolationMode)
+                                    {
+                                        <td class="p-2">
+                                            <input type="text"
+                                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                                   value="@arg.Name"
+                                                   @oninput="(e) => HandleNameChange(arg.Index, e)" />
+                                        </td>
+                                    }
+                                    <td class="p-2">
+                                        <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                value="@arg.TypeName"
+                                                @onchange="(e) => HandleTypeChange(arg.Index, e)">
+                                            @foreach (string typeName in StringInterpolationTesterCore.TypeOptions)
+                                            {
+                                                <option value="@typeName">@typeName</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td class="p-2">
+                                        <input type="text"
+                                               class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                               placeholder="@StringInterpolationTesterCore.GetPlaceholderForType(arg.TypeName)"
+                                               value="@arg.Value"
+                                               @oninput="(e) => HandleValueChange(arg.Index, e)" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @* Formatted output *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500">
+                    <i class="ti ti-terminal mr-1"></i> Output
+                </h3>
+                @if (!string.IsNullOrEmpty(_formattedOutput))
+                {
+                    <button class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            @onclick="CopyOutput">
+                        <i class="ti @GetCopyIconClass() mr-1"></i>
+                        @(_copied ? "Copied" : "Copy")
+                    </button>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="p-3 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded font-mono">
+                    <i class="ti ti-alert-triangle mr-1"></i> @_errorMessage
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_formattedOutput))
+            {
+                <div class="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded">
+                    <pre class="text-sm font-mono text-green-800 dark:text-green-300 whitespace-pre-wrap break-all">@_formattedOutput</pre>
+                </div>
+            }
+            else
+            {
+                <p class="text-sm text-gray-400 italic">Enter a format string and arguments to see output.</p>
+            }
+
+            @if (!string.IsNullOrEmpty(_formatString) && _arguments.Count > 0)
+            {
+                <div class="mt-3 p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs text-gray-500 font-medium">
+                            <i class="ti ti-code mr-1"></i> C# Code
+                        </span>
+                        <button class="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                @onclick="CopyCode">
+                            <i class="ti @GetCopyCodeIconClass() mr-1"></i>
+                            @(_copiedCode ? "Copied" : "Copy")
+                        </button>
+                    </div>
+                    <pre class="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all">@GetCodePreview()</pre>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Format specifier reference *@
+    <div class="space-y-3">
+
+        @* Numeric formats *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded">
+            <button class="w-full flex items-center justify-between p-3 text-sm font-semibold text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors rounded"
+                    @onclick="() => ToggleRefSection(0)">
+                <span><i class="ti ti-hash mr-1"></i> Numeric Formats</span>
+                <i class="ti @GetChevronClass(0) text-xs"></i>
+            </button>
+            @if (_refSectionOpen[0])
+            {
+                <div class="px-3 pb-3">
+                    <table class="w-full text-xs">
+                        <tbody>
+                            @foreach ((string spec, string desc, string example) in StringInterpolationTesterCore.NumericRefData)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                                    <td class="py-1.5 pr-2 font-mono font-bold text-blue-600 dark:text-blue-400 w-8">@spec</td>
+                                    <td class="py-1.5 pr-2 text-gray-600 dark:text-gray-400">@desc</td>
+                                    <td class="py-1.5 font-mono text-gray-500 text-right">@example</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @* DateTime formats *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded">
+            <button class="w-full flex items-center justify-between p-3 text-sm font-semibold text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors rounded"
+                    @onclick="() => ToggleRefSection(1)">
+                <span><i class="ti ti-calendar mr-1"></i> DateTime Formats</span>
+                <i class="ti @GetChevronClass(1) text-xs"></i>
+            </button>
+            @if (_refSectionOpen[1])
+            {
+                <div class="px-3 pb-3">
+                    <table class="w-full text-xs">
+                        <tbody>
+                            @foreach ((string spec, string desc, string example) in StringInterpolationTesterCore.DateTimeRefData)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                                    <td class="py-1.5 pr-2 font-mono font-bold text-blue-600 dark:text-blue-400 w-20">@spec</td>
+                                    <td class="py-1.5 pr-2 text-gray-600 dark:text-gray-400">@desc</td>
+                                    <td class="py-1.5 font-mono text-gray-500 text-right">@example</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @* Alignment *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded">
+            <button class="w-full flex items-center justify-between p-3 text-sm font-semibold text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors rounded"
+                    @onclick="() => ToggleRefSection(2)">
+                <span><i class="ti ti-align-justified mr-1"></i> Alignment</span>
+                <i class="ti @GetChevronClass(2) text-xs"></i>
+            </button>
+            @if (_refSectionOpen[2])
+            {
+                <div class="px-3 pb-3">
+                    <table class="w-full text-xs">
+                        <tbody>
+                            @foreach ((string spec, string desc, string example) in StringInterpolationTesterCore.AlignmentRefData)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                                    <td class="py-1.5 pr-2 font-mono font-bold text-blue-600 dark:text-blue-400 w-20">@spec</td>
+                                    <td class="py-1.5 pr-2 text-gray-600 dark:text-gray-400">@desc</td>
+                                    <td class="py-1.5 font-mono text-gray-500 text-right whitespace-pre">@example</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @* Composite formats *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded">
+            <button class="w-full flex items-center justify-between p-3 text-sm font-semibold text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors rounded"
+                    @onclick="() => ToggleRefSection(3)">
+                <span><i class="ti ti-puzzle mr-1"></i> Composite Formats</span>
+                <i class="ti @GetChevronClass(3) text-xs"></i>
+            </button>
+            @if (_refSectionOpen[3])
+            {
+                <div class="px-3 pb-3">
+                    <table class="w-full text-xs">
+                        <tbody>
+                            @foreach ((string spec, string desc, string example) in StringInterpolationTesterCore.CompositeRefData)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                                    <td class="py-1.5 pr-2 font-mono font-bold text-blue-600 dark:text-blue-400 w-24">@spec</td>
+                                    <td class="py-1.5 pr-2 text-gray-600 dark:text-gray-400">@desc</td>
+                                    <td class="py-1.5 font-mono text-gray-500 text-right">@example</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/string-interpolation" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(string FormatString, bool UseInterpolationMode);
+
+    private string _formatString = "";
+    private readonly List<FormatArgument> _arguments = new();
+    private string _formattedOutput = "";
+    private string _errorMessage = "";
+    private bool _useInterpolationMode;
+    private bool _copied;
+    private bool _copiedCode;
+    private bool[] _refSectionOpen = [true, false, false, false];
+
+    protected override void OnInitialized()
+    {
+        LoadPreset(0);
+    }
+
+    private void HandleFormatInput(ChangeEventArgs e)
+    {
+        _formatString = e.Value?.ToString() ?? "";
+        ParseFormatString();
+        UpdateOutput();
+    }
+
+    private void HandleTypeChange(int index, ChangeEventArgs e)
+    {
+        string typeName = e.Value?.ToString() ?? "String";
+        _arguments[index].TypeName = typeName;
+        _arguments[index].Value = StringInterpolationTesterCore.GetDefaultValue(typeName);
+        UpdateOutput();
+    }
+
+    private void HandleValueChange(int index, ChangeEventArgs e)
+    {
+        _arguments[index].Value = e.Value?.ToString() ?? "";
+        UpdateOutput();
+    }
+
+    private void HandleNameChange(int index, ChangeEventArgs e)
+    {
+        _arguments[index].Name = e.Value?.ToString() ?? "";
+    }
+
+    private void SetMode(bool interpolation)
+    {
+        _useInterpolationMode = interpolation;
+    }
+
+    private async Task SetModeAndSave(bool interpolation)
+    {
+        SetMode(interpolation);
+        await SaveState();
+    }
+
+    private async Task UpdateFormatStringAndSave()
+    {
+        ParseFormatString();
+        await SaveState();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/string-interpolation");
+            if (state is not null)
+            {
+                _formatString = state.FormatString;
+                _useInterpolationMode = state.UseInterpolationMode;
+                ParseFormatString();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/string-interpolation", new ToolState(_formatString, _useInterpolationMode));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _formatString = state.FormatString;
+            _useInterpolationMode = state.UseInterpolationMode;
+            ParseFormatString();
+            StateHasChanged();
+        }
+    }
+
+    private void LoadPreset(int index)
+    {
+        StringInterpolationTesterCore.PresetDefinition preset = StringInterpolationTesterCore.Presets[index];
+        _formatString = preset.FormatString;
+        _arguments.Clear();
+
+        for (int i = 0; i < preset.Args.Length; i++)
+        {
+            (string typeName, string value, string argName) = preset.Args[i];
+            _arguments.Add(new FormatArgument
+            {
+                Index = i,
+                TypeName = typeName,
+                Value = value,
+                Name = argName
+            });
+        }
+
+        UpdateOutput();
+    }
+
+    private void ToggleRefSection(int index)
+    {
+        _refSectionOpen[index] = !_refSectionOpen[index];
+    }
+
+    private async Task CopyOutput()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _formattedOutput);
+        _copied = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copied = false;
+        StateHasChanged();
+    }
+
+    private async Task CopyCode()
+    {
+        string code = GetCodePreview();
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", code);
+        _copiedCode = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copiedCode = false;
+        StateHasChanged();
+    }
+
+    private void ParseFormatString()
+    {
+        if (string.IsNullOrEmpty(_formatString))
+        {
+            _arguments.Clear();
+            return;
+        }
+
+        string cleaned = _formatString.Replace("{{", "__").Replace("}}", "__");
+        MatchCollection matches = StringInterpolationTesterCore.PlaceholderPattern.Matches(cleaned);
+
+        int maxIndex = -1;
+        foreach (Match match in matches)
+        {
+            int index = int.Parse(match.Groups[1].Value);
+            if (index > maxIndex)
+            {
+                maxIndex = index;
+            }
+        }
+
+        int requiredCount = maxIndex + 1;
+
+        while (_arguments.Count < requiredCount)
+        {
+            int newIndex = _arguments.Count;
+            _arguments.Add(new FormatArgument
+            {
+                Index = newIndex,
+                TypeName = "String",
+                Value = "",
+                Name = StringInterpolationTesterCore.GetDefaultName(newIndex)
+            });
+        }
+
+        while (_arguments.Count > requiredCount)
+        {
+            _arguments.RemoveAt(_arguments.Count - 1);
+        }
+    }
+
+    private void UpdateOutput()
+    {
+        _errorMessage = "";
+        _formattedOutput = "";
+
+        if (string.IsNullOrEmpty(_formatString))
+        {
+            return;
+        }
+
+        try
+        {
+            object[] args = new object[_arguments.Count];
+            for (int i = 0; i < _arguments.Count; i++)
+            {
+                args[i] = StringInterpolationTesterCore.ConvertArgument(
+                    _arguments[i].Index, _arguments[i].TypeName, _arguments[i].Value);
+            }
+
+            _formattedOutput = string.Format(_formatString, args);
+        }
+        catch (FormatException ex)
+        {
+            _errorMessage = "FormatException: " + ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.GetType().Name + ": " + ex.Message;
+        }
+    }
+
+    private string GetInterpolationPreview()
+    {
+        string result = StringInterpolationTesterCore.PlaceholderPattern.Replace(_formatString, match =>
+        {
+            int index = int.Parse(match.Groups[1].Value);
+            if (index < _arguments.Count)
+            {
+                string argName = string.IsNullOrWhiteSpace(_arguments[index].Name)
+                    ? "arg" + index
+                    : _arguments[index].Name;
+                string original = match.Value;
+                string indexStr = match.Groups[1].Value;
+                return "{" + argName + original.Substring(1 + indexStr.Length);
+            }
+            return match.Value;
+        });
+
+        return "$\"" + result + "\"";
+    }
+
+    private string GetCodePreview()
+    {
+        if (_useInterpolationMode)
+        {
+            return GetInterpolationPreview();
+        }
+
+        string result = "string.Format(\"" + _formatString + "\"";
+        foreach (FormatArgument arg in _arguments)
+        {
+            result += ", " + StringInterpolationTesterCore.GetCodeRepresentation(arg.TypeName, arg.Value);
+        }
+        result += ")";
+        return result;
+    }
+
+    private string GetModeButtonClass(bool isInterpolation)
+    {
+        if (_useInterpolationMode == isInterpolation)
+        {
+            return "bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm font-semibold";
+        }
+        return "text-gray-500";
+    }
+
+    private string GetCopyIconClass()
+    {
+        return _copied ? "ti-check text-green-500" : "ti-clipboard";
+    }
+
+    private string GetCopyCodeIconClass()
+    {
+        return _copiedCode ? "ti-check text-green-500" : "ti-clipboard";
+    }
+
+    private string GetChevronClass(int index)
+    {
+        return _refSectionOpen[index] ? "ti-chevron-up" : "ti-chevron-down";
+    }
+
+    sealed class FormatArgument
+    {
+        public int Index { get; set; }
+        public string TypeName { get; set; } = "String";
+        public string Value { get; set; } = "";
+        public string Name { get; set; } = "";
+    }
+}

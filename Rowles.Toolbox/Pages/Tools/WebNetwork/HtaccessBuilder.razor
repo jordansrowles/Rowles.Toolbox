@@ -1,0 +1,1396 @@
+@page "/tools/web/htaccess"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>.htaccess Builder- Rowles.Toolbox</PageTitle>
+
+<PageHeader Title=".htaccess Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-file-settings mr-1"></i> Build Apache .htaccess rules visually</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    @* Presets *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+        <div class="flex flex-wrap gap-2">
+            <button type="button"
+                    class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="PresetSecurityHardened">
+                <i class="ti ti-shield-lock mr-0.5"></i> Security Hardened
+            </button>
+            <button type="button"
+                    class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="PresetPerformance">
+                <i class="ti ti-rocket mr-0.5"></i> Performance
+            </button>
+            <button type="button"
+                    class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="PresetWordPressBasic">
+                <i class="ti ti-brand-wordpress mr-0.5"></i> WordPress Basic
+            </button>
+            <button type="button"
+                    class="px-2 py-1 text-xs rounded cursor-pointer border border-red-300 dark:border-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400"
+                    @onclick="ClearAll">
+                <i class="ti ti-trash mr-0.5"></i> Clear All
+            </button>
+        </div>
+    </div>
+
+    @* Main builder grid *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        @* Left column: snippet toggles *@
+        <div class="space-y-3 max-h-[80vh] overflow-y-auto pr-1">
+
+            @* 1. HTTPS Enforcement *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableHttps = !_enableHttps">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableHttps)"></div>
+                        <span class="text-sm font-semibold">HTTPS Enforcement</span>
+                    </div>
+                    <i class="ti @(_enableHttps ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableHttps)
+                {
+                    <div class="px-3 pb-3 text-xs text-gray-500">
+                        Redirects all HTTP requests to HTTPS using mod_rewrite.
+                    </div>
+                }
+            </div>
+
+            @* 2. WWW Redirect *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableWww = !_enableWww">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableWww)"></div>
+                        <span class="text-sm font-semibold">WWW Redirect</span>
+                    </div>
+                    <i class="ti @(_enableWww ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableWww)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <label class="block text-xs font-medium mb-1">Direction</label>
+                        <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                @bind="_wwwMode"
+                                @bind:after="SaveState">
+                            <option value="add">Add www (non-www to www)</option>
+                            <option value="remove">Remove www (www to non-www)</option>
+                        </select>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Domain (optional)</label>
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="example.com"
+                                   @bind="_wwwDomain"
+                                   @bind:after="SaveState" />
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 3. Custom Error Pages *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableErrorPages = !_enableErrorPages">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableErrorPages)"></div>
+                        <span class="text-sm font-semibold">Custom Error Pages</span>
+                    </div>
+                    <i class="ti @(_enableErrorPages ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableErrorPages)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">404 Not Found</label>
+                            <input type="text" class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="/errors/404.html" @bind="_error404" @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">403 Forbidden</label>
+                            <input type="text" class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="/errors/403.html" @bind="_error403" @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">500 Internal Server Error</label>
+                            <input type="text" class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="/errors/500.html" @bind="_error500" @bind:after="SaveState" />
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 4. Directory Listing *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableDirListing = !_enableDirListing">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableDirListing)"></div>
+                        <span class="text-sm font-semibold">Disable Directory Listing</span>
+                    </div>
+                    <i class="ti @(_enableDirListing ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableDirListing)
+                {
+                    <div class="px-3 pb-3 text-xs text-gray-500">
+                        Prevents visitors from browsing directory contents when no index file exists.
+                    </div>
+                }
+            </div>
+
+            @* 5. Compression *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableCompression = !_enableCompression">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableCompression)"></div>
+                        <span class="text-sm font-semibold">Compression (mod_deflate)</span>
+                    </div>
+                    <i class="ti @(_enableCompression ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableCompression)
+                {
+                    <div class="px-3 pb-3 space-y-1">
+                        <p class="text-xs text-gray-500 mb-2">Enable gzip compression for selected content types:</p>
+                        @foreach (HtaccessBuilderCore.CompressType ct in _compressTypes)
+                        {
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" checked="@ct.Enabled"
+                                       @onchange="(ChangeEventArgs e) => ct.Enabled = e.Value is true" />
+                                <span class="font-mono">@ct.MimeType</span>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+
+            @* 6. Browser Caching *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableCaching = !_enableCaching">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableCaching)"></div>
+                        <span class="text-sm font-semibold">Browser Caching (mod_expires)</span>
+                    </div>
+                    <i class="ti @(_enableCaching ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableCaching)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Images (jpg, png, gif, webp, svg, ico)</label>
+                            <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                    @bind="_cacheImages"
+                                    @bind:after="SaveState">
+                                <option value="1 week">1 week</option>
+                                <option value="1 month">1 month</option>
+                                <option value="3 months">3 months</option>
+                                <option value="1 year">1 year</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">CSS &amp; JavaScript</label>
+                            <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                    @bind="_cacheCssJs"
+                                    @bind:after="SaveState">
+                                <option value="1 day">1 day</option>
+                                <option value="1 week">1 week</option>
+                                <option value="1 month">1 month</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">HTML</label>
+                            <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                    @bind="_cacheHtml"
+                                    @bind:after="SaveState">
+                                <option value="0 seconds">No cache</option>
+                                <option value="1 hour">1 hour</option>
+                                <option value="1 day">1 day</option>
+                            </select>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 7. Security Headers *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableSecHeaders = !_enableSecHeaders">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableSecHeaders)"></div>
+                        <span class="text-sm font-semibold">Security Headers</span>
+                    </div>
+                    <i class="ti @(_enableSecHeaders ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableSecHeaders)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                            <input type="checkbox" class="rounded" @bind="_secXContentType" @bind:after="SaveState" />
+                            X-Content-Type-Options: nosniff
+                        </label>
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_secXFrame" @bind:after="SaveState" />
+                                X-Frame-Options
+                            </label>
+                            @if (_secXFrame)
+                            {
+                                <select class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                        @bind="_secXFrameValue"
+                                        @bind:after="SaveState">
+                                    <option value="DENY">DENY</option>
+                                    <option value="SAMEORIGIN">SAMEORIGIN</option>
+                                </select>
+                            }
+                        </div>
+                        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                            <input type="checkbox" class="rounded" @bind="_secXss" @bind:after="SaveState" />
+                            X-XSS-Protection: 1; mode=block
+                        </label>
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_secReferrer" @bind:after="SaveState" />
+                                Referrer-Policy
+                            </label>
+                            @if (_secReferrer)
+                            {
+                                <select class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                        @bind="_secReferrerValue"
+                                        @bind:after="SaveState">
+                                    <option value="no-referrer">no-referrer</option>
+                                    <option value="no-referrer-when-downgrade">no-referrer-when-downgrade</option>
+                                    <option value="same-origin">same-origin</option>
+                                    <option value="strict-origin">strict-origin</option>
+                                    <option value="strict-origin-when-cross-origin">strict-origin-when-cross-origin</option>
+                                </select>
+                            }
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_secCsp" @bind:after="SaveState" />
+                                Content-Security-Policy (basic)
+                            </label>
+                            @if (_secCsp)
+                            {
+                                <input type="text"
+                                       class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                       placeholder="default-src 'self'; script-src 'self'"
+                                       @bind="_secCspValue" @bind:after="SaveState" />
+                            }
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_secPermissions" @bind:after="SaveState" />
+                                Permissions-Policy
+                            </label>
+                            @if (_secPermissions)
+                            {
+                                <input type="text"
+                                       class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                       placeholder="geolocation=(), camera=(), microphone=()"
+                                       @bind="_secPermissionsValue" @bind:after="SaveState" />
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 8. Hotlink Protection *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableHotlink = !_enableHotlink">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableHotlink)"></div>
+                        <span class="text-sm font-semibold">Hotlink Protection</span>
+                    </div>
+                    <i class="ti @(_enableHotlink ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableHotlink)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Your domain (allowed referrer)</label>
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="example.com"
+                                   @bind="_hotlinkDomain" @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Protected file extensions</label>
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="jpg|jpeg|png|gif|webp|svg"
+                                   @bind="_hotlinkExtensions" @bind:after="SaveState" />
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 9. IP Block/Allow *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableIpRules = !_enableIpRules">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableIpRules)"></div>
+                        <span class="text-sm font-semibold">IP Block / Allow</span>
+                    </div>
+                    <i class="ti @(_enableIpRules ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableIpRules)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <label class="block text-xs font-medium mb-1">Mode</label>
+                        <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                @bind="_ipMode"
+                                @bind:after="SaveState">
+                            <option value="block">Block listed IPs (deny)</option>
+                            <option value="allow">Allow only listed IPs</option>
+                        </select>
+                        <div>
+                            <label class="block text-xs font-medium mb-1">IP addresses (one per line)</label>
+                            <textarea rows="4"
+                                      class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                      placeholder="192.168.1.100&#10;10.0.0.0/24&#10;203.0.113.50"
+                                      @bind="_ipList" @bind:after="SaveState"></textarea>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 10. Custom Redirects *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableRedirects = !_enableRedirects">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableRedirects)"></div>
+                        <span class="text-sm font-semibold">Custom Redirects</span>
+                    </div>
+                    <i class="ti @(_enableRedirects ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableRedirects)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        @for (int i = 0; i < _redirectRules.Count; i++)
+                        {
+                            int idx = i;
+                            HtaccessBuilderCore.RedirectRule rule = _redirectRules[idx];
+                            <div class="flex gap-2 items-center flex-wrap">
+                                <select class="p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs w-20"
+                                        value="@rule.StatusCode"
+                                        @onchange="(ChangeEventArgs e) => rule.StatusCode = e.Value?.ToString() ?? GetDefaultStatusCode()">
+                                    <option value="301">301</option>
+                                    <option value="302">302</option>
+                                </select>
+                                <input type="text"
+                                       class="flex-1 min-w-[100px] p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                       placeholder="/old-path"
+                                       value="@rule.FromPath"
+                                       @oninput="(ChangeEventArgs e) => rule.FromPath = e.Value?.ToString() ?? string.Empty" />
+                                <input type="text"
+                                       class="flex-1 min-w-[100px] p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                       placeholder="https://example.com/new-path"
+                                       value="@rule.ToUrl"
+                                       @oninput="(ChangeEventArgs e) => rule.ToUrl = e.Value?.ToString() ?? string.Empty" />
+                                <button type="button" class="p-1 text-red-500 hover:text-red-700 text-xs"
+                                        @onclick="() => _redirectRules.RemoveAt(idx)">
+                                    <i class="ti ti-trash"></i>
+                                </button>
+                            </div>
+                        }
+                        <button type="button"
+                                class="px-3 py-1.5 text-xs rounded cursor-pointer border border-dashed border-gray-400 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+                                @onclick="() => _redirectRules.Add(new HtaccessBuilderCore.RedirectRule())">
+                            <i class="ti ti-plus mr-0.5"></i> Add Redirect
+                        </button>
+                    </div>
+                }
+            </div>
+
+            @* 11. CORS Headers *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableCors = !_enableCors">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableCors)"></div>
+                        <span class="text-sm font-semibold">CORS Headers</span>
+                    </div>
+                    <i class="ti @(_enableCors ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableCors)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <div>
+                            <label class="block text-xs font-medium mb-1">Access-Control-Allow-Origin</label>
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="* or https://example.com"
+                                   @bind="_corsOrigin" @bind:after="SaveState" />
+                        </div>
+                        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                            <input type="checkbox" class="rounded" @bind="_corsMethods" @bind:after="SaveState" />
+                            Include Access-Control-Allow-Methods
+                        </label>
+                        @if (_corsMethods)
+                        {
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="GET, POST, PUT, DELETE, OPTIONS"
+                                   @bind="_corsMethodsValue" @bind:after="SaveState" />
+                        }
+                        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                            <input type="checkbox" class="rounded" @bind="_corsHeaders" @bind:after="SaveState" />
+                            Include Access-Control-Allow-Headers
+                        </label>
+                        @if (_corsHeaders)
+                        {
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="Content-Type, Authorization, X-Requested-With"
+                                   @bind="_corsHeadersValue" @bind:after="SaveState" />
+                        }
+                    </div>
+                }
+            </div>
+
+            @* 12. PHP Settings *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enablePhp = !_enablePhp">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enablePhp)"></div>
+                        <span class="text-sm font-semibold">PHP Settings</span>
+                    </div>
+                    <i class="ti @(_enablePhp ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enablePhp)
+                {
+                    <div class="px-3 pb-3 space-y-2">
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_phpDisplayErrors" @bind:after="SaveState" />
+                                display_errors
+                            </label>
+                            @if (_phpDisplayErrors)
+                            {
+                                <select class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                        @bind="_phpDisplayErrorsValue"
+                                        @bind:after="SaveState">
+                                    <option value="Off">Off</option>
+                                    <option value="On">On</option>
+                                </select>
+                            }
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_phpMaxExec" @bind:after="SaveState" />
+                                max_execution_time
+                            </label>
+                            @if (_phpMaxExec)
+                            {
+                                <input type="number" min="1"
+                                       class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                       placeholder="30"
+                                       @bind="_phpMaxExecValue"
+                                       @bind:after="SaveState" />
+                            }
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_phpUploadSize" @bind:after="SaveState" />
+                                upload_max_filesize
+                            </label>
+                            @if (_phpUploadSize)
+                            {
+                                <input type="text"
+                                       class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                       placeholder="64M"
+                                       @bind="_phpUploadSizeValue" @bind:after="SaveState" />
+                            }
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" @bind="_phpMemory" @bind:after="SaveState" />
+                                memory_limit
+                            </label>
+                            @if (_phpMemory)
+                            {
+                                <input type="text"
+                                       class="w-full mt-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                       placeholder="256M"
+                                       @bind="_phpMemoryValue" @bind:after="SaveState" />
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 13. File Access Restriction *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded">
+                <button type="button" class="w-full flex items-center justify-between p-3 cursor-pointer"
+                        @onclick="() => _enableFileBlock = !_enableFileBlock">
+                    <div class="flex items-center gap-2">
+                        <div class="@ToggleDotClass(_enableFileBlock)"></div>
+                        <span class="text-sm font-semibold">File Access Restriction</span>
+                    </div>
+                    <i class="ti @(_enableFileBlock ? "ti-chevron-up" : "ti-chevron-down") text-gray-400 text-xs"></i>
+                </button>
+                @if (_enableFileBlock)
+                {
+                    <div class="px-3 pb-3 space-y-1">
+                        <p class="text-xs text-gray-500 mb-2">Block access to sensitive file types:</p>
+                        @foreach (HtaccessBuilderCore.BlockedFileType ft in _blockedFileTypes)
+                        {
+                            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                <input type="checkbox" class="rounded" checked="@ft.Enabled"
+                                       @onchange="(ChangeEventArgs e) => ft.Enabled = e.Value is true" />
+                                <span class="font-mono">@ft.Pattern</span>
+                                <span class="text-gray-400 ml-1">@ft.Description</span>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+
+        </div>
+
+        @* Right column: live preview *@
+        <div class="space-y-3">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 sticky top-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> Generated .htaccess</h3>
+                    <div class="flex gap-2">
+                        <button type="button"
+                                class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="CopyOutput">
+                            <i class="ti ti-copy mr-0.5"></i> @(_copied ? "Copied!" : "Copy")
+                        </button>
+                    </div>
+                </div>
+
+                @if (string.IsNullOrWhiteSpace(GeneratedOutput))
+                {
+                    <div class="text-center text-gray-400 text-sm py-12">
+                        <i class="ti ti-file-settings text-4xl"></i>
+                        <p class="mt-2">Enable snippets on the left to generate .htaccess rules.</p>
+                    </div>
+                }
+                else
+                {
+                    <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap break-all select-all max-h-[70vh] overflow-y-auto">@GeneratedOutput</pre>
+                }
+
+                @{ int activeCount = CountActiveSnippets(); }
+                @if (activeCount > 0)
+                {
+                    <p class="text-[10px] text-gray-400 mt-2">
+                        <i class="ti ti-info-circle mr-0.5"></i> @activeCount snippet@(activeCount != 1 ? "s" : "") active
+                    </p>
+                }
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/htaccess" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    @* ═══════════════════════════════════════════════════════════════
+       State fields
+       ═══════════════════════════════════════════════════════════════ *@
+
+    private bool _copied;
+    private string? _statusMessage;
+
+    @* 1. HTTPS *@
+    private bool _enableHttps;
+
+    @* 2. WWW *@
+    private bool _enableWww;
+    private string _wwwMode = "remove";
+    private string _wwwDomain = string.Empty;
+
+    @* 3. Error Pages *@
+    private bool _enableErrorPages;
+    private string _error404 = "/errors/404.html";
+    private string _error403 = "/errors/403.html";
+    private string _error500 = "/errors/500.html";
+
+    @* 4. Directory Listing *@
+    private bool _enableDirListing;
+
+    @* 5. Compression *@
+    private bool _enableCompression;
+    private readonly List<HtaccessBuilderCore.CompressType> _compressTypes =
+    [
+        new() { MimeType = "text/html", Enabled = true },
+        new() { MimeType = "text/css", Enabled = true },
+        new() { MimeType = "text/plain", Enabled = true },
+        new() { MimeType = "text/xml", Enabled = true },
+        new() { MimeType = "application/javascript", Enabled = true },
+        new() { MimeType = "application/json", Enabled = true },
+        new() { MimeType = "application/xml", Enabled = true },
+        new() { MimeType = "image/svg+xml", Enabled = true },
+        new() { MimeType = "application/xhtml+xml", Enabled = false },
+        new() { MimeType = "application/rss+xml", Enabled = false },
+        new() { MimeType = "font/woff2", Enabled = false },
+    ];
+
+    @* 6. Browser Caching *@
+    private bool _enableCaching;
+    private string _cacheImages = "1 month";
+    private string _cacheCssJs = "1 week";
+    private string _cacheHtml = "1 hour";
+
+    @* 7. Security Headers *@
+    private bool _enableSecHeaders;
+    private bool _secXContentType = true;
+    private bool _secXFrame = true;
+    private string _secXFrameValue = "DENY";
+    private bool _secXss = true;
+    private bool _secReferrer = true;
+    private string _secReferrerValue = "strict-origin-when-cross-origin";
+    private bool _secCsp;
+    private string _secCspValue = "default-src 'self'; script-src 'self'";
+    private bool _secPermissions;
+    private string _secPermissionsValue = "geolocation=(), camera=(), microphone=()";
+
+    @* 8. Hotlink Protection *@
+    private bool _enableHotlink;
+    private string _hotlinkDomain = string.Empty;
+    private string _hotlinkExtensions = "jpg|jpeg|png|gif|webp|svg";
+
+    @* 9. IP Rules *@
+    private bool _enableIpRules;
+    private string _ipMode = "block";
+    private string _ipList = string.Empty;
+
+    @* 10. Redirects *@
+    private bool _enableRedirects;
+    private readonly List<HtaccessBuilderCore.RedirectRule> _redirectRules = [];
+
+    @* 11. CORS *@
+    private bool _enableCors;
+    private string _corsOrigin = "*";
+    private bool _corsMethods;
+    private string _corsMethodsValue = "GET, POST, PUT, DELETE, OPTIONS";
+    private bool _corsHeaders;
+    private string _corsHeadersValue = "Content-Type, Authorization, X-Requested-With";
+
+    @* 12. PHP *@
+    private bool _enablePhp;
+    private bool _phpDisplayErrors;
+    private string _phpDisplayErrorsValue = "Off";
+    private bool _phpMaxExec;
+    private int _phpMaxExecValue = 30;
+    private bool _phpUploadSize;
+    private string _phpUploadSizeValue = "64M";
+    private bool _phpMemory;
+    private string _phpMemoryValue = "256M";
+
+    @* 13. File Access *@
+    private bool _enableFileBlock;
+    private readonly List<HtaccessBuilderCore.BlockedFileType> _blockedFileTypes =
+    [
+        new() { Pattern = ".env", Description = "Environment config", Enabled = true },
+        new() { Pattern = ".git", Description = "Git repository data", Enabled = true },
+        new() { Pattern = ".htpasswd", Description = "Password file", Enabled = true },
+        new() { Pattern = ".htaccess", Description = "Apache config", Enabled = true },
+        new() { Pattern = ".ini", Description = "INI config files", Enabled = false },
+        new() { Pattern = ".log", Description = "Log files", Enabled = false },
+        new() { Pattern = ".sql", Description = "SQL dumps", Enabled = false },
+        new() { Pattern = ".bak", Description = "Backup files", Enabled = false },
+        new() { Pattern = ".swp", Description = "Swap files", Enabled = false },
+        new() { Pattern = "composer.json", Description = "PHP Composer manifest", Enabled = false },
+        new() { Pattern = "composer.lock", Description = "PHP Composer lockfile", Enabled = false },
+        new() { Pattern = "wp-config.php", Description = "WordPress config", Enabled = false },
+    ];
+
+    sealed record ToolState(
+        bool EnableHttps, bool EnableWww, string WwwMode, string WwwDomain,
+        bool EnableErrorPages, string Error404, string Error403, string Error500,
+        bool EnableDirListing, bool EnableCompression, bool EnableCaching,
+        string CacheImages, string CacheCssJs, string CacheHtml,
+        bool EnableSecHeaders, bool EnableHotlink, string HotlinkDomain,
+        bool EnableIpRules, string IpMode, string IpList,
+        bool EnableCors, string CorsOrigin,
+        bool EnablePhp, bool EnableFileBlock, bool EnableRedirects);
+
+    @* ═══════════════════════════════════════════════════════════════
+       Computed output
+       ═══════════════════════════════════════════════════════════════ *@
+
+    private string GeneratedOutput => HtaccessBuilderCore.BuildOutput(BuildOptions());
+
+    private int CountActiveSnippets() => HtaccessBuilderCore.CountActiveSnippets(BuildOptions());
+
+    private HtaccessBuilderCore.HtaccessOptions BuildOptions() => new()
+    {
+        EnableHttps = _enableHttps,
+        EnableWww = _enableWww,
+        WwwMode = _wwwMode,
+        WwwDomain = _wwwDomain,
+        EnableErrorPages = _enableErrorPages,
+        Error404 = _error404,
+        Error403 = _error403,
+        Error500 = _error500,
+        EnableDirListing = _enableDirListing,
+        EnableCompression = _enableCompression,
+        CompressTypes = _compressTypes,
+        EnableCaching = _enableCaching,
+        CacheImages = _cacheImages,
+        CacheCssJs = _cacheCssJs,
+        CacheHtml = _cacheHtml,
+        EnableSecHeaders = _enableSecHeaders,
+        SecXContentType = _secXContentType,
+        SecXFrame = _secXFrame,
+        SecXFrameValue = _secXFrameValue,
+        SecXss = _secXss,
+        SecReferrer = _secReferrer,
+        SecReferrerValue = _secReferrerValue,
+        SecCsp = _secCsp,
+        SecCspValue = _secCspValue,
+        SecPermissions = _secPermissions,
+        SecPermissionsValue = _secPermissionsValue,
+        EnableHotlink = _enableHotlink,
+        HotlinkDomain = _hotlinkDomain,
+        HotlinkExtensions = _hotlinkExtensions,
+        EnableIpRules = _enableIpRules,
+        IpMode = _ipMode,
+        IpList = _ipList,
+        EnableRedirects = _enableRedirects,
+        RedirectRules = _redirectRules,
+        EnableCors = _enableCors,
+        CorsOrigin = _corsOrigin,
+        CorsMethods = _corsMethods,
+        CorsMethodsValue = _corsMethodsValue,
+        CorsHeaders = _corsHeaders,
+        CorsHeadersValue = _corsHeadersValue,
+        EnablePhp = _enablePhp,
+        PhpDisplayErrors = _phpDisplayErrors,
+        PhpDisplayErrorsValue = _phpDisplayErrorsValue,
+        PhpMaxExec = _phpMaxExec,
+        PhpMaxExecValue = _phpMaxExecValue,
+        PhpUploadSize = _phpUploadSize,
+        PhpUploadSizeValue = _phpUploadSizeValue,
+        PhpMemory = _phpMemory,
+        PhpMemoryValue = _phpMemoryValue,
+        EnableFileBlock = _enableFileBlock,
+        BlockedFileTypes = _blockedFileTypes,
+    };
+
+    @* ═══════════════════════════════════════════════════════════════
+       Output generation via StringBuilder
+       ═══════════════════════════════════════════════════════════════ *@
+
+    private string BuildOutput()
+    {
+        System.Text.StringBuilder sb = new();
+        bool needsSpacer = false;
+
+        @* 1. HTTPS Enforcement *@
+        if (_enableHttps)
+        {
+            AppendSpacer(sb, ref needsSpacer);
+            sb.AppendLine("# ---- HTTPS Enforcement ----");
+            sb.AppendLine("# Redirect all HTTP traffic to HTTPS");
+            sb.AppendLine("<IfModule mod_rewrite.c>");
+            sb.AppendLine("    RewriteEngine On");
+            sb.AppendLine("    RewriteCond %{HTTPS} !=on");
+            sb.AppendLine("    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]");
+            sb.AppendLine("</IfModule>");
+            needsSpacer = true;
+        }
+
+        @* 2. WWW Redirect *@
+        if (_enableWww)
+        {
+            AppendSpacer(sb, ref needsSpacer);
+            if (_wwwMode == "add")
+            {
+                sb.AppendLine("# ---- Add WWW Prefix ----");
+                sb.AppendLine("# Redirect non-www to www");
+                sb.AppendLine("<IfModule mod_rewrite.c>");
+                sb.AppendLine("    RewriteEngine On");
+                sb.AppendLine("    RewriteCond %{HTTP_HOST} !^www\\. [NC]");
+                if (!string.IsNullOrWhiteSpace(_wwwDomain))
+                {
+                    sb.AppendLine($"    RewriteRule ^(.*)$ https://www.{_wwwDomain.Trim().TrimStart('.')}/$1 [L,R=301]");
+                }
+                else
+                {
+                    sb.AppendLine("    RewriteRule ^(.*)$ https://www.%{HTTP_HOST}/$1 [L,R=301]");
+                }
+                sb.AppendLine("</IfModule>");
+            }
+            else
+            {
+                sb.AppendLine("# ---- Remove WWW Prefix ----");
+                sb.AppendLine("# Redirect www to non-www");
+                sb.AppendLine("<IfModule mod_rewrite.c>");
+                sb.AppendLine("    RewriteEngine On");
+                sb.AppendLine("    RewriteCond %{HTTP_HOST} ^www\\.(.+)$ [NC]");
+                if (!string.IsNullOrWhiteSpace(_wwwDomain))
+                {
+                    sb.AppendLine($"    RewriteRule ^(.*)$ https://{_wwwDomain.Trim().TrimStart('.')}/$1 [L,R=301]");
+                }
+                else
+                {
+                    sb.AppendLine("    RewriteRule ^(.*)$ https://%1/$1 [L,R=301]");
+                }
+                sb.AppendLine("</IfModule>");
+            }
+            needsSpacer = true;
+        }
+
+        @* 3. Custom Error Pages *@
+        if (_enableErrorPages)
+        {
+            AppendSpacer(sb, ref needsSpacer);
+            sb.AppendLine("# ---- Custom Error Pages ----");
+            sb.AppendLine("# Define custom pages for common HTTP error codes");
+            if (!string.IsNullOrWhiteSpace(_error404))
+                sb.AppendLine($"ErrorDocument 404 {_error404.Trim()}");
+            if (!string.IsNullOrWhiteSpace(_error403))
+                sb.AppendLine($"ErrorDocument 403 {_error403.Trim()}");
+            if (!string.IsNullOrWhiteSpace(_error500))
+                sb.AppendLine($"ErrorDocument 500 {_error500.Trim()}");
+            needsSpacer = true;
+        }
+
+        @* 4. Directory Listing *@
+        if (_enableDirListing)
+        {
+            AppendSpacer(sb, ref needsSpacer);
+            sb.AppendLine("# ---- Disable Directory Listing ----");
+            sb.AppendLine("# Prevent visitors from seeing directory contents");
+            sb.AppendLine("Options -Indexes");
+            needsSpacer = true;
+        }
+
+        @* 5. Compression *@
+        if (_enableCompression)
+        {
+            List<HtaccessBuilderCore.CompressType> enabledTypes = _compressTypes.FindAll(ct => ct.Enabled);
+            if (enabledTypes.Count > 0)
+            {
+                AppendSpacer(sb, ref needsSpacer);
+                sb.AppendLine("# ---- Gzip Compression ----");
+                sb.AppendLine("# Compress responses to reduce transfer size");
+                sb.AppendLine("<IfModule mod_deflate.c>");
+                foreach (HtaccessBuilderCore.CompressType ct in enabledTypes)
+                {
+                    sb.AppendLine($"    AddOutputFilterByType DEFLATE {ct.MimeType}");
+                }
+                sb.AppendLine("</IfModule>");
+                needsSpacer = true;
+            }
+        }
+
+        @* 6. Browser Caching *@
+        if (_enableCaching)
+        {
+            AppendSpacer(sb, ref needsSpacer);
+            sb.AppendLine("# ---- Browser Caching ----");
+            sb.AppendLine("# Set expiry headers for static assets to improve load times");
+            sb.AppendLine("<IfModule mod_expires.c>");
+            sb.AppendLine("    ExpiresActive On");
+            sb.AppendLine($"    ExpiresDefault \"access plus {_cacheHtml}\"");
+            sb.AppendLine();
+            sb.AppendLine("    # Images");
+            sb.AppendLine($"    ExpiresByType image/jpeg \"access plus {_cacheImages}\"");
+            sb.AppendLine($"    ExpiresByType image/png \"access plus {_cacheImages}\"");
+            sb.AppendLine($"    ExpiresByType image/gif \"access plus {_cacheImages}\"");
+            sb.AppendLine($"    ExpiresByType image/webp \"access plus {_cacheImages}\"");
+            sb.AppendLine($"    ExpiresByType image/svg+xml \"access plus {_cacheImages}\"");
+            sb.AppendLine($"    ExpiresByType image/x-icon \"access plus {_cacheImages}\"");
+            sb.AppendLine();
+            sb.AppendLine("    # CSS and JavaScript");
+            sb.AppendLine($"    ExpiresByType text/css \"access plus {_cacheCssJs}\"");
+            sb.AppendLine($"    ExpiresByType application/javascript \"access plus {_cacheCssJs}\"");
+            sb.AppendLine();
+            sb.AppendLine("    # HTML");
+            sb.AppendLine($"    ExpiresByType text/html \"access plus {_cacheHtml}\"");
+            sb.AppendLine("</IfModule>");
+            needsSpacer = true;
+        }
+
+        @* 7. Security Headers *@
+        if (_enableSecHeaders)
+        {
+            bool hasAnyHeader = _secXContentType || _secXFrame || _secXss
+                || _secReferrer || _secCsp || _secPermissions;
+            if (hasAnyHeader)
+            {
+                AppendSpacer(sb, ref needsSpacer);
+                sb.AppendLine("# ---- Security Headers ----");
+                sb.AppendLine("# Harden the site by setting security-related HTTP headers");
+                sb.AppendLine("<IfModule mod_headers.c>");
+                if (_secXContentType)
+                    sb.AppendLine("    Header always set X-Content-Type-Options \"nosniff\"");
+                if (_secXFrame)
+                    sb.AppendLine($"    Header always set X-Frame-Options \"{_secXFrameValue}\"");
+                if (_secXss)
+                    sb.AppendLine("    Header always set X-XSS-Protection \"1; mode=block\"");
+                if (_secReferrer)
+                    sb.AppendLine($"    Header always set Referrer-Policy \"{_secReferrerValue}\"");
+                if (_secCsp && !string.IsNullOrWhiteSpace(_secCspValue))
+                    sb.AppendLine($"    Header always set Content-Security-Policy \"{_secCspValue.Trim()}\"");
+                if (_secPermissions && !string.IsNullOrWhiteSpace(_secPermissionsValue))
+                    sb.AppendLine($"    Header always set Permissions-Policy \"{_secPermissionsValue.Trim()}\"");
+                sb.AppendLine("</IfModule>");
+                needsSpacer = true;
+            }
+        }
+
+        @* 8. Hotlink Protection *@
+        if (_enableHotlink)
+        {
+            AppendSpacer(sb, ref needsSpacer);
+            string domain = !string.IsNullOrWhiteSpace(_hotlinkDomain)
+                ? _hotlinkDomain.Trim()
+                : "example.com";
+            string extensions = !string.IsNullOrWhiteSpace(_hotlinkExtensions)
+                ? _hotlinkExtensions.Trim()
+                : "jpg|jpeg|png|gif|webp|svg";
+            sb.AppendLine("# ---- Hotlink Protection ----");
+            sb.AppendLine("# Prevent other sites from embedding your images directly");
+            sb.AppendLine("<IfModule mod_rewrite.c>");
+            sb.AppendLine("    RewriteEngine On");
+            sb.AppendLine($"    RewriteCond %{{HTTP_REFERER}} !^$");
+            sb.AppendLine($"    RewriteCond %{{HTTP_REFERER}} !^https?://(www\\.)?{EscapeDots(domain)} [NC]");
+            sb.AppendLine($"    RewriteRule \\.({extensions})$ - [F,L]");
+            sb.AppendLine("</IfModule>");
+            needsSpacer = true;
+        }
+
+        @* 9. IP Block/Allow *@
+        if (_enableIpRules && !string.IsNullOrWhiteSpace(_ipList))
+        {
+            string[] ips = _ipList.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            if (ips.Length > 0)
+            {
+                AppendSpacer(sb, ref needsSpacer);
+                if (_ipMode == "block")
+                {
+                    sb.AppendLine("# ---- IP Blocking ----");
+                    sb.AppendLine("# Deny access from specific IP addresses");
+                    sb.AppendLine("<RequireAll>");
+                    sb.AppendLine("    Require all granted");
+                    foreach (string ip in ips)
+                    {
+                        string trimmed = ip.Trim();
+                        if (!string.IsNullOrEmpty(trimmed))
+                            sb.AppendLine($"    Require not ip {trimmed}");
+                    }
+                    sb.AppendLine("</RequireAll>");
+                }
+                else
+                {
+                    sb.AppendLine("# ---- IP Allowlist ----");
+                    sb.AppendLine("# Allow access only from specific IP addresses");
+                    sb.AppendLine("<RequireAny>");
+                    foreach (string ip in ips)
+                    {
+                        string trimmed = ip.Trim();
+                        if (!string.IsNullOrEmpty(trimmed))
+                            sb.AppendLine($"    Require ip {trimmed}");
+                    }
+                    sb.AppendLine("</RequireAny>");
+                }
+                needsSpacer = true;
+            }
+        }
+
+        @* 10. Custom Redirects *@
+        if (_enableRedirects && _redirectRules.Count > 0)
+        {
+            List<HtaccessBuilderCore.RedirectRule> validRules = _redirectRules.FindAll(
+                r => !string.IsNullOrWhiteSpace(r.FromPath) && !string.IsNullOrWhiteSpace(r.ToUrl));
+            if (validRules.Count > 0)
+            {
+                AppendSpacer(sb, ref needsSpacer);
+                sb.AppendLine("# ---- Custom Redirects ----");
+                sb.AppendLine("# Redirect old URLs to new locations");
+                foreach (HtaccessBuilderCore.RedirectRule rule in validRules)
+                {
+                    sb.AppendLine($"Redirect {rule.StatusCode} {rule.FromPath.Trim()} {rule.ToUrl.Trim()}");
+                }
+                needsSpacer = true;
+            }
+        }
+
+        @* 11. CORS Headers *@
+        if (_enableCors)
+        {
+            AppendSpacer(sb, ref needsSpacer);
+            string origin = !string.IsNullOrWhiteSpace(_corsOrigin)
+                ? _corsOrigin.Trim()
+                : "*";
+            sb.AppendLine("# ---- CORS Headers ----");
+            sb.AppendLine("# Allow cross-origin requests from specified origins");
+            sb.AppendLine("<IfModule mod_headers.c>");
+            sb.AppendLine($"    Header set Access-Control-Allow-Origin \"{origin}\"");
+            if (_corsMethods && !string.IsNullOrWhiteSpace(_corsMethodsValue))
+                sb.AppendLine($"    Header set Access-Control-Allow-Methods \"{_corsMethodsValue.Trim()}\"");
+            if (_corsHeaders && !string.IsNullOrWhiteSpace(_corsHeadersValue))
+                sb.AppendLine($"    Header set Access-Control-Allow-Headers \"{_corsHeadersValue.Trim()}\"");
+            sb.AppendLine("</IfModule>");
+            needsSpacer = true;
+        }
+
+        @* 12. PHP Settings *@
+        if (_enablePhp)
+        {
+            bool hasAnyPhp = _phpDisplayErrors || _phpMaxExec || _phpUploadSize || _phpMemory;
+            if (hasAnyPhp)
+            {
+                AppendSpacer(sb, ref needsSpacer);
+                sb.AppendLine("# ---- PHP Settings ----");
+                sb.AppendLine("# Override PHP configuration values");
+                if (_phpDisplayErrors)
+                    sb.AppendLine($"php_flag display_errors {_phpDisplayErrorsValue}");
+                if (_phpMaxExec)
+                    sb.AppendLine($"php_value max_execution_time {_phpMaxExecValue}");
+                if (_phpUploadSize && !string.IsNullOrWhiteSpace(_phpUploadSizeValue))
+                    sb.AppendLine($"php_value upload_max_filesize {_phpUploadSizeValue.Trim()}");
+                if (_phpMemory && !string.IsNullOrWhiteSpace(_phpMemoryValue))
+                    sb.AppendLine($"php_value memory_limit {_phpMemoryValue.Trim()}");
+                needsSpacer = true;
+            }
+        }
+
+        @* 13. File Access Restriction *@
+        if (_enableFileBlock)
+        {
+            List<HtaccessBuilderCore.BlockedFileType> enabledBlocks = _blockedFileTypes.FindAll(ft => ft.Enabled);
+            if (enabledBlocks.Count > 0)
+            {
+                AppendSpacer(sb, ref needsSpacer);
+                sb.AppendLine("# ---- File Access Restriction ----");
+                sb.AppendLine("# Block access to sensitive files and directories");
+                foreach (HtaccessBuilderCore.BlockedFileType ft in enabledBlocks)
+                {
+                    string pattern = ft.Pattern.Trim();
+                    if (pattern.Contains('.') && !pattern.Contains('*'))
+                    {
+                        @* Exact filename or extension pattern *@
+                        if (pattern.StartsWith("."))
+                        {
+                            @* Extension like .env, .git *@
+                            string escaped = pattern.Replace(".", "\\.");
+                            sb.AppendLine($"<FilesMatch \"^{escaped}\">");
+                            sb.AppendLine("    Require all denied");
+                            sb.AppendLine("</FilesMatch>");
+                        }
+                        else
+                        {
+                            @* Exact file like composer.json, wp-config.php *@
+                            sb.AppendLine($"<Files \"{pattern}\">");
+                            sb.AppendLine("    Require all denied");
+                            sb.AppendLine("</Files>");
+                        }
+                    }
+                    else
+                    {
+                        sb.AppendLine($"<Files \"{pattern}\">");
+                        sb.AppendLine("    Require all denied");
+                        sb.AppendLine("</Files>");
+                    }
+                }
+                needsSpacer = true;
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendSpacer(System.Text.StringBuilder sb, ref bool needsSpacer)
+    {
+        if (needsSpacer)
+        {
+            sb.AppendLine();
+        }
+    }
+
+    private static string EscapeDots(string domain)
+    {
+        return domain.Replace(".", "\\.");
+    }
+
+    @* ═══════════════════════════════════════════════════════════════
+       UI helpers
+       ═══════════════════════════════════════════════════════════════ *@
+
+    private static string ToggleDotClass(bool enabled) => enabled
+        ? "w-3 h-3 rounded-full bg-green-500 shrink-0"
+        : "w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0";
+
+    @* ═══════════════════════════════════════════════════════════════
+       Actions
+       ═══════════════════════════════════════════════════════════════ *@
+
+    private async Task CopyOutput()
+    {
+        string output = GeneratedOutput;
+        if (string.IsNullOrWhiteSpace(output)) return;
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", output);
+        _copied = true;
+        _statusMessage = "Copied to clipboard";
+        StateHasChanged();
+        int activeCount = CountActiveSnippets();
+        await Storage.AddRecentAsync("tools/web/htaccess",
+            $"{activeCount} snippet{(activeCount != 1 ? "s" : "")} active",
+            new ToolState(_enableHttps, _enableWww, _wwwMode, _wwwDomain,
+                _enableErrorPages, _error404, _error403, _error500,
+                _enableDirListing, _enableCompression, _enableCaching,
+                _cacheImages, _cacheCssJs, _cacheHtml,
+                _enableSecHeaders, _enableHotlink, _hotlinkDomain,
+                _enableIpRules, _ipMode, _ipList,
+                _enableCors, _corsOrigin,
+                _enablePhp, _enableFileBlock, _enableRedirects));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        await Task.Delay(1500);
+        _copied = false;
+        _statusMessage = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/htaccess");
+            if (state is not null)
+            {
+                _enableHttps = state.EnableHttps;
+                _enableWww = state.EnableWww;
+                _wwwMode = state.WwwMode;
+                _wwwDomain = state.WwwDomain;
+                _enableErrorPages = state.EnableErrorPages;
+                _error404 = state.Error404;
+                _error403 = state.Error403;
+                _error500 = state.Error500;
+                _enableDirListing = state.EnableDirListing;
+                _enableCompression = state.EnableCompression;
+                _enableCaching = state.EnableCaching;
+                _cacheImages = state.CacheImages;
+                _cacheCssJs = state.CacheCssJs;
+                _cacheHtml = state.CacheHtml;
+                _enableSecHeaders = state.EnableSecHeaders;
+                _enableHotlink = state.EnableHotlink;
+                _hotlinkDomain = state.HotlinkDomain;
+                _enableIpRules = state.EnableIpRules;
+                _ipMode = state.IpMode;
+                _ipList = state.IpList;
+                _enableCors = state.EnableCors;
+                _corsOrigin = state.CorsOrigin;
+                _enablePhp = state.EnablePhp;
+                _enableFileBlock = state.EnableFileBlock;
+                _enableRedirects = state.EnableRedirects;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/web/htaccess", new ToolState(
+            _enableHttps, _enableWww, _wwwMode, _wwwDomain,
+            _enableErrorPages, _error404, _error403, _error500,
+            _enableDirListing, _enableCompression, _enableCaching,
+            _cacheImages, _cacheCssJs, _cacheHtml,
+            _enableSecHeaders, _enableHotlink, _hotlinkDomain,
+            _enableIpRules, _ipMode, _ipList,
+            _enableCors, _corsOrigin,
+            _enablePhp, _enableFileBlock, _enableRedirects));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _enableHttps = state.EnableHttps;
+                _enableWww = state.EnableWww;
+                _wwwMode = state.WwwMode;
+                _wwwDomain = state.WwwDomain;
+                _enableErrorPages = state.EnableErrorPages;
+                _error404 = state.Error404;
+                _error403 = state.Error403;
+                _error500 = state.Error500;
+                _enableDirListing = state.EnableDirListing;
+                _enableCompression = state.EnableCompression;
+                _enableCaching = state.EnableCaching;
+                _cacheImages = state.CacheImages;
+                _cacheCssJs = state.CacheCssJs;
+                _cacheHtml = state.CacheHtml;
+                _enableSecHeaders = state.EnableSecHeaders;
+                _enableHotlink = state.EnableHotlink;
+                _hotlinkDomain = state.HotlinkDomain;
+                _enableIpRules = state.EnableIpRules;
+                _ipMode = state.IpMode;
+                _ipList = state.IpList;
+                _enableCors = state.EnableCors;
+                _corsOrigin = state.CorsOrigin;
+                _enablePhp = state.EnablePhp;
+                _enableFileBlock = state.EnableFileBlock;
+                _enableRedirects = state.EnableRedirects;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private void ClearAll()
+    {
+        _enableHttps = false;
+        _enableWww = false;
+        _wwwMode = "remove";
+        _wwwDomain = string.Empty;
+        _enableErrorPages = false;
+        _error404 = "/errors/404.html";
+        _error403 = "/errors/403.html";
+        _error500 = "/errors/500.html";
+        _enableDirListing = false;
+        _enableCompression = false;
+        foreach (HtaccessBuilderCore.CompressType ct in _compressTypes)
+            ct.Enabled = ct.MimeType is "text/html" or "text/css" or "text/plain" or "text/xml"
+                or "application/javascript" or "application/json" or "application/xml" or "image/svg+xml";
+        _enableCaching = false;
+        _cacheImages = "1 month";
+        _cacheCssJs = "1 week";
+        _cacheHtml = "1 hour";
+        _enableSecHeaders = false;
+        _secXContentType = true;
+        _secXFrame = true;
+        _secXFrameValue = "DENY";
+        _secXss = true;
+        _secReferrer = true;
+        _secReferrerValue = "strict-origin-when-cross-origin";
+        _secCsp = false;
+        _secCspValue = "default-src 'self'; script-src 'self'";
+        _secPermissions = false;
+        _secPermissionsValue = "geolocation=(), camera=(), microphone=()";
+        _enableHotlink = false;
+        _hotlinkDomain = string.Empty;
+        _hotlinkExtensions = "jpg|jpeg|png|gif|webp|svg";
+        _enableIpRules = false;
+        _ipMode = "block";
+        _ipList = string.Empty;
+        _enableRedirects = false;
+        _redirectRules.Clear();
+        _enableCors = false;
+        _corsOrigin = "*";
+        _corsMethods = false;
+        _corsMethodsValue = "GET, POST, PUT, DELETE, OPTIONS";
+        _corsHeaders = false;
+        _corsHeadersValue = "Content-Type, Authorization, X-Requested-With";
+        _enablePhp = false;
+        _phpDisplayErrors = false;
+        _phpDisplayErrorsValue = "Off";
+        _phpMaxExec = false;
+        _phpMaxExecValue = 30;
+        _phpUploadSize = false;
+        _phpUploadSizeValue = "64M";
+        _phpMemory = false;
+        _phpMemoryValue = "256M";
+        _enableFileBlock = false;
+        foreach (HtaccessBuilderCore.BlockedFileType ft in _blockedFileTypes)
+            ft.Enabled = ft.Pattern is ".env" or ".git" or ".htpasswd" or ".htaccess";
+    }
+
+    @* ═══════════════════════════════════════════════════════════════
+       Presets
+       ═══════════════════════════════════════════════════════════════ *@
+
+    private void PresetSecurityHardened()
+    {
+        ClearAll();
+        _enableHttps = true;
+        _enableDirListing = true;
+        _enableSecHeaders = true;
+        _secXContentType = true;
+        _secXFrame = true;
+        _secXFrameValue = "DENY";
+        _secXss = true;
+        _secReferrer = true;
+        _secReferrerValue = "strict-origin-when-cross-origin";
+        _secCsp = true;
+        _secCspValue = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'";
+        _secPermissions = true;
+        _secPermissionsValue = "geolocation=(), camera=(), microphone=(), payment=()";
+        _enableHotlink = true;
+        _enableFileBlock = true;
+        foreach (HtaccessBuilderCore.BlockedFileType ft in _blockedFileTypes)
+            ft.Enabled = true;
+    }
+
+    private void PresetPerformance()
+    {
+        ClearAll();
+        _enableCompression = true;
+        foreach (HtaccessBuilderCore.CompressType ct in _compressTypes)
+            ct.Enabled = true;
+        _enableCaching = true;
+        _cacheImages = "1 year";
+        _cacheCssJs = "1 month";
+        _cacheHtml = "1 hour";
+    }
+
+    private void PresetWordPressBasic()
+    {
+        ClearAll();
+        _enableHttps = true;
+        _enableWww = true;
+        _wwwMode = "remove";
+        _enableDirListing = true;
+        _enableCompression = true;
+        _enableCaching = true;
+        _enableSecHeaders = true;
+        _secXContentType = true;
+        _secXFrame = true;
+        _secXFrameValue = "SAMEORIGIN";
+        _secXss = true;
+        _secReferrer = true;
+        _secReferrerValue = "no-referrer-when-downgrade";
+        _secCsp = false;
+        _secPermissions = false;
+        _enableFileBlock = true;
+        foreach (HtaccessBuilderCore.BlockedFileType ft in _blockedFileTypes)
+        {
+            ft.Enabled = ft.Pattern is ".env" or ".git" or ".htpasswd" or ".htaccess"
+                or "wp-config.php";
+        }
+        _enablePhp = true;
+        _phpUploadSize = true;
+        _phpUploadSizeValue = "64M";
+        _phpMemory = true;
+        _phpMemoryValue = "256M";
+        _phpMaxExec = true;
+        _phpMaxExecValue = 300;
+    }
+
+    private static string GetDefaultStatusCode() => "301";
+}

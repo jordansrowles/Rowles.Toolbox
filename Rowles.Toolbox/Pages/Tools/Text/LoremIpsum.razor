@@ -1,0 +1,127 @@
+@page "/tools/text/lorem-ipsum"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Lorem Ipsum Generator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Lorem Ipsum Generator" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-text-wrap mr-1"></i> Generate placeholder text</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-1">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Options</h3>
+
+            <div>
+                <label class="block text-sm font-medium mb-1">Format</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        @bind="_selectedFormat"
+                        @bind:after="SaveState">
+                    <option value="@Core.Text.LoremIpsumCore.FormatType.Paragraphs">Paragraphs</option>
+                    <option value="@Core.Text.LoremIpsumCore.FormatType.Sentences">Sentences</option>
+                    <option value="@Core.Text.LoremIpsumCore.FormatType.Words">Words</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium mb-1">Count</label>
+                <input type="number"
+                       min="1"
+                       max="999"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_count"
+                       @bind:after="SaveState" />
+            </div>
+
+            <button class="w-full bg-blue-600 text-white px-3 py-1.5 text-sm rounded hover:bg-blue-700 transition-colors cursor-pointer"
+                    @onclick="Generate">
+                <i class="ti ti-refresh mr-1"></i> Generate
+            </button>
+        </div>
+    </div>
+
+    <div class="lg:col-span-2">
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Output</label>
+            @if (!string.IsNullOrEmpty(_outputText))
+            {
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        @onclick="CopyToClipboard">
+                    <i class="ti ti-clipboard mr-0.5"></i> @_copyLabel
+                </button>
+            }
+        </div>
+        <textarea readonly
+                  class="w-full h-96 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Click Generate to create Lorem Ipsum text…">@_outputText</textarea>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/lorem-ipsum" OnRestore="RestoreState" />
+
+@code {
+    private Core.Text.LoremIpsumCore.FormatType _selectedFormat = Core.Text.LoremIpsumCore.FormatType.Paragraphs;
+    private int _count = 3;
+    private string _outputText = string.Empty;
+    private string _copyLabel = "Copy";
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(Core.Text.LoremIpsumCore.FormatType SelectedFormat, int Count);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/lorem-ipsum");
+            if (state is not null)
+            {
+                _selectedFormat = state.SelectedFormat;
+                _count = state.Count;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/lorem-ipsum", new ToolState(_selectedFormat, _count));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _selectedFormat = state.SelectedFormat;
+            _count = state.Count;
+            _outputText = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Generate()
+    {
+        _outputText = Core.Text.LoremIpsumCore.Generate(_selectedFormat, _count);
+
+        string label = $"{_count} {_selectedFormat}";
+        await Storage.AddRecentAsync("tools/text/lorem-ipsum", label, new ToolState(_selectedFormat, _count));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task CopyToClipboard()
+    {
+        if (string.IsNullOrEmpty(_outputText))
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _outputText);
+        _copyLabel = "Copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copyLabel = "Copy";
+    }
+}

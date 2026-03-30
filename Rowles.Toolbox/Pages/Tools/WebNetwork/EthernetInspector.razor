@@ -1,0 +1,373 @@
+@page "/tools/web/ethernet-inspector"
+@using Rowles.Toolbox.Core.WebNetwork
+@using System.Text.Json
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Ethernet Frame Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Ethernet Frame Inspector" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-network mr-1"></i> Decode Ethernet II frames from hex</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-keyboard mr-1"></i> Hex Input</h3>
+        <textarea class="w-full h-28 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Paste Ethernet II frame hex bytes, e.g. FF FF FF FF FF FF 00 1A 2B 3C 4D 5E 08 00 45 00 ..."
+                  @bind="_hexInput"
+                  @bind:after="SaveState"></textarea>
+        <div class="mt-3 flex items-center gap-3">
+            <label class="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
+                <input type="checkbox" class="rounded" @bind="_includeFcs" @bind:after="SaveState" />
+                <span>Frame includes FCS (last 4 bytes)</span>
+            </label>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2 items-center">
+            <button type="button"
+                    class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
+                    @onclick="ParseFrame">
+                <i class="ti ti-analyze mr-1"></i> Parse Frame
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="LoadIpv4Example">
+                <i class="ti ti-world mr-1"></i> IPv4 Example
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="LoadArpExample">
+                <i class="ti ti-broadcast mr-1"></i> ARP Example
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="ClearAll">
+                <i class="ti ti-trash mr-1"></i> Clear
+            </button>
+        </div>
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="mt-2 text-red-500 text-sm"><i class="ti ti-alert-circle mr-1"></i>@_errorMessage</div>
+        }
+    </div>
+
+    @if (_parsed is not null)
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="lg:col-span-2 space-y-4">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-table mr-1"></i> Parsed Fields</h3>
+                        <button type="button"
+                                class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="CopyParsedOutput">
+                            <i class="ti ti-copy mr-1"></i> @(_copied ? "Copied!" : "Copy")
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-left text-xs text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                                    <th class="py-2 pr-4">Field</th>
+                                    <th class="py-2 pr-4">Value</th>
+                                    <th class="py-2 pr-4">Bytes</th>
+                                    <th class="py-2">Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (EthernetInspectorCore.FrameField field in _parsed.Fields)
+                                {
+                                    <tr class="border-b border-gray-100 dark:border-gray-800">
+                                        <td class="py-2 pr-4 font-medium text-gray-700 dark:text-gray-300">@field.FieldName</td>
+                                        <td class="py-2 pr-4 font-mono text-blue-600 dark:text-blue-400">@field.Value</td>
+                                        <td class="py-2 pr-4 font-mono text-gray-500 text-xs">@field.ByteRange</td>
+                                        <td class="py-2 text-gray-500 text-xs">@field.Notes</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-binary mr-1"></i> Colour-Coded Hex Dump</h3>
+                    <div class="flex flex-wrap gap-1 mb-3 text-xs">
+                        <span class="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">Dst MAC</span>
+                        <span class="px-2 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Src MAC</span>
+                        <span class="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300">EtherType</span>
+                        @if (_parsed.HasVlanTag)
+                        {
+                            <span class="px-2 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300">VLAN Tag</span>
+                        }
+                        <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">Payload</span>
+                        @if (_parsed.HasFcs)
+                        {
+                            <span class="px-2 py-0.5 rounded bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300">FCS</span>
+                        }
+                    </div>
+                    <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded font-mono text-sm leading-relaxed">
+                        @foreach (EthernetInspectorCore.HexSpan hexSpan in _hexSpans)
+                        {
+                            <span class="@hexSpan.CssClass">@hexSpan.Content </span>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_parsed.PayloadHex))
+                {
+                    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-text mr-1"></i> Payload Preview (first 64 bytes)</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <span class="text-xs text-gray-500 block mb-1">Hex</span>
+                                <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono break-all whitespace-pre-wrap">@_parsed.PayloadHex</pre>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-500 block mb-1">ASCII</span>
+                                <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono break-all whitespace-pre-wrap">@_parsed.PayloadAscii</pre>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="space-y-4">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Frame Summary</h3>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400">Frame Length</span>
+                            <span class="font-mono font-bold">@_parsed.TotalLength bytes</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400">Payload Length</span>
+                            <span class="font-mono font-bold">@_parsed.PayloadLength bytes</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400">Payload Offset</span>
+                            <span class="font-mono font-bold">byte @_parsed.PayloadOffset</span>
+                        </div>
+                        @if (_parsed.HasVlanTag)
+                        {
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="text-gray-600 dark:text-gray-400">VLAN Tagged</span>
+                                <span class="font-mono font-bold text-yellow-600 dark:text-yellow-400">Yes (802.1Q)</span>
+                            </div>
+                        }
+                        @if (_parsed.HasFcs)
+                        {
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="text-gray-600 dark:text-gray-400">FCS</span>
+                                <span class="font-mono font-bold">@_parsed.Fcs</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-antenna mr-1"></i> Destination MAC</h3>
+                    <div class="space-y-2">
+                        <div class="font-mono text-lg font-bold text-blue-600 dark:text-blue-400">@_parsed.DstMac</div>
+                        @if (_parsed.IsBroadcast)
+                        {
+                            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300">
+                                <i class="ti ti-broadcast mr-0.5"></i> Broadcast
+                            </span>
+                        }
+                        else if (_parsed.IsMulticast)
+                        {
+                            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300">
+                                <i class="ti ti-users mr-0.5"></i> Multicast
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">
+                                <i class="ti ti-user mr-0.5"></i> Unicast
+                            </span>
+                        }
+                        @if (!string.IsNullOrEmpty(_parsed.DstVendor))
+                        {
+                            <div class="text-sm text-gray-600 dark:text-gray-400">
+                                <i class="ti ti-building mr-1"></i> @_parsed.DstVendor
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-antenna-bars-5 mr-1"></i> Source MAC</h3>
+                    <div class="space-y-2">
+                        <div class="font-mono text-lg font-bold text-green-600 dark:text-green-400">@_parsed.SrcMac</div>
+                        @if (!string.IsNullOrEmpty(_parsed.SrcVendor))
+                        {
+                            <div class="text-sm text-gray-600 dark:text-gray-400">
+                                <i class="ti ti-building mr-1"></i> @_parsed.SrcVendor
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> EtherType Reference</h3>
+                    <div class="space-y-1 text-xs font-mono">
+                        @foreach (KeyValuePair<int, string> entry in EthernetInspectorCore.EtherTypes)
+                        {
+                            <div class="flex justify-between text-gray-600 dark:text-gray-400 @(entry.Key == GetActiveEtherType() ? "font-bold text-purple-600 dark:text-purple-400" : "")">
+                                <span>0x@(entry.Key.ToString("X4"))</span>
+                                <span>@entry.Value</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/ethernet-inspector" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _hexInput = string.Empty;
+    private string? _errorMessage;
+    private EthernetInspectorCore.ParsedFrame? _parsed;
+    private List<EthernetInspectorCore.HexSpan> _hexSpans = [];
+    private bool _copied;
+    private bool _includeFcs;
+
+    sealed record ToolState(string HexInput, bool IncludeFcs);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await LoadState();
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/ethernet-inspector");
+        if (state is not null)
+        {
+            _hexInput = state.HexInput;
+            _includeFcs = state.IncludeFcs;
+            if (!string.IsNullOrWhiteSpace(_hexInput))
+                ParseFrameInternal();
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/web/ethernet-inspector", new ToolState(_hexInput, _includeFcs));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _hexInput = state.HexInput;
+                _includeFcs = state.IncludeFcs;
+                if (!string.IsNullOrWhiteSpace(_hexInput))
+                    ParseFrameInternal();
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { }
+    }
+
+    private static readonly string _ipv4Example =
+        "DE AD BE EF CA FE 3C 22 FB 12 34 56 08 00 45 00 " +
+        "00 3C 1C 46 40 00 40 06 B1 E6 C0 A8 01 64 C0 A8 " +
+        "01 01 00 50 C3 5E 00 00 00 01 00 00 00 00 A0 02 " +
+        "FF FF FE 30 00 00 02 04 05 B4";
+
+    private static readonly string _arpExample =
+        "FF FF FF FF FF FF 00 50 56 C0 00 08 08 06 00 01 " +
+        "08 00 06 04 00 01 00 50 56 C0 00 08 C0 A8 01 01 " +
+        "00 00 00 00 00 00 C0 A8 01 64";
+
+    private void ParseFrameInternal()
+    {
+        _errorMessage = null;
+        _parsed = null;
+        _hexSpans = [];
+        _copied = false;
+
+        (EthernetInspectorCore.ParsedFrame? frame, List<EthernetInspectorCore.HexSpan>? hexSpans, string? error) =
+            EthernetInspectorCore.ParseFrame(_hexInput, _includeFcs);
+
+        if (error is not null)
+        {
+            _errorMessage = error;
+            return;
+        }
+
+        _parsed = frame;
+        _hexSpans = hexSpans ?? [];
+    }
+
+    private async Task ParseFrame()
+    {
+        ParseFrameInternal();
+        await SaveState();
+        if (_parsed is not null)
+        {
+            await Storage.AddRecentAsync("tools/web/ethernet-inspector", $"Parsed: {_parsed.DstMac ?? "frame"}", new ToolState(_hexInput, _includeFcs));
+            await _recentPanel?.RefreshAsync()!;
+        }
+    }
+
+    private async Task LoadIpv4Example()
+    {
+        _hexInput = _ipv4Example;
+        _includeFcs = false;
+        ParseFrameInternal();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/ethernet-inspector", "IPv4 example", new ToolState(_hexInput, _includeFcs));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    private async Task LoadArpExample()
+    {
+        _hexInput = _arpExample;
+        _includeFcs = false;
+        ParseFrameInternal();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/ethernet-inspector", "ARP example", new ToolState(_hexInput, _includeFcs));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    private async Task ClearAll()
+    {
+        _hexInput = string.Empty;
+        _errorMessage = null;
+        _parsed = null;
+        _hexSpans = [];
+        _copied = false;
+        _includeFcs = false;
+        await SaveState();
+    }
+
+    private int GetActiveEtherType()
+    {
+        if (_parsed is null) return -1;
+        return _parsed.HasVlanTag ? _parsed.RealEtherType : _parsed.EtherType;
+    }
+
+    private async Task CopyParsedOutput()
+    {
+        if (_parsed is null) return;
+        string output = EthernetInspectorCore.BuildCopyText(_parsed);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", output);
+        _copied = true;
+        await Task.Delay(1500);
+        _copied = false;
+    }
+}

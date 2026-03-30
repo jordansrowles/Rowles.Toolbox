@@ -1,0 +1,746 @@
+@page "/tools/web/manifest"
+@using Rowles.Toolbox.Core.WebNetwork
+@using static Rowles.Toolbox.Core.WebNetwork.ManifestBuilderCore
+@using System.Text.Json
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Manifest.json Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Manifest.json Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-app-window mr-1"></i> Visual builder for PWA manifest.json files</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    @* ══════════════════════════════════════════════════════════════════════
+       LEFT COLUMN: Form
+       ══════════════════════════════════════════════════════════════════════ *@
+    <div class="space-y-4">
+
+        @* ── Action buttons ── *@
+        <div class="flex flex-wrap gap-2">
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-blue-300 dark:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400"
+                    @onclick="LoadExample">
+                <i class="ti ti-template mr-1"></i> Load Example
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-red-300 dark:border-red-600 hover:bg-red-50 dark:hover:bg-red-900 text-red-600 dark:text-red-400"
+                    @onclick="ResetAll">
+                <i class="ti ti-refresh mr-1"></i> Reset
+            </button>
+        </div>
+
+        @* ── Basic Info ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-info-circle mr-1"></i> Basic Info</h3>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">
+                    Name <span class="text-red-500">*</span>
+                </label>
+                <input type="text"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="My Progressive Web App"
+                       @bind="_name"
+                       @bind:after="SaveState" />
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">
+                    Short Name <span class="text-red-500">*</span>
+                </label>
+                <input type="text"
+                       class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="MyApp"
+                       @bind="_shortName"
+                       @bind:after="SaveState" />
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Description</label>
+                <textarea class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          rows="2"
+                          placeholder="A description of your app..."
+                          @bind="_description"
+                          @bind:after="SaveState"></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Start URL</label>
+                    <input type="text"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_startUrl"
+                           @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Scope</label>
+                    <input type="text"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_scope"
+                           @bind:after="SaveState" />
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Language</label>
+                    <input type="text"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           placeholder="en"
+                           @bind="_lang"
+                           @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Direction</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            @bind="_dir"
+                            @bind:after="SaveState">
+                        @foreach (string dirOption in DirOptions)
+                        {
+                            <option value="@dirOption">@dirOption</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        @* ── Display ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-device-desktop mr-1"></i> Display</h3>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Display Mode</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            @bind="_display"
+                            @bind:after="SaveState">
+                        @foreach (string displayOption in DisplayOptions)
+                        {
+                            <option value="@displayOption">@displayOption</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Orientation</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            @bind="_orientation"
+                            @bind:after="SaveState">
+                        @foreach (string orientOption in OrientationOptions)
+                        {
+                            <option value="@orientOption">@orientOption</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        @* ── Colours ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-palette mr-1"></i> Colours</h3>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Theme Colour</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color"
+                               class="w-10 h-10 rounded border border-gray-300 dark:border-gray-600 cursor-pointer p-0"
+                               value="@_themeColor"
+                               @oninput="OnThemeColorPicker" />
+                        <input type="text"
+                               class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               @bind="_themeColor"
+                               @bind:after="SaveState" />
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Background Colour</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color"
+                               class="w-10 h-10 rounded border border-gray-300 dark:border-gray-600 cursor-pointer p-0"
+                               value="@_backgroundColor"
+                               @oninput="OnBackgroundColorPicker" />
+                        <input type="text"
+                               class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               @bind="_backgroundColor"
+                               @bind:after="SaveState" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* ── Categories ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-tags mr-1"></i> Categories</h3>
+
+            <div class="flex gap-2">
+                <input type="text"
+                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="e.g. productivity, utilities..."
+                       @bind="_newCategory"
+                       @bind:after="SaveState"
+                       @onkeydown="OnCategoryKeyDown" />
+                <button type="button"
+                        class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        disabled="@string.IsNullOrWhiteSpace(_newCategory)"
+                        @onclick="AddCategory">
+                    <i class="ti ti-plus"></i>
+                </button>
+            </div>
+
+            @if (_categories.Count > 0)
+            {
+                <div class="flex flex-wrap gap-1.5">
+                    @foreach (string cat in _categories)
+                    {
+                        <span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded-full">
+                            @cat
+                            <button type="button"
+                                    class="text-blue-500 hover:text-red-500 transition-colors"
+                                    @onclick="() => RemoveCategory(cat)">
+                                <i class="ti ti-x text-xs"></i>
+                            </button>
+                        </span>
+                    }
+                </div>
+            }
+        </div>
+
+        @* ── Icons ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-photo mr-1"></i> Icons</h3>
+                <button type="button"
+                        class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                        @onclick="AddIcon">
+                    <i class="ti ti-plus mr-1"></i> Add Icon
+                </button>
+            </div>
+
+            @if (_icons.Count == 0)
+            {
+                <div class="text-center text-gray-400 text-sm py-4">
+                    <i class="ti ti-photo-off text-2xl"></i>
+                    <p class="mt-1">No icons added. Click "Add Icon" to begin.</p>
+                </div>
+            }
+
+            @for (int idx = 0; idx < _icons.Count; idx++)
+            {
+                int capturedIdx = idx;
+                IconEntry icon = _icons[capturedIdx];
+                <div class="border border-gray-100 dark:border-gray-800 rounded p-3 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-gray-400">Icon @(capturedIdx + 1)</span>
+                        <button type="button"
+                                class="text-red-400 hover:text-red-600 text-sm"
+                                @onclick="() => RemoveIcon(capturedIdx)">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-0.5">Source URL</label>
+                        <input type="text"
+                               class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                               placeholder="/icons/icon-192x192.png"
+                               value="@icon.Src"
+                               @oninput="(ChangeEventArgs e) => icon.Src = e.Value?.ToString() ?? string.Empty" />
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-0.5">Sizes</label>
+                            <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                    value="@icon.Sizes"
+                                    @onchange="(ChangeEventArgs e) => icon.Sizes = e.Value?.ToString() ?? IconSizeOptions[0]">
+                                @foreach (string sizeOpt in IconSizeOptions)
+                                {
+                                    <option value="@sizeOpt">@sizeOpt</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+                            <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                    value="@icon.Type"
+                                    @onchange="(ChangeEventArgs e) => icon.Type = e.Value?.ToString() ?? IconTypeOptions[0]">
+                                @foreach (string typeOpt in IconTypeOptions)
+                                {
+                                    <option value="@typeOpt">@typeOpt</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-0.5">Purpose</label>
+                            <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                    value="@icon.Purpose"
+                                    @onchange="(ChangeEventArgs e) => icon.Purpose = e.Value?.ToString() ?? IconPurposeOptions[0]">
+                                @foreach (string purposeOpt in IconPurposeOptions)
+                                {
+                                    <option value="@purposeOpt">@purposeOpt</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* ── Screenshots ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-screenshot mr-1"></i> Screenshots</h3>
+                <button type="button"
+                        class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                        @onclick="AddScreenshot">
+                    <i class="ti ti-plus mr-1"></i> Add Screenshot
+                </button>
+            </div>
+
+            @if (_screenshots.Count == 0)
+            {
+                <div class="text-center text-gray-400 text-sm py-4">
+                    <i class="ti ti-camera-off text-2xl"></i>
+                    <p class="mt-1">No screenshots added. Click "Add Screenshot" to begin.</p>
+                </div>
+            }
+
+            @for (int idx = 0; idx < _screenshots.Count; idx++)
+            {
+                int capturedIdx = idx;
+                ScreenshotEntry screenshot = _screenshots[capturedIdx];
+                <div class="border border-gray-100 dark:border-gray-800 rounded p-3 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-gray-400">Screenshot @(capturedIdx + 1)</span>
+                        <button type="button"
+                                class="text-red-400 hover:text-red-600 text-sm"
+                                @onclick="() => RemoveScreenshot(capturedIdx)">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-0.5">Source URL</label>
+                        <input type="text"
+                               class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                               placeholder="/screenshots/home.png"
+                               value="@screenshot.Src"
+                               @oninput="(ChangeEventArgs e) => screenshot.Src = e.Value?.ToString() ?? string.Empty" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-0.5">Sizes</label>
+                            <input type="text"
+                                   class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono"
+                                   placeholder="1280x720"
+                                   value="@screenshot.Sizes"
+                                   @oninput="(ChangeEventArgs e) => screenshot.Sizes = e.Value?.ToString() ?? string.Empty" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+                            <select class="w-full p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                    value="@screenshot.Type"
+                                    @onchange="(ChangeEventArgs e) => screenshot.Type = e.Value?.ToString() ?? IconTypeOptions[0]">
+                                @foreach (string typeOpt in IconTypeOptions)
+                                {
+                                    <option value="@typeOpt">@typeOpt</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════════════
+       RIGHT COLUMN: Preview + Validation
+       ══════════════════════════════════════════════════════════════════════ *@
+    <div class="space-y-4">
+
+        @* ── Validation warnings ── *@
+        @{
+            List<string> warnings = GetValidationWarnings();
+        }
+        @if (warnings.Count > 0)
+        {
+            <div class="border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950 rounded p-3 space-y-1">
+                <h3 class="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                    <i class="ti ti-alert-triangle mr-1"></i> Validation (@warnings.Count)
+                </h3>
+                @foreach (string warning in warnings)
+                {
+                    <p class="text-xs text-amber-600 dark:text-amber-400">
+                        <i class="ti ti-point-filled mr-0.5"></i> @warning
+                    </p>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="border border-green-300 dark:border-green-600 bg-green-50 dark:bg-green-950 rounded p-3">
+                <p class="text-sm text-green-700 dark:text-green-400">
+                    <i class="ti ti-circle-check mr-1"></i> Manifest looks good!
+                </p>
+            </div>
+        }
+
+        @* ── JSON preview ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 sticky top-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-braces mr-1"></i> manifest.json</h3>
+                <button type="button"
+                        class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        @onclick="CopyJson">
+                    <i class="ti ti-copy mr-1"></i> @(_copied ? "Copied!" : "Copy JSON")
+                </button>
+            </div>
+            <pre class="p-3 bg-gray-50 dark:bg-gray-900 rounded text-xs font-mono whitespace-pre-wrap break-all max-h-[70vh] overflow-y-auto leading-relaxed">@GenerateJson()</pre>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/manifest" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(
+        string Name,
+        string ShortName,
+        string Description,
+        string StartUrl,
+        string Scope,
+        string Display,
+        string Orientation,
+        string ThemeColor,
+        string BackgroundColor,
+        string Lang,
+        string Dir,
+        List<string> Categories,
+        List<IconEntry> Icons,
+        List<ScreenshotEntry> Screenshots);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/manifest");
+        if (state is null) return;
+
+        _name = state.Name;
+        _shortName = state.ShortName;
+        _description = state.Description;
+        _startUrl = state.StartUrl;
+        _scope = state.Scope;
+        _display = state.Display;
+        _orientation = state.Orientation;
+        _themeColor = state.ThemeColor;
+        _backgroundColor = state.BackgroundColor;
+        _lang = state.Lang;
+        _dir = state.Dir;
+
+        _categories.Clear();
+        _categories.AddRange(state.Categories ?? []);
+
+        _icons.Clear();
+        if (state.Icons is not null)
+        {
+            _icons.AddRange(state.Icons);
+        }
+
+        _screenshots.Clear();
+        if (state.Screenshots is not null)
+        {
+            _screenshots.AddRange(state.Screenshots);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(
+            _name,
+            _shortName,
+            _description,
+            _startUrl,
+            _scope,
+            _display,
+            _orientation,
+            _themeColor,
+            _backgroundColor,
+            _lang,
+            _dir,
+            new List<string>(_categories),
+            new List<IconEntry>(_icons),
+            new List<ScreenshotEntry>(_screenshots));
+
+        await Storage.SaveStateAsync("tools/web/manifest", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is null) return;
+
+            _name = state.Name;
+            _shortName = state.ShortName;
+            _description = state.Description;
+            _startUrl = state.StartUrl;
+            _scope = state.Scope;
+            _display = state.Display;
+            _orientation = state.Orientation;
+            _themeColor = state.ThemeColor;
+            _backgroundColor = state.BackgroundColor;
+            _lang = state.Lang;
+            _dir = state.Dir;
+
+            _categories.Clear();
+            _categories.AddRange(state.Categories ?? []);
+
+            _icons.Clear();
+            if (state.Icons is not null)
+            {
+                _icons.AddRange(state.Icons);
+            }
+
+            _screenshots.Clear();
+            if (state.Screenshots is not null)
+            {
+                _screenshots.AddRange(state.Screenshots);
+            }
+
+            StateHasChanged();
+            await SaveState();
+        }
+        catch
+        {
+        }
+    }
+
+    private string _name = string.Empty;
+    private string _shortName = string.Empty;
+    private string _description = string.Empty;
+    private string _startUrl = "/";
+    private string _scope = "/";
+    private string _display = "standalone";
+    private string _orientation = "any";
+    private string _themeColor = "#ffffff";
+    private string _backgroundColor = "#ffffff";
+    private string _lang = "en";
+    private string _dir = "auto";
+    private string _newCategory = string.Empty;
+    private bool _copied;
+
+    private readonly List<string> _categories = [];
+    private readonly List<IconEntry> _icons = [];
+    private readonly List<ScreenshotEntry> _screenshots = [];
+
+    @* ── Colour picker handlers ── *@
+
+    private async Task OnThemeColorPicker(ChangeEventArgs e)
+    {
+        _themeColor = e.Value?.ToString() ?? "#ffffff";
+        await SaveState();
+    }
+
+    private async Task OnBackgroundColorPicker(ChangeEventArgs e)
+    {
+        _backgroundColor = e.Value?.ToString() ?? "#ffffff";
+        await SaveState();
+    }
+
+    @* ── Category management ── *@
+
+    private async Task AddCategory()
+    {
+        string trimmed = _newCategory.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(trimmed) && !_categories.Contains(trimmed))
+        {
+            _categories.Add(trimmed);
+        }
+        _newCategory = string.Empty;
+        await SaveState();
+    }
+
+    private async Task RemoveCategory(string cat)
+    {
+        _categories.Remove(cat);
+        await SaveState();
+    }
+
+    private async Task OnCategoryKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddCategory();
+        }
+    }
+
+    @* ── Icon management ── *@
+
+    private async Task AddIcon()
+    {
+        _icons.Add(new IconEntry
+        {
+            Src = string.Empty,
+            Sizes = "192x192",
+            Type = "image/png",
+            Purpose = "any"
+        });
+        await SaveState();
+    }
+
+    private async Task RemoveIcon(int index)
+    {
+        if (index >= 0 && index < _icons.Count)
+        {
+            _icons.RemoveAt(index);
+        }
+        await SaveState();
+    }
+
+    @* ── Screenshot management ── *@
+
+    private async Task AddScreenshot()
+    {
+        _screenshots.Add(new ScreenshotEntry
+        {
+            Src = string.Empty,
+            Sizes = "1280x720",
+            Type = "image/png"
+        });
+        await SaveState();
+    }
+
+    private async Task RemoveScreenshot(int index)
+    {
+        if (index >= 0 && index < _screenshots.Count)
+        {
+            _screenshots.RemoveAt(index);
+        }
+        await SaveState();
+    }
+
+    @* ── JSON generation ── *@
+
+    private ManifestOptions BuildManifestOptions() => new ManifestOptions
+    {
+        Name = _name,
+        ShortName = _shortName,
+        Description = _description,
+        StartUrl = _startUrl,
+        Scope = _scope,
+        Display = _display,
+        Orientation = _orientation,
+        ThemeColor = _themeColor,
+        BackgroundColor = _backgroundColor,
+        Lang = _lang,
+        Dir = _dir,
+        Categories = _categories,
+        Icons = _icons,
+        Screenshots = _screenshots,
+    };
+
+    private string GenerateJson() => ManifestBuilderCore.GenerateJson(BuildManifestOptions());
+
+    @* ── Copy to clipboard ── *@
+
+    private async Task CopyJson()
+    {
+        await SaveState();
+        string json = GenerateJson();
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", json);
+        _copied = true;
+        StateHasChanged();
+
+        ToolState state = new(_name, _shortName, _description, _startUrl, _scope,
+            _display, _orientation, _themeColor, _backgroundColor, _lang, _dir,
+            [.._categories], [.._icons], [.._screenshots]);
+        await Storage.AddRecentAsync("tools/web/manifest", $"Manifest: {_name}", state);
+        await _recentPanel?.RefreshAsync()!;
+
+        await Task.Delay(1500);
+        _copied = false;
+        StateHasChanged();
+    }
+
+    @* ── Validation ── *@
+
+    private List<string> GetValidationWarnings() => ManifestBuilderCore.GetValidationWarnings(BuildManifestOptions());
+
+    @* ── Load example ── *@
+
+    private async Task LoadExample()
+    {
+        _name = "My Awesome PWA";
+        _shortName = "AwesomePWA";
+        _description = "A blazing fast progressive web application built with modern web technologies.";
+        _startUrl = "/";
+        _scope = "/";
+        _display = "standalone";
+        _orientation = "portrait";
+        _themeColor = "#1e40af";
+        _backgroundColor = "#f8fafc";
+        _lang = "en";
+        _dir = "auto";
+
+        _categories.Clear();
+        _categories.AddRange(["productivity", "utilities"]);
+
+        _icons.Clear();
+        _icons.Add(new IconEntry { Src = "/icons/icon-48x48.png", Sizes = "48x48", Type = "image/png", Purpose = "any" });
+        _icons.Add(new IconEntry { Src = "/icons/icon-72x72.png", Sizes = "72x72", Type = "image/png", Purpose = "any" });
+        _icons.Add(new IconEntry { Src = "/icons/icon-96x96.png", Sizes = "96x96", Type = "image/png", Purpose = "any" });
+        _icons.Add(new IconEntry { Src = "/icons/icon-144x144.png", Sizes = "144x144", Type = "image/png", Purpose = "any" });
+        _icons.Add(new IconEntry { Src = "/icons/icon-192x192.png", Sizes = "192x192", Type = "image/png", Purpose = "any" });
+        _icons.Add(new IconEntry { Src = "/icons/icon-512x512.png", Sizes = "512x512", Type = "image/png", Purpose = "any" });
+        _icons.Add(new IconEntry { Src = "/icons/icon-maskable-192x192.png", Sizes = "192x192", Type = "image/png", Purpose = "maskable" });
+        _icons.Add(new IconEntry { Src = "/icons/icon-maskable-512x512.png", Sizes = "512x512", Type = "image/png", Purpose = "maskable" });
+
+        _screenshots.Clear();
+        _screenshots.Add(new ScreenshotEntry { Src = "/screenshots/desktop-home.png", Sizes = "1920x1080", Type = "image/png" });
+        _screenshots.Add(new ScreenshotEntry { Src = "/screenshots/mobile-home.png", Sizes = "750x1334", Type = "image/png" });
+
+        await SaveState();
+        ToolState state = new(_name, _shortName, _description, _startUrl, _scope,
+            _display, _orientation, _themeColor, _backgroundColor, _lang, _dir,
+            [.._categories], [.._icons], [.._screenshots]);
+        await Storage.AddRecentAsync("tools/web/manifest", "Loaded example manifest", state);
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    @* ── Reset ── *@
+
+    private async Task ResetAll()
+    {
+        _name = string.Empty;
+        _shortName = string.Empty;
+        _description = string.Empty;
+        _startUrl = "/";
+        _scope = "/";
+        _display = "standalone";
+        _orientation = "any";
+        _themeColor = "#ffffff";
+        _backgroundColor = "#ffffff";
+        _lang = "en";
+        _dir = "auto";
+        _newCategory = string.Empty;
+        _categories.Clear();
+        _icons.Clear();
+        _screenshots.Clear();
+        await SaveState();
+    }
+
+}

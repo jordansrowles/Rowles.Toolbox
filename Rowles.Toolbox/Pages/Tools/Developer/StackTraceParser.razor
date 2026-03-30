@@ -1,0 +1,446 @@
+@page "/tools/dev/stack-trace"
+@using System.Text.RegularExpressions
+@using Rowles.Toolbox.Core.Developer
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Stack Trace Parser - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Stack Trace Parser" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-bug mr-1"></i> Parse &amp; format stack traces from .NET, Java, Node.js, and Python</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+    @* ----─ Main content ----─ *@
+    <div class="xl:col-span-3 space-y-4">
+        @* ----─ Input ----─ *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <label class="block text-sm font-medium"><i class="ti ti-terminal mr-1"></i> Stack Trace Input</label>
+                <div class="flex items-center gap-2">
+                    @if (_detectedLanguage != StackTraceParserCore.TraceLanguage.Unknown)
+                    {
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold @StackTraceParserCore.LanguageBadgeClass(_detectedLanguage)">
+                            <i class="ti @StackTraceParserCore.LanguageIcon(_detectedLanguage) mr-0.5"></i> @StackTraceParserCore.LanguageLabel(_detectedLanguage)
+                        </span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_rawInput))
+                    {
+                        <button class="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 cursor-pointer border-none bg-transparent"
+                                @onclick="Clear" title="Clear">
+                            <i class="ti ti-trash mr-0.5"></i> Clear
+                        </button>
+                    }
+                </div>
+            </div>
+            <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Paste your stack trace here…"
+                      @bind="_rawInput"
+                      @bind:event="oninput"
+                      @bind:after="ParseAndSave"></textarea>
+        </div>
+
+        @* ----─ Exception info ----─ *@
+        @if (_exceptionInfos.Count > 0)
+        {
+            <div class="space-y-2">
+                @foreach (StackTraceParserCore.ExceptionInfo ex in _exceptionInfos)
+                {
+                    <div class="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-3 rounded-r">
+                        <div class="flex items-center gap-2">
+                            @if (ex.IsInner)
+                            {
+                                <span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300">
+                                    @ex.InnerLabel
+                                </span>
+                            }
+                            <span class="text-sm font-bold text-red-700 dark:text-red-400 font-mono">@ex.Type</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(ex.Message))
+                        {
+                            <p class="text-sm text-red-600 dark:text-red-300 mt-1">@ex.Message</p>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @* ----─ Options bar ----─ *@
+        @if (_frames.Count > 0)
+        {
+            <div class="flex items-center gap-4 border border-gray-200 dark:border-gray-700 rounded p-3">
+                <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input type="checkbox" class="rounded" @bind="_stripPaths" @bind:after="ParseAndSave" />
+                    <span>Strip paths to filename</span>
+                </label>
+                <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input type="checkbox" class="rounded" @bind="_hideNoise" @bind:after="ParseAndSave" />
+                    <span>Hide framework noise</span>
+                </label>
+                <div class="ml-auto flex items-center gap-2">
+                    <span class="text-xs text-gray-400">@_frames.Count frames</span>
+                    <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                            @onclick="CopyPrettified" title="Copy prettified trace">
+                        <i class="ti ti-copy mr-0.5"></i> Copy all
+                    </button>
+                </div>
+            </div>
+        }
+
+        @* ----─ Parsed frames table ----─ *@
+        @if (_frames.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-list mr-1"></i> Parsed Frames (@_frames.Count)
+                </h3>
+                <div class="overflow-x-auto">
+                    @switch (_detectedLanguage)
+                    {
+                        case StackTraceParserCore.TraceLanguage.DotNet:
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                                        <th class="text-left p-2 text-gray-500 font-medium">#</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Namespace</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Class</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Method</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Parameters</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">File</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Line</th>
+                                        <th class="p-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (int i = 0; i < _frames.Count; i++)
+                                    {
+                                        StackTraceParserCore.StackFrame frame = _frames[i];
+                                        int index = i;
+                                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                            <td class="p-2 text-gray-400 text-xs">@(index + 1)</td>
+                                            <td class="p-2 font-mono text-xs text-gray-600 dark:text-gray-400">@frame.Namespace</td>
+                                            <td class="p-2 font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold">@frame.Class</td>
+                                            <td class="p-2 font-mono text-xs text-purple-600 dark:text-purple-400">@frame.Method</td>
+                                            <td class="p-2 font-mono text-xs text-gray-500 dark:text-gray-500 max-w-48 truncate" title="@frame.Parameters">@frame.Parameters</td>
+                                            <td class="p-2 font-mono text-xs text-green-600 dark:text-green-400 max-w-48 truncate" title="@frame.File">@frame.File</td>
+                                            <td class="p-2 font-mono text-xs text-orange-600 dark:text-orange-400 font-bold">@(frame.Line > 0 ? frame.Line.ToString() : "")</td>
+                                            <td class="p-2">
+                                                <button class="text-gray-400 hover:text-blue-500 cursor-pointer border-none bg-transparent"
+                                                        @onclick="() => CopyFrame(index)" title="Copy frame">
+                                                    <i class="ti ti-copy text-xs"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            break;
+
+                        case StackTraceParserCore.TraceLanguage.Java:
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                                        <th class="text-left p-2 text-gray-500 font-medium">#</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Package</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Class</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Method</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">File</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Line</th>
+                                        <th class="p-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (int i = 0; i < _frames.Count; i++)
+                                    {
+                                        StackTraceParserCore.StackFrame frame = _frames[i];
+                                        int index = i;
+                                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                            <td class="p-2 text-gray-400 text-xs">@(index + 1)</td>
+                                            <td class="p-2 font-mono text-xs text-gray-600 dark:text-gray-400">@frame.Namespace</td>
+                                            <td class="p-2 font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold">@frame.Class</td>
+                                            <td class="p-2 font-mono text-xs text-purple-600 dark:text-purple-400">@frame.Method</td>
+                                            <td class="p-2 font-mono text-xs text-green-600 dark:text-green-400">@frame.File</td>
+                                            <td class="p-2 font-mono text-xs text-orange-600 dark:text-orange-400 font-bold">@(frame.Line > 0 ? frame.Line.ToString() : "")</td>
+                                            <td class="p-2">
+                                                <button class="text-gray-400 hover:text-blue-500 cursor-pointer border-none bg-transparent"
+                                                        @onclick="() => CopyFrame(index)" title="Copy frame">
+                                                    <i class="ti ti-copy text-xs"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            break;
+
+                        case StackTraceParserCore.TraceLanguage.NodeJs:
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                                        <th class="text-left p-2 text-gray-500 font-medium">#</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Function</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">File</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Line</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Column</th>
+                                        <th class="p-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (int i = 0; i < _frames.Count; i++)
+                                    {
+                                        StackTraceParserCore.StackFrame frame = _frames[i];
+                                        int index = i;
+                                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                            <td class="p-2 text-gray-400 text-xs">@(index + 1)</td>
+                                            <td class="p-2 font-mono text-xs text-purple-600 dark:text-purple-400 font-semibold">@frame.Method</td>
+                                            <td class="p-2 font-mono text-xs text-green-600 dark:text-green-400 max-w-64 truncate" title="@frame.File">@frame.File</td>
+                                            <td class="p-2 font-mono text-xs text-orange-600 dark:text-orange-400 font-bold">@(frame.Line > 0 ? frame.Line.ToString() : "")</td>
+                                            <td class="p-2 font-mono text-xs text-gray-500">@(frame.Column > 0 ? frame.Column.ToString() : "")</td>
+                                            <td class="p-2">
+                                                <button class="text-gray-400 hover:text-blue-500 cursor-pointer border-none bg-transparent"
+                                                        @onclick="() => CopyFrame(index)" title="Copy frame">
+                                                    <i class="ti ti-copy text-xs"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            break;
+
+                        case StackTraceParserCore.TraceLanguage.Python:
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                                        <th class="text-left p-2 text-gray-500 font-medium">#</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">File</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Line</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Function</th>
+                                        <th class="text-left p-2 text-gray-500 font-medium">Code</th>
+                                        <th class="p-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (int i = 0; i < _frames.Count; i++)
+                                    {
+                                        StackTraceParserCore.StackFrame frame = _frames[i];
+                                        int index = i;
+                                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                            <td class="p-2 text-gray-400 text-xs">@(index + 1)</td>
+                                            <td class="p-2 font-mono text-xs text-green-600 dark:text-green-400 max-w-48 truncate" title="@frame.File">@frame.File</td>
+                                            <td class="p-2 font-mono text-xs text-orange-600 dark:text-orange-400 font-bold">@(frame.Line > 0 ? frame.Line.ToString() : "")</td>
+                                            <td class="p-2 font-mono text-xs text-purple-600 dark:text-purple-400 font-semibold">@frame.Method</td>
+                                            <td class="p-2 font-mono text-xs text-gray-600 dark:text-gray-400 max-w-64 truncate" title="@frame.Parameters">@frame.Parameters</td>
+                                            <td class="p-2">
+                                                <button class="text-gray-400 hover:text-blue-500 cursor-pointer border-none bg-transparent"
+                                                        @onclick="() => CopyFrame(index)" title="Copy frame">
+                                                    <i class="ti ti-copy text-xs"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            break;
+                    }
+                </div>
+            </div>
+        }
+
+        @* ----─ Prettified output ----─ *@
+        @if (!string.IsNullOrWhiteSpace(_prettified))
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500">
+                        <i class="ti ti-sparkles mr-1"></i> Prettified Trace
+                    </h3>
+                    <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                            @onclick="CopyPrettified" title="Copy prettified trace">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap break-all overflow-x-auto max-h-96 overflow-y-auto">@_prettified</pre>
+            </div>
+        }
+    </div>
+
+    @* ----─ Sidebar ----─ *@
+    <div class="space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Supported Formats</h3>
+            <div class="space-y-3 text-sm">
+                <div>
+                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">.NET</span>
+                    <code class="block mt-1 text-xs text-gray-500 dark:text-gray-400 font-mono">at Ns.Class.Method() in file:line N</code>
+                </div>
+                <div>
+                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300">Java</span>
+                    <code class="block mt-1 text-xs text-gray-500 dark:text-gray-400 font-mono">at pkg.Class.method(File.java:N)</code>
+                </div>
+                <div>
+                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Node.js</span>
+                    <code class="block mt-1 text-xs text-gray-500 dark:text-gray-400 font-mono">at fn (/path/file.js:N:N)</code>
+                </div>
+                <div>
+                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300">Python</span>
+                    <code class="block mt-1 text-xs text-gray-500 dark:text-gray-400 font-mono">File "path", line N, in fn</code>
+                </div>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-keyboard mr-1"></i> Tips</h3>
+            <ul class="text-xs text-gray-500 dark:text-gray-400 space-y-1.5 list-disc list-inside">
+                <li>Paste any stack trace — language is auto-detected</li>
+                <li>Toggle <strong>Strip paths</strong> to show filenames only</li>
+                <li>Toggle <strong>Hide noise</strong> to filter framework frames</li>
+                <li>Click <i class="ti ti-copy"></i> on any row to copy that frame</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+@* ----─ Status toast ----─ *@
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/stack-trace" OnRestore="RestoreState" />
+
+@code {
+    sealed record ToolState(string RawInput, bool StripPaths, bool HideNoise);
+
+    private string _rawInput = string.Empty;
+    private string _prettified = string.Empty;
+    private string? _statusMessage;
+    private bool _stripPaths;
+    private bool _hideNoise;
+    private StackTraceParserCore.TraceLanguage _detectedLanguage = StackTraceParserCore.TraceLanguage.Unknown;
+    private List<StackTraceParserCore.StackFrame> _frames = [];
+    private List<StackTraceParserCore.ExceptionInfo> _exceptionInfos = [];
+    private RecentEntryPanel? _recentPanel;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/stack-trace");
+            if (state is not null)
+            {
+                _rawInput = state.RawInput;
+                _stripPaths = state.StripPaths;
+                _hideNoise = state.HideNoise;
+                Parse();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_rawInput, _stripPaths, _hideNoise);
+        await Storage.SaveStateAsync("tools/dev/stack-trace", state);
+    }
+
+    private void RestoreState(string json)
+    {
+        ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _rawInput = state.RawInput;
+            _stripPaths = state.StripPaths;
+            _hideNoise = state.HideNoise;
+            Parse();
+        }
+    }
+
+    private void Parse()
+    {
+        _frames.Clear();
+        _exceptionInfos.Clear();
+        _prettified = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_rawInput))
+        {
+            _detectedLanguage = StackTraceParserCore.TraceLanguage.Unknown;
+            return;
+        }
+
+        _detectedLanguage = StackTraceParserCore.DetectLanguage(_rawInput);
+        string[] lines = _rawInput.Split('\n');
+
+        _exceptionInfos = StackTraceParserCore.ExtractExceptions(lines, _detectedLanguage);
+
+        _frames = _detectedLanguage switch
+        {
+            StackTraceParserCore.TraceLanguage.DotNet => StackTraceParserCore.ParseDotNet(lines, _stripPaths),
+            StackTraceParserCore.TraceLanguage.Java => StackTraceParserCore.ParseJava(lines),
+            StackTraceParserCore.TraceLanguage.NodeJs => StackTraceParserCore.ParseNodeJs(lines, _stripPaths),
+            StackTraceParserCore.TraceLanguage.Python => StackTraceParserCore.ParsePython(lines, _stripPaths),
+            _ => []
+        };
+
+        if (_hideNoise)
+        {
+            _frames = _frames
+                .Where(f => !StackTraceParserCore.IsNoise(f))
+                .ToList();
+        }
+
+        _prettified = StackTraceParserCore.BuildPrettified(_frames, _exceptionInfos, _detectedLanguage);
+    }
+
+    private async Task ParseAndSave()
+    {
+        Parse();
+        await SaveState();
+    }
+
+    private async Task CopyFrame(int index)
+    {
+        if (index < 0 || index >= _frames.Count)
+        {
+            return;
+        }
+
+        string text = StackTraceParserCore.FormatFrame(_frames[index], _detectedLanguage);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        _statusMessage = "Frame copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+
+    private async Task CopyPrettified()
+    {
+        if (string.IsNullOrWhiteSpace(_prettified))
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _prettified);
+        _statusMessage = $"Copied {_frames.Count} frames!";
+        ToolState state = new(_rawInput, _stripPaths, _hideNoise);
+        await Storage.AddRecentAsync("tools/dev/stack-trace", $"Parsed {_frames.Count} frames", state);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+
+    private async Task Clear()
+    {
+        _rawInput = string.Empty;
+        _frames.Clear();
+        _exceptionInfos.Clear();
+        _prettified = string.Empty;
+        _detectedLanguage = StackTraceParserCore.TraceLanguage.Unknown;
+        await SaveState();
+    }
+}

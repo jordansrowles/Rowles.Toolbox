@@ -1,0 +1,154 @@
+@page "/tools/text/levenshtein"
+@inject LocalStorageService Storage
+
+<PageTitle>Levenshtein Distance - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Levenshtein Distance" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-arrows-exchange mr-1"></i> Calculate edit distance &amp; similarity between two strings</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">String A</label>
+        <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter first string…"
+                  @bind="_stringA"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+    <div>
+        <label class="block text-sm font-medium mb-1">String B</label>
+        <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter second string…"
+                  @bind="_stringB"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_stringA) || !string.IsNullOrEmpty(_stringB))
+{
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mt-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Results</h3>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+                <div class="text-3xl font-bold text-gray-800 dark:text-gray-200">@Distance</div>
+                <div class="text-xs text-gray-500 mt-1"><i class="ti ti-ruler-measure mr-0.5"></i> Edit Distance</div>
+            </div>
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+                <div class="text-3xl font-bold text-gray-800 dark:text-gray-200">@SimilarityPercent.ToString("F1")%</div>
+                <div class="text-xs text-gray-500 mt-1"><i class="ti ti-percentage mr-0.5"></i> Similarity</div>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <span>0%</span>
+                <span>Similarity</span>
+                <span>100%</span>
+            </div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                     style="width: @SimilarityPercent.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)%"></div>
+            </div>
+        </div>
+
+        @if (_operations.Count > 0)
+        {
+            <h4 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-list mr-1"></i> Edit Operations</h4>
+            <div class="space-y-1.5">
+                @foreach (LevenshteinCore.EditOperation op in _operations)
+                {
+                    <div class="flex items-center gap-2 text-sm">
+                        @switch (op.Type)
+                        {
+                            case LevenshteinCore.EditType.Insert:
+                                <span class="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-medium">Insert</span>
+                                <span class="text-gray-600 dark:text-gray-400">
+                                    Insert '<code class="font-mono font-bold">@op.CharB</code>' at position @op.Position
+                                </span>
+                                break;
+                            case LevenshteinCore.EditType.Delete:
+                                <span class="bg-red-100 text-red-800 px-2 py-0.5 rounded text-xs font-medium">Delete</span>
+                                <span class="text-gray-600 dark:text-gray-400">
+                                    Delete '<code class="font-mono font-bold">@op.CharA</code>' at position @op.Position
+                                </span>
+                                break;
+                            case LevenshteinCore.EditType.Substitute:
+                                <span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs font-medium">Substitute</span>
+                                <span class="text-gray-600 dark:text-gray-400">
+                                    Replace '<code class="font-mono font-bold">@op.CharA</code>' with '<code class="font-mono font-bold">@op.CharB</code>' at position @op.Position
+                                </span>
+                                break;
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else if (Distance == 0 && (!string.IsNullOrEmpty(_stringA) || !string.IsNullOrEmpty(_stringB)))
+        {
+            <p class="text-sm text-green-600 dark:text-green-400"><i class="ti ti-check mr-1"></i> Strings are identical — no edits needed.</p>
+        }
+    </div>
+}
+else
+{
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mt-4 text-center text-gray-400 dark:text-gray-500">
+        <i class="ti ti-arrows-exchange text-3xl mb-2 block"></i>
+        <p class="text-sm">Enter text in both fields to calculate Levenshtein distance</p>
+    </div>
+}
+
+@using Rowles.Toolbox.Core.Text
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/levenshtein" OnRestore="RestoreState" />
+
+@code {
+    private string _stringA = string.Empty;
+    private string _stringB = string.Empty;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string StringA, string StringB);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/levenshtein");
+            if (state is not null)
+            {
+                _stringA = state.StringA;
+                _stringB = state.StringB;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/levenshtein", new ToolState(_stringA, _stringB));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _stringA = state.StringA;
+            _stringB = state.StringB;
+            StateHasChanged();
+        }
+    }
+
+    private int Distance => LevenshteinCore.CalculateDistance(_stringA, _stringB);
+    private double SimilarityPercent => LevenshteinCore.CalculateSimilarity(_stringA, _stringB);
+    private List<LevenshteinCore.EditOperation> _operations => LevenshteinCore.BacktraceOperations(_stringA, _stringB);
+
+    // Alias inner types for Razor markup
+    private static LevenshteinCore.EditType EditType_Insert => LevenshteinCore.EditType.Insert;
+    private static LevenshteinCore.EditType EditType_Delete => LevenshteinCore.EditType.Delete;
+    private static LevenshteinCore.EditType EditType_Substitute => LevenshteinCore.EditType.Substitute;
+}

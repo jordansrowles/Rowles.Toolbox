@@ -1,0 +1,167 @@
+@page "/tools/text/readability"
+@inject LocalStorageService Storage
+
+<PageTitle>Readability Analyzer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Readability Analyzer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-book mr-1"></i> Analyze text readability with Flesch-Kincaid scores</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-text-wrap mr-1"></i> Input Text
+            </h3>
+            <textarea class="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Type or paste your text here to analyze readability…"
+                      @bind="_inputText"
+                      @bind:event="oninput"
+                      @bind:after="SaveState"></textarea>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_inputText))
+        {
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+                    <div class="text-2xl font-bold text-gray-800 dark:text-gray-200">@WordCount</div>
+                    <div class="text-xs text-gray-500 mt-1"><i class="ti ti-letter-w mr-0.5"></i> Words</div>
+                </div>
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+                    <div class="text-2xl font-bold text-gray-800 dark:text-gray-200">@SentenceCount</div>
+                    <div class="text-xs text-gray-500 mt-1"><i class="ti ti-separator mr-0.5"></i> Sentences</div>
+                </div>
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+                    <div class="text-2xl font-bold text-gray-800 dark:text-gray-200">@SyllableCount</div>
+                    <div class="text-xs text-gray-500 mt-1"><i class="ti ti-abc mr-0.5"></i> Syllables</div>
+                </div>
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3 text-center">
+                    <div class="text-2xl font-bold text-gray-800 dark:text-gray-200">@ReadingTime</div>
+                    <div class="text-xs text-gray-500 mt-1"><i class="ti ti-clock mr-0.5"></i> Reading Time</div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-4">
+        @if (string.IsNullOrWhiteSpace(_inputText))
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 text-center text-gray-400 dark:text-gray-500">
+                <i class="ti ti-chart-bar text-3xl mb-2 block"></i>
+                <p class="text-sm">Enter text to see readability scores</p>
+            </div>
+        }
+        else
+        {
+            <div class="border rounded p-4 @ReadingEaseCardClass">
+                <div class="text-sm font-medium mb-1">
+                    <i class="ti ti-gauge mr-1"></i> Flesch Reading Ease
+                </div>
+                <div class="text-3xl font-bold">@FleschReadingEase.ToString("F1")</div>
+                <div class="text-sm mt-1 font-medium">@ReadingEaseLabel</div>
+            </div>
+
+            <div class="border rounded p-4 @GradeLevelCardClass">
+                <div class="text-sm font-medium mb-1">
+                    <i class="ti ti-school mr-1"></i> Flesch-Kincaid Grade Level
+                </div>
+                <div class="text-3xl font-bold">@FleschKincaidGrade.ToString("F1")</div>
+                <div class="text-sm mt-1 font-medium">@GradeLevelLabel</div>
+            </div>
+
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-list mr-1"></i> Reading Level Scale
+                </h3>
+                <div class="space-y-1.5 text-xs">
+                    @foreach (Core.Text.ReadabilityCore.ReadabilityLevel level in _readabilityLevels)
+                    {
+                        bool isActive = FleschReadingEase >= level.Min && FleschReadingEase <= level.Max;
+                        <div class="flex items-center justify-between p-1.5 rounded @(isActive ? "bg-blue-50 dark:bg-blue-900/30 font-semibold" : "")">
+                            <span class="text-gray-700 dark:text-gray-300">@level.Label</span>
+                            <span class="text-gray-400">@level.Range</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/readability" OnRestore="RestoreState" />
+
+@code {
+    private string _inputText = string.Empty;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string InputText);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/readability");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/readability", new ToolState(_inputText));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            StateHasChanged();
+        }
+    }
+
+    private Core.Text.ReadabilityCore.ReadabilityLevel[] _readabilityLevels => Core.Text.ReadabilityCore.ReadabilityLevels;
+
+    private int WordCount => Core.Text.ReadabilityCore.GetWords(_inputText).Length;
+    private int SentenceCount => Core.Text.ReadabilityCore.CountSentences(_inputText);
+    private int SyllableCount => Core.Text.ReadabilityCore.TotalSyllables(Core.Text.ReadabilityCore.GetWords(_inputText));
+    private string ReadingTime => Core.Text.ReadabilityCore.CalculateReadingTime(WordCount);
+    private double FleschReadingEase => Core.Text.ReadabilityCore.CalculateFleschReadingEase(WordCount, SentenceCount, SyllableCount);
+    private double FleschKincaidGrade => Core.Text.ReadabilityCore.CalculateFleschKincaidGrade(WordCount, SentenceCount, SyllableCount);
+    private string ReadingEaseLabel => Core.Text.ReadabilityCore.GetReadingEaseLabel(FleschReadingEase);
+    private string GradeLevelLabel => Core.Text.ReadabilityCore.GetGradeLevelLabel(FleschKincaidGrade);
+
+    private string ReadingEaseCardClass
+    {
+        get
+        {
+            double score = FleschReadingEase;
+            return score switch
+            {
+                >= 70.0 => "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300",
+                >= 50.0 => "border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300",
+                _ => "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300"
+            };
+        }
+    }
+
+    private string GradeLevelCardClass
+    {
+        get
+        {
+            double grade = FleschKincaidGrade;
+            return grade switch
+            {
+                <= 8.0 => "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300",
+                <= 12.0 => "border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300",
+                _ => "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300"
+            };
+        }
+    }
+}

@@ -1,0 +1,168 @@
+@page "/tools/image/exif"
+@using Rowles.Toolbox.Core.Image
+@inject LocalStorageService Storage
+
+<PageTitle>EXIF Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="EXIF Inspector" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-camera mr-1"></i> Extract &amp; view EXIF metadata from JPEG/TIFF images</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Upload Image</h3>
+            <InputFile OnChange="OnFileSelected" accept="image/jpeg,image/tiff,.jpg,.jpeg,.tif,.tiff"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+            <p class="text-xs text-gray-400 mt-2">JPEG and TIFF files with EXIF data</p>
+        </div>
+
+        @if (_imageDataUrl is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-photo mr-1"></i> Preview</h3>
+                <img src="@_imageDataUrl" alt="Uploaded image" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                <p class="text-xs text-gray-400 mt-1">@_fileName (@ExifInspectorCore.FormatBytes(_fileSize))</p>
+            </div>
+        }
+    </div>
+
+    <div class="lg:col-span-2 space-y-3">
+        @if (_errorMessage is not null)
+        {
+            <div class="border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 rounded p-4">
+                <p class="text-sm text-red-700 dark:text-red-400"><i class="ti ti-alert-circle mr-1"></i> @_errorMessage</p>
+            </div>
+        }
+
+        @if (_cameraInfo.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-camera mr-1"></i> Camera Information</h3>
+                <div class="space-y-1">
+                    @foreach (KeyValuePair<string, string> entry in _cameraInfo)
+                    {
+                        <div class="flex justify-between text-xs py-1 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                            <span class="text-gray-500">@entry.Key</span>
+                            <span class="font-mono text-right max-w-[60%] truncate" title="@entry.Value">@entry.Value</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (_gpsInfo.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-map-pin mr-1"></i> GPS Information</h3>
+                <div class="space-y-1">
+                    @foreach (KeyValuePair<string, string> entry in _gpsInfo)
+                    {
+                        <div class="flex justify-between text-xs py-1 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                            <span class="text-gray-500">@entry.Key</span>
+                            <span class="font-mono">@entry.Value</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (_rawTags.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Raw EXIF Tags</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left py-1 px-2 text-gray-500 font-medium">Tag ID</th>
+                                <th class="text-left py-1 px-2 text-gray-500 font-medium">Name</th>
+                                <th class="text-left py-1 px-2 text-gray-500 font-medium">Type</th>
+                                <th class="text-left py-1 px-2 text-gray-500 font-medium">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (ExifInspectorCore.ExifRawTag tag in _rawTags)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="py-1 px-2 font-mono text-gray-400">0x@(tag.TagId.ToString("X4"))</td>
+                                    <td class="py-1 px-2">@tag.Name</td>
+                                    <td class="py-1 px-2 text-gray-400">@tag.TypeName</td>
+                                    <td class="py-1 px-2 font-mono max-w-[200px] truncate" title="@tag.Value">@tag.Value</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (_imageDataUrl is null && _errorMessage is null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 flex items-center justify-center h-48">
+                <p class="text-gray-400 text-sm"><i class="ti ti-camera-off mr-1"></i> Upload a JPEG image to inspect its EXIF data</p>
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="exif-inspector" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string? _imageDataUrl;
+    private string _fileName = string.Empty;
+    private long _fileSize;
+    private string? _errorMessage;
+    private Dictionary<string, string> _cameraInfo = new();
+    private Dictionary<string, string> _gpsInfo = new();
+    private List<ExifInspectorCore.ExifRawTag> _rawTags = [];
+
+    sealed record ToolState();
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _cameraInfo.Clear();
+        _gpsInfo.Clear();
+        _rawTags.Clear();
+
+        IBrowserFile file = e.File;
+        _fileName = file.Name;
+        _fileSize = file.Size;
+
+        long maxSize = 50 * 1024 * 1024;
+        using System.IO.Stream stream = file.OpenReadStream(maxSize);
+        byte[] data = new byte[file.Size];
+        int totalRead = 0;
+        while (totalRead < data.Length)
+        {
+            int read = await stream.ReadAsync(data.AsMemory(totalRead, data.Length - totalRead));
+            if (read == 0) break;
+            totalRead += read;
+        }
+
+        string base64 = Convert.ToBase64String(data, 0, totalRead);
+        _imageDataUrl = $"data:{file.ContentType};base64,{base64}";
+
+        ExifInspectorCore.ExifParseResult result = ExifInspectorCore.ParseExifData(data.AsSpan(0, totalRead));
+        _errorMessage = result.ErrorMessage;
+        _cameraInfo = result.CameraInfo;
+        _gpsInfo = result.GpsInfo;
+        _rawTags = result.RawTags;
+
+        if (_errorMessage is null && _cameraInfo.Count > 0)
+        {
+            string label = $"{_fileName} ({_cameraInfo.Count} fields)";
+            await Storage.AddRecentAsync("exif-inspector", label);
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task RestoreState(string json)
+    {
+        await Task.CompletedTask;
+    }
+}

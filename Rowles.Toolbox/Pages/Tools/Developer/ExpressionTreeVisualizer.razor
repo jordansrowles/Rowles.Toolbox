@@ -1,0 +1,276 @@
+@page "/tools/dev/expression-tree"
+@using System.Linq.Expressions
+@using System.Reflection
+@using System.Text
+@using Rowles.Toolbox.Core.Developer
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Expression Tree Visualizer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Expression Tree Visualizer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary-tree mr-1"></i> Visualize .NET expression trees as interactive diagrams</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        @*  Left column: controls & info  *@
+        <div class="space-y-4">
+            @*  Preset selector  *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-list mr-1"></i> Preset Expressions
+                </h3>
+                <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        @bind="_selectedIndex" @bind:after="OnPresetChangedAndSave">
+                    @for (int i = 0; i < ExpressionTreeVisualizerCore.Presets.Count; i++)
+                    {
+                        var idx = i;
+                        <option value="@idx">@ExpressionTreeVisualizerCore.Presets[idx].Name</option>
+                    }
+                </select>
+                <p class="text-xs text-gray-400 mt-2">@ExpressionTreeVisualizerCore.Presets[_selectedIndex].Description</p>
+            </div>
+
+            @*  Expression info panel  *@
+            @if (_currentExpression is not null)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                        <i class="ti ti-info-circle mr-1"></i> Expression Info
+                    </h3>
+                    <div class="space-y-2 text-sm">
+                        <div>
+                            <span class="text-gray-400">Lambda:</span>
+                            <code class="ml-2 text-blue-500 font-mono">@ExpressionTreeVisualizerCore.Presets[_selectedIndex].Name</code>
+                        </div>
+                        <div>
+                            <span class="text-gray-400">NodeType:</span>
+                            <code class="ml-2 font-mono">@_currentExpression.NodeType</code>
+                        </div>
+                        <div>
+                            <span class="text-gray-400">Type:</span>
+                            <code class="ml-2 font-mono">@ExpressionTreeVisualizerCore.FormatType(_currentExpression.Type)</code>
+                        </div>
+                        <div>
+                            <span class="text-gray-400">Body Type:</span>
+                            <code class="ml-2 font-mono">@_currentExpression.Body.NodeType</code>
+                        </div>
+                        <div>
+                            <span class="text-gray-400">ToString():</span>
+                            <code class="ml-2 font-mono text-xs break-all">@_currentExpression.ToString()</code>
+                        </div>
+                        <div>
+                            <span class="text-gray-400">Parameters:</span>
+                            <div class="ml-2 mt-1">
+                                @if (_currentExpression.Parameters.Count == 0)
+                                {
+                                    <span class="text-gray-500 italic text-xs">none</span>
+                                }
+                                @foreach (var p in _currentExpression.Parameters)
+                                {
+                                    <span class="inline-block mr-2 px-2 py-0.5 text-xs font-mono bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded">
+                                        @p.Name : @ExpressionTreeVisualizerCore.FormatType(p.Type)
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @*  Construction code panel  *@
+            @if (!string.IsNullOrEmpty(_constructionCode))
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-semibold text-gray-500">
+                            <i class="ti ti-code mr-1"></i> Construction Code
+                        </h3>
+                        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                                @onclick="CopyCode">
+                            <i class="ti ti-copy mr-1"></i> Copy
+                        </button>
+                    </div>
+                    <pre class="text-xs font-mono bg-gray-50 dark:bg-gray-900 p-3 rounded overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto"><code>@_constructionCode</code></pre>
+                </div>
+            }
+        </div>
+
+        @*  Right column: tree visualization  *@
+        <div class="space-y-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500">
+                        <i class="ti ti-binary-tree mr-1"></i> Tree Visualization
+                    </h3>
+                    <div class="flex gap-2">
+                        <button class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                                @onclick="ExpandAll">
+                            <i class="ti ti-arrows-maximize mr-0.5"></i> Expand
+                        </button>
+                        <button class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                                @onclick="CollapseAll">
+                            <i class="ti ti-arrows-minimize mr-0.5"></i> Collapse
+                        </button>
+                    </div>
+                </div>
+                @if (_rootNode is not null)
+                {
+                    <div class="overflow-auto max-h-[600px]">
+                        @RenderTreeNode(_rootNode, 0)
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="text-xs text-red-500 mt-2">
+                        <i class="ti ti-alert-circle mr-1"></i> @_error
+                    </div>
+                }
+            </div>
+
+            @*  Colour legend  *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-palette mr-1"></i> Legend
+                </h3>
+                <div class="flex flex-wrap gap-2">
+                    @foreach (var (label, cat) in ExpressionTreeVisualizerCore.LegendItems)
+                    {
+                        var (border, _, text) = ExpressionTreeVisualizerCore.GetColors(cat);
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                              style="border-left: 3px solid @border; color: @text;">
+                            @label
+                        </span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(int SelectedIndex);
+
+    private int _selectedIndex;
+    private LambdaExpression? _currentExpression;
+    private ExpressionTreeVisualizerCore.TreeNode? _rootNode;
+    private string _constructionCode = "";
+    private string _error = "";
+
+    protected override void OnInitialized() => OnPresetChanged();
+
+    private void OnPresetChanged()
+    {
+        _error = "";
+        try
+        {
+            _currentExpression = ExpressionTreeVisualizerCore.Presets[_selectedIndex].Builder();
+            _rootNode = ExpressionTreeVisualizerCore.BuildTree(_currentExpression, "");
+            _constructionCode = ExpressionTreeVisualizerCore.GenerateConstructionCode(_currentExpression);
+        }
+        catch (Exception ex)
+        {
+            _currentExpression = null;
+            _rootNode = new ExpressionTreeVisualizerCore.TreeNode
+            {
+                NodeType = "Error",
+                Value = ex.Message,
+                TypeName = "Error",
+                ColorCategory = "default"
+            };
+            _constructionCode = "";
+            _error = ex.Message;
+        }
+    }
+
+    private async Task CopyCode()
+    {
+        if (!string.IsNullOrEmpty(_constructionCode))
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _constructionCode);
+    }
+
+    private void ExpandAll() => ExpressionTreeVisualizerCore.SetExpandState(_rootNode, true);
+    private void CollapseAll() => ExpressionTreeVisualizerCore.SetExpandState(_rootNode, false);
+
+    private async Task OnPresetChangedAndSave()
+    {
+        OnPresetChanged();
+        await SaveState();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/expression-tree");
+            if (state is not null)
+            {
+                _selectedIndex = state.SelectedIndex;
+                OnPresetChanged();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/expression-tree", new ToolState(_selectedIndex));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _selectedIndex = state.SelectedIndex;
+            OnPresetChanged();
+            StateHasChanged();
+        }
+    }
+
+    private RenderFragment RenderTreeNode(ExpressionTreeVisualizerCore.TreeNode node, int depth) => __builder =>
+    {
+        var (border, bg, text) = ExpressionTreeVisualizerCore.GetColors(node.ColorCategory);
+        <div style="margin-left: @(depth * 20)px" class="my-0.5">
+            <div class="flex items-start gap-1 px-2 py-1 rounded text-xs"
+                 style="border-left: 3px solid @border; background: @bg;">
+                @if (node.Children.Count > 0)
+                {
+                    <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent p-0 leading-none mt-0.5 shrink-0"
+                            @onclick="() => node.IsExpanded = !node.IsExpanded">
+                        <i class="ti @(node.IsExpanded ? "ti-chevron-down" : "ti-chevron-right") text-xs"></i>
+                    </button>
+                }
+                else
+                {
+                    <span class="inline-block w-4 shrink-0"></span>
+                }
+                <div>
+                    @if (!string.IsNullOrEmpty(node.Role))
+                    {
+                        <span class="text-gray-400 font-medium">@node.Role: </span>
+                    }
+                    <span class="font-semibold" style="color: @text;">@node.NodeType</span>
+                    @if (!string.IsNullOrEmpty(node.Value))
+                    {
+                        <span class="text-gray-600 dark:text-gray-300 ml-1">@node.Value</span>
+                    }
+                    <span class="text-gray-500 ml-1">(@node.TypeName)</span>
+                </div>
+            </div>
+            @if (node.IsExpanded && node.Children.Count > 0)
+            {
+                @foreach (var child in node.Children)
+                {
+                    @RenderTreeNode(child, depth + 1)
+                }
+            }
+        </div>
+    };
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/expression-tree" OnRestore="RestoreState" />

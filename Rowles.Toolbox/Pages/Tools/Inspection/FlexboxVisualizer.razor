@@ -1,0 +1,381 @@
+@page "/tools/inspect/flexbox"
+@using System.Text.Json
+@using Rowles.Toolbox.Core.Inspection
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Flexbox Visualizer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Flexbox Visualizer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-layout-distribute-horizontal mr-1"></i> Interactive CSS flexbox playground with live preview</span>
+    </Actions>
+</PageHeader>
+
+@* Preset buttons *@
+<div class="flex flex-wrap gap-2 mb-4">
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-700 text-white" @onclick="ApplyHolyGrail">
+        <i class="ti ti-layout mr-1"></i> Holy Grail
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-rose-600 hover:bg-rose-700 text-white" @onclick="ApplySidebar">
+        <i class="ti ti-layout-sidebar mr-1"></i> Sidebar
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white" @onclick="ApplyCardGrid">
+        <i class="ti ti-grid-dots mr-1"></i> Card Grid
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-amber-600 hover:bg-amber-700 text-white" @onclick="ApplyCentered">
+        <i class="ti ti-focus-centered mr-1"></i> Centered
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-sky-600 hover:bg-sky-700 text-white" @onclick="ApplyNavBar">
+        <i class="ti ti-menu-2 mr-1"></i> Navigation Bar
+    </button>
+    <button class="px-3 py-1.5 text-xs font-medium rounded bg-gray-500 hover:bg-gray-600 text-white ml-auto" @onclick="ResetDefaults">
+        <i class="ti ti-refresh mr-1"></i> Reset
+    </button>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @* Left panel — Container & Item controls *@
+    <div class="lg:col-span-1 space-y-4">
+        @* Container properties *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                <i class="ti ti-box"></i> Container Properties
+            </h2>
+
+            <div>
+                <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">flex-direction</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                        @bind="_flexDirection"
+                        @bind:after="SaveState">
+                    <option value="row">row</option>
+                    <option value="row-reverse">row-reverse</option>
+                    <option value="column">column</option>
+                    <option value="column-reverse">column-reverse</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">flex-wrap</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                        @bind="_flexWrap"
+                        @bind:after="SaveState">
+                    <option value="nowrap">nowrap</option>
+                    <option value="wrap">wrap</option>
+                    <option value="wrap-reverse">wrap-reverse</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">justify-content</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                        @bind="_justifyContent"
+                        @bind:after="SaveState">
+                    <option value="flex-start">flex-start</option>
+                    <option value="flex-end">flex-end</option>
+                    <option value="center">center</option>
+                    <option value="space-between">space-between</option>
+                    <option value="space-around">space-around</option>
+                    <option value="space-evenly">space-evenly</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">align-items</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                        @bind="_alignItems"
+                        @bind:after="SaveState">
+                    <option value="stretch">stretch</option>
+                    <option value="flex-start">flex-start</option>
+                    <option value="flex-end">flex-end</option>
+                    <option value="center">center</option>
+                    <option value="baseline">baseline</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">align-content</label>
+                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                        @bind="_alignContent"
+                        @bind:after="SaveState">
+                    <option value="stretch">stretch</option>
+                    <option value="flex-start">flex-start</option>
+                    <option value="flex-end">flex-end</option>
+                    <option value="center">center</option>
+                    <option value="space-between">space-between</option>
+                    <option value="space-around">space-around</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">gap</label>
+                <div class="flex items-center gap-2">
+                    <input type="range" min="0" max="100" @bind="_gap" @bind:after="SaveState" class="flex-1" />
+                    <span class="text-xs font-mono text-gray-500 dark:text-gray-400 w-10 text-right">@(_gap)px</span>
+                </div>
+            </div>
+        </div>
+
+        @* Item count *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                <i class="ti ti-stack-2"></i> Items
+            </h2>
+
+            <div>
+                <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">item count (1–12)</label>
+                <div class="flex items-center gap-2">
+                    <input type="range" min="1" max="12" @bind="_itemCount" @bind:after="SyncItemsAndSave" class="flex-1" />
+                    <span class="text-xs font-mono text-gray-500 dark:text-gray-400 w-6 text-right">@_itemCount</span>
+                </div>
+            </div>
+
+            @* Per-item settings *@
+            @for (int i = 0; i < _items.Count; i++)
+            {
+                int index = i;
+                FlexboxVisualizerCore.FlexItem item = _items[index];
+                <details class="border border-gray-200 dark:border-gray-700 rounded">
+                    <summary class="px-3 py-1.5 text-xs font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2">
+                        <span class="inline-block w-3 h-3 rounded-sm" style="background: @(FlexboxVisualizerCore.ItemColors[index % 12])"></span>
+                        Item @(index + 1)
+                    </summary>
+                    <div class="px-3 pb-3 pt-1 space-y-2">
+                        <div>
+                            <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-0.5">flex-grow</label>
+                            <input type="number" min="0" max="10"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                                   @bind="item.FlexGrow"
+                                   @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-0.5">flex-shrink</label>
+                            <input type="number" min="0" max="10"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                                   @bind="item.FlexShrink"
+                                   @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-0.5">flex-basis</label>
+                            <input type="text"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                                   @bind="item.FlexBasis"
+                                   @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-0.5">order</label>
+                            <input type="number" min="-10" max="10"
+                                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                                   @bind="item.Order"
+                                   @bind:after="SaveState" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-mono text-gray-500 dark:text-gray-400 mb-0.5">align-self</label>
+                            <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                                    @bind="item.AlignSelf"
+                                    @bind:after="SaveState">
+                                <option value="auto">auto</option>
+                                <option value="flex-start">flex-start</option>
+                                <option value="flex-end">flex-end</option>
+                                <option value="center">center</option>
+                                <option value="baseline">baseline</option>
+                                <option value="stretch">stretch</option>
+                            </select>
+                        </div>
+                    </div>
+                </details>
+            }
+        </div>
+    </div>
+
+    @* Right panel — Live preview *@
+    <div class="lg:col-span-2 space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-1.5">
+                <i class="ti ti-eye"></i> Live Preview
+            </h2>
+
+            <div style="@FlexboxVisualizerCore.GetContainerStyle(_flexDirection, _flexWrap, _justifyContent, _alignItems, _alignContent, _gap)">
+                @for (int i = 0; i < _items.Count; i++)
+                {
+                    int index = i;
+                    FlexboxVisualizerCore.FlexItem item = _items[index];
+                    <div style="@FlexboxVisualizerCore.GetItemStyle(item, index)">
+                        <span class="font-bold text-lg">@(item.Number)</span>
+                        <span class="text-xs opacity-80">@FlexboxVisualizerCore.GetItemSizeLabel(index)</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Generated CSS *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                    <i class="ti ti-code"></i> Generated CSS
+                </h2>
+                <button class="px-2.5 py-1 text-xs rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+                        @onclick="CopyCSS">
+                    <i class="ti ti-copy mr-1"></i> @(_copyLabel)
+                </button>
+            </div>
+
+            <pre class="bg-gray-900 text-gray-100 rounded p-4 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre">@FlexboxVisualizerCore.GenerateCSS(_flexDirection, _flexWrap, _justifyContent, _alignItems, _alignContent, _gap, _items)</pre>
+        </div>
+    </div>
+</div>
+
+@if (_showToast)
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> Copied to clipboard
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/inspect/flexbox" OnRestore="RestoreState" />
+
+@code {
+    private string _flexDirection = "row";
+    private string _flexWrap = "nowrap";
+    private string _justifyContent = "flex-start";
+    private string _alignItems = "stretch";
+    private string _alignContent = "stretch";
+    private int _gap;
+    private int _itemCount = 5;
+    private List<FlexboxVisualizerCore.FlexItem> _items = [];
+    private bool _showToast;
+    private string _copyLabel = "Copy";
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string FlexDirection, string FlexWrap, string JustifyContent, string AlignItems, string AlignContent, int Gap, int ItemCount);
+
+    protected override void OnInitialized()
+    {
+        SyncItems();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/inspect/flexbox");
+            if (state is not null)
+            {
+                _flexDirection = state.FlexDirection;
+                _flexWrap = state.FlexWrap;
+                _justifyContent = state.JustifyContent;
+                _alignItems = state.AlignItems;
+                _alignContent = state.AlignContent;
+                _gap = state.Gap;
+                _itemCount = state.ItemCount;
+                SyncItems();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/inspect/flexbox", new ToolState(_flexDirection, _flexWrap, _justifyContent, _alignItems, _alignContent, _gap, _itemCount));
+    }
+
+    private async Task SyncItemsAndSave()
+    {
+        SyncItems();
+        await SaveState();
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _flexDirection = state.FlexDirection;
+            _flexWrap = state.FlexWrap;
+            _justifyContent = state.JustifyContent;
+            _alignItems = state.AlignItems;
+            _alignContent = state.AlignContent;
+            _gap = state.Gap;
+            _itemCount = state.ItemCount;
+            SyncItems();
+            StateHasChanged();
+        }
+    }
+
+    private void SyncItems()
+    {
+        while (_items.Count < _itemCount)
+        {
+            _items.Add(new FlexboxVisualizerCore.FlexItem { Number = _items.Count + 1 });
+        }
+
+        while (_items.Count > _itemCount)
+        {
+            _items.RemoveAt(_items.Count - 1);
+        }
+    }
+
+    private async Task CopyCSS()
+    {
+        string css = FlexboxVisualizerCore.GenerateCSS(_flexDirection, _flexWrap, _justifyContent, _alignItems, _alignContent, _gap, _items);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", css);
+        _copyLabel = "Copied!";
+        _showToast = true;
+        StateHasChanged();
+
+        await Task.Delay(2000);
+        _copyLabel = "Copy";
+        _showToast = false;
+        StateHasChanged();
+    }
+
+    private void ResetDefaults()
+    {
+        _flexDirection = "row";
+        _flexWrap = "nowrap";
+        _justifyContent = "flex-start";
+        _alignItems = "stretch";
+        _alignContent = "stretch";
+        _gap = 0;
+        _itemCount = 5;
+        _items.Clear();
+        SyncItems();
+    }
+
+    // --- Presets ---
+
+    private void ApplyHolyGrail()
+    {
+        _flexDirection = "column"; _flexWrap = "nowrap";
+        _justifyContent = "flex-start"; _alignItems = "stretch"; _alignContent = "stretch";
+        _gap = 8; _items = FlexboxVisualizerCore.CreateHolyGrailPreset(); _itemCount = _items.Count;
+    }
+
+    private void ApplySidebar()
+    {
+        _flexDirection = "row"; _flexWrap = "nowrap";
+        _justifyContent = "flex-start"; _alignItems = "stretch"; _alignContent = "stretch";
+        _gap = 8; _items = FlexboxVisualizerCore.CreateSidebarPreset(); _itemCount = _items.Count;
+    }
+
+    private void ApplyCardGrid()
+    {
+        _flexDirection = "row"; _flexWrap = "wrap";
+        _justifyContent = "flex-start"; _alignItems = "stretch"; _alignContent = "stretch";
+        _gap = 16; _items = FlexboxVisualizerCore.CreateCardGridPreset(); _itemCount = _items.Count;
+    }
+
+    private void ApplyCentered()
+    {
+        _flexDirection = "row"; _flexWrap = "nowrap";
+        _justifyContent = "center"; _alignItems = "center"; _alignContent = "stretch";
+        _gap = 0; _items = FlexboxVisualizerCore.CreateCenteredPreset(); _itemCount = _items.Count;
+    }
+
+    private void ApplyNavBar()
+    {
+        _flexDirection = "row"; _flexWrap = "nowrap";
+        _justifyContent = "space-between"; _alignItems = "center"; _alignContent = "stretch";
+        _gap = 8; _items = FlexboxVisualizerCore.CreateNavBarPreset(); _itemCount = _items.Count;
+    }
+}

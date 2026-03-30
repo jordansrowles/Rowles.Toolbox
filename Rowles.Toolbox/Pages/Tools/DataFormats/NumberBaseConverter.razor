@@ -1,0 +1,273 @@
+@page "/tools/data/number-base"
+@using System.Numerics
+@using System.Globalization
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Number Base Converter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Number Base Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary mr-1"></i> Convert numbers between bases (2–36)</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @* -- Input -- *@
+    <div>
+        <label class="block text-sm font-medium mb-1">Input Number</label>
+        <input type="text" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Enter a number..."
+               @bind="_input"
+               @bind:event="oninput"
+               @bind:after="SaveState"
+               @onkeyup="Convert" />
+
+        <label class="block text-xs text-gray-500 mt-2 mb-1">Input Base</label>
+        <div class="flex flex-wrap gap-1 mb-2">
+            @foreach (int b in _commonBases)
+            {
+                <button class="@(b == _inputBase ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                        @onclick="() => SetBase(b)">
+                    @GetBaseName(b)
+                </button>
+            }
+        </div>
+        <div class="flex items-center gap-2">
+            <label class="text-xs text-gray-500">Custom base:</label>
+            <input type="number" min="2" max="36" class="w-16 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono focus:ring-2 focus:ring-blue-500"
+                   @bind="_inputBase"
+                   @bind:event="oninput"
+                   @onchange="Convert" />
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mt-2">
+                <i class="ti ti-alert-circle mr-1"></i> @_error
+            </div>
+        }
+
+        <button class="mt-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                @onclick="Clear">
+            <i class="ti ti-trash"></i> Clear
+        </button>
+    </div>
+
+    @* -- Results -- *@
+    <div class="lg:col-span-2">
+        <label class="block text-sm font-medium mb-1">Conversions</label>
+        @if (_hasResult)
+        {
+            <div class="info-grid mb-4">
+                @foreach ((int Base, string Name, string Value) result in _results)
+                {
+                    <div class="info-row">
+                        <span class="info-label">@result.Name (base @result.Base)</span>
+                        <span class="info-value font-mono cursor-pointer hover:text-blue-500 group" @onclick="() => CopyToClipboard(result.Value)">
+                            @FormatBaseValue(result.Value, result.Base)
+                            <i class="ti ti-copy ml-1 text-gray-400 text-[10px] opacity-0 group-hover:opacity-100"></i>
+                        </span>
+                    </div>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(_asciiRepresentation))
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3 mb-4">
+                    <h3 class="text-xs font-semibold text-gray-500 mb-1">
+                        <i class="ti ti-letter-a mr-1"></i> ASCII
+                    </h3>
+                    <span class="text-sm font-mono">@_asciiRepresentation</span>
+                </div>
+            }
+
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                <h3 class="text-xs font-semibold text-gray-500 mb-1">
+                    <i class="ti ti-info-circle mr-1"></i> Details
+                </h3>
+                <div class="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
+                    <div>Decimal value: <span class="font-mono font-semibold">@_decimalValue</span></div>
+                    <div>Bit length: <span class="font-mono font-semibold">@_bitLength</span></div>
+                    <div>Is power of 2: <span class="font-mono font-semibold">@(_isPowerOfTwo ? "Yes" : "No")</span></div>
+                    <div>Is negative: <span class="font-mono font-semibold">@(_isNegative ? "Yes" : "No")</span></div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="text-xs text-gray-400 italic p-4 border border-dashed border-gray-300 dark:border-gray-600 rounded">
+                Enter a number and select its base to see conversions.
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/number-base" OnRestore="RestoreState" />
+
+@code {
+    private string _input = string.Empty;
+    private int _inputBase = 10;
+    private string? _error;
+    private bool _hasResult;
+    private List<(int Base, string Name, string Value)> _results = [];
+    private string? _asciiRepresentation;
+    private string _decimalValue = string.Empty;
+    private int _bitLength;
+    private bool _isPowerOfTwo;
+    private bool _isNegative;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Input, int InputBase);
+
+    private static readonly int[] _commonBases = [2, 8, 10, 16];
+
+    private async Task SetBase(int newBase)
+    {
+        _inputBase = newBase;
+        await Convert();
+    }
+
+    private async Task Convert()
+    {
+        _error = null;
+        _hasResult = false;
+        _results = [];
+        _asciiRepresentation = null;
+
+        if (string.IsNullOrWhiteSpace(_input)) return;
+        if (_inputBase < 2 || _inputBase > 36)
+        {
+            _error = "Base must be between 2 and 36.";
+            return;
+        }
+
+        try
+        {
+            string cleaned = _input.Trim();
+            bool negative = cleaned.StartsWith('-');
+            if (negative) cleaned = cleaned[1..];
+
+            // Remove common prefixes
+            cleaned = cleaned.TrimStart();
+            if (cleaned.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && _inputBase == 16)
+                cleaned = cleaned[2..];
+            else if (cleaned.StartsWith("0b", StringComparison.OrdinalIgnoreCase) && _inputBase == 2)
+                cleaned = cleaned[2..];
+            else if (cleaned.StartsWith("0o", StringComparison.OrdinalIgnoreCase) && _inputBase == 8)
+                cleaned = cleaned[2..];
+
+            if (string.IsNullOrEmpty(cleaned))
+            {
+                _error = "No digits provided.";
+                return;
+            }
+
+            // Parse to BigInteger
+            BigInteger value = ParseBigInteger(cleaned, _inputBase);
+            if (negative) value = -value;
+
+            _isNegative = value < 0;
+            BigInteger absValue = BigInteger.Abs(value);
+            _decimalValue = value.ToString();
+            _bitLength = absValue == 0 ? 1 : (int)Math.Ceiling(BigInteger.Log(absValue + 1, 2));
+            _isPowerOfTwo = absValue > 0 && (absValue & (absValue - 1)) == 0;
+
+            string sign = negative ? "-" : "";
+
+            _results =
+            [
+                (2, "Binary", sign + ConvertFromBigInteger(absValue, 2)),
+                (8, "Octal", sign + ConvertFromBigInteger(absValue, 8)),
+                (10, "Decimal", value.ToString()),
+                (16, "Hexadecimal", sign + ConvertFromBigInteger(absValue, 16).ToUpperInvariant()),
+            ];
+
+            // Add non-standard base if input is not a common base
+            if (!_commonBases.Contains(_inputBase))
+            {
+                _results.Add((_inputBase, $"Base {_inputBase}", sign + ConvertFromBigInteger(absValue, _inputBase)));
+            }
+
+            // ASCII representation
+            if (absValue > 0 && absValue <= 0x10FFFF)
+            {
+                long longVal = (long)absValue;
+                if (longVal >= 32 && longVal <= 126)
+                    _asciiRepresentation = $"'{(char)longVal}' (printable)";
+                else if (longVal < 32)
+                    _asciiRepresentation = $"Control character (0x{longVal:X2})";
+                else if (longVal <= 127)
+                    _asciiRepresentation = "DEL (0x7F)";
+                else
+                    _asciiRepresentation = $"Unicode: U+{longVal:X4}";
+            }
+
+            _hasResult = true;
+            await SaveState();
+            string label = $"Base {_inputBase}: {_input}";
+            await Storage.AddRecentAsync("tools/data/number-base", label, new ToolState(_input, _inputBase));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (FormatException ex)
+        {
+            _error = $"Invalid input: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error: {ex.Message}";
+        }
+    }
+
+    private static BigInteger ParseBigInteger(string text, int fromBase) => NumberBaseConverterCore.ParseBigInteger(text, fromBase);
+    private static string ConvertFromBigInteger(BigInteger value, int toBase) => NumberBaseConverterCore.ConvertFromBigInteger(value, toBase);
+    private static string GetBaseName(int b) => NumberBaseConverterCore.GetBaseName(b);
+    private static string FormatBaseValue(string value, int b) => NumberBaseConverterCore.FormatBaseValue(value, b);
+
+    private void Clear()
+    {
+        _input = string.Empty;
+        _inputBase = 10;
+        _error = null;
+        _hasResult = false;
+        _results = [];
+        _asciiRepresentation = null;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text.Replace(" ", ""));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/number-base");
+            if (state is not null)
+            {
+                _input = state.Input;
+                _inputBase = state.InputBase;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/number-base", new ToolState(_input, _inputBase));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _input = state.Input;
+            _inputBase = state.InputBase;
+            StateHasChanged();
+        }
+    }
+}

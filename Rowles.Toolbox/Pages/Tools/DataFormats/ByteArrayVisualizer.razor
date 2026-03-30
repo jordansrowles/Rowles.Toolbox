@@ -1,0 +1,356 @@
+@page "/tools/data/byte-array"
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Byte Array Visualizer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Byte Array Visualizer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary-tree mr-1"></i> Parse, inspect, and convert byte arrays between formats</span>
+    </Actions>
+</PageHeader>
+
+@* -- Input Section -- *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex items-center justify-between mb-2">
+        <label class="text-sm font-medium">Input</label>
+        <div class="flex items-center gap-2">
+            @if (!string.IsNullOrEmpty(_detectedFormat))
+            {
+                <span class="text-[10px] px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                    Detected: @_detectedFormat
+                </span>
+            }
+            <button class="bg-green-600 text-white px-2.5 py-1 text-xs font-medium rounded hover:bg-green-700 transition-colors inline-flex items-center gap-1"
+                    @onclick="LoadSampleData">
+                <i class="ti ti-test-pipe"></i> Sample Data
+            </button>
+            <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                    @onclick="Clear">
+                <i class="ti ti-trash"></i> Clear
+            </button>
+        </div>
+    </div>
+    <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Paste byte data: C# byte[] literal, hex string (0xDEADBEEF or DE AD BE EF), comma-separated decimals (72, 101, 108), or Base64 (SGVsbG8=)..."
+              @bind="_rawInput"
+              @bind:event="oninput"
+              @bind:after="OnInputChanged"></textarea>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mb-4">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@if (_bytes is not null && _bytes.Length > 0)
+{
+    @* -- Stats -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h2 class="text-sm font-medium mb-2">Statistics</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+            <div class="text-center">
+                <div class="text-lg font-bold text-blue-600 dark:text-blue-400">@_bytes.Length</div>
+                <div class="text-[10px] text-gray-500">Total Bytes</div>
+            </div>
+            <div class="text-center">
+                <div class="text-lg font-bold text-blue-600 dark:text-blue-400">@(_bytes.Length * 8)</div>
+                <div class="text-[10px] text-gray-500">Total Bits</div>
+            </div>
+            <div class="text-center">
+                <div class="text-lg font-bold text-red-600 dark:text-red-400">@_nullCount</div>
+                <div class="text-[10px] text-gray-500">Null Bytes</div>
+            </div>
+            <div class="text-center">
+                <div class="text-lg font-bold text-green-600 dark:text-green-400">@_printableCount</div>
+                <div class="text-[10px] text-gray-500">Printable ASCII</div>
+            </div>
+            <div class="text-center">
+                <div class="text-lg font-bold text-purple-600 dark:text-purple-400">@_nonPrintableCount</div>
+                <div class="text-[10px] text-gray-500">Non-Printable</div>
+            </div>
+            <div class="text-center">
+                <div class="text-lg font-bold text-orange-600 dark:text-orange-400">@_highByteCount</div>
+                <div class="text-[10px] text-gray-500">High Bytes (>0x7F)</div>
+            </div>
+        </div>
+    </div>
+
+    @* -- Output Views -- *@
+    <div class="space-y-4">
+
+        @* -- Hex Dump -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-medium">Hex Dump</h2>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                        @onclick="() => CopyToClipboard(BuildHexDump())">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded overflow-hidden border border-gray-200 dark:border-gray-700">
+                <div class="px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 font-mono text-[10px] text-gray-400 flex">
+                    <span class="w-20 shrink-0">Offset</span>
+                    <span class="flex-1">Hex</span>
+                    <span class="w-44 shrink-0 text-right">ASCII</span>
+                </div>
+                <div class="max-h-[400px] overflow-y-auto">
+                    @for (int row = 0; row < (_bytes.Length + 15) / 16; row++)
+                    {
+                        int offset = row * 16;
+                        int count = Math.Min(16, _bytes.Length - offset);
+
+                        <div class="flex px-3 py-0.5 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 font-mono text-[11px]">
+                            <span class="w-20 shrink-0 text-gray-400">@offset.ToString("X8")</span>
+                            <span class="flex-1 flex flex-wrap gap-x-0.5">
+                                @for (int i = 0; i < 16; i++)
+                                {
+                                    if (i == 8)
+                                    {
+                                        <span class="w-1"></span>
+                                    }
+                                    if (i < count)
+                                    {
+                                        byte b = _bytes[offset + i];
+                                        <span class="@ByteArrayVisualizerCore.GetByteColor(b)">@b.ToString("X2")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-transparent">  </span>
+                                    }
+                                }
+                            </span>
+                            <span class="w-44 shrink-0 text-right">
+                                @for (int i = 0; i < count; i++)
+                                {
+                                    byte b = _bytes[offset + i];
+                                    if (b >= 32 && b <= 126)
+                                    {
+                                        <span class="text-green-700 dark:text-green-400">@((char)b)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-gray-300 dark:text-gray-600">.</span>
+                                    }
+                                }
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* -- C# Byte Array Literal -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-medium">C# Byte Array Literal</h2>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                        @onclick="() => CopyToClipboard(BuildCSharpLiteral())">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+            <pre class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs font-mono overflow-x-auto max-h-48 whitespace-pre-wrap break-all">@BuildCSharpLiteral()</pre>
+        </div>
+
+        @* -- Comma-Separated Decimal -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-medium">Comma-Separated Decimal</h2>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                        @onclick="() => CopyToClipboard(BuildDecimalCsv())">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+            <pre class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs font-mono overflow-x-auto max-h-48 whitespace-pre-wrap break-all">@BuildDecimalCsv()</pre>
+        </div>
+
+        @* -- Base64 -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-medium">Base64</h2>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                        @onclick="() => CopyToClipboard(Convert.ToBase64String(_bytes))">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+            <pre class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs font-mono overflow-x-auto max-h-48 whitespace-pre-wrap break-all">@Convert.ToBase64String(_bytes)</pre>
+        </div>
+
+        @* -- Binary Representation -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-medium">Binary</h2>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                        @onclick="() => CopyToClipboard(BuildBinaryRepresentation())">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+            <pre class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs font-mono overflow-x-auto max-h-48 whitespace-pre-wrap break-all">@BuildBinaryRepresentation()</pre>
+        </div>
+
+        @* -- UTF-8 String Interpretation -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-medium">UTF-8 String</h2>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2.5 py-1 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                        @onclick="() => CopyToClipboard(BuildUtf8String())">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+            <pre class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs font-mono overflow-x-auto max-h-48 whitespace-pre-wrap break-all">@BuildUtf8String()</pre>
+        </div>
+    </div>
+
+    @* -- Legend -- *@
+    <div class="mt-4 flex flex-wrap gap-3 text-[10px]">
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700"></span>
+            <span class="text-gray-500">Printable ASCII (0x20-0x7E)</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700"></span>
+            <span class="text-gray-500">Control chars (0x00-0x1F)</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700"></span>
+            <span class="text-gray-500">High bytes (0x80-0xFF)</span>
+        </span>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_copyStatus))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg text-sm z-50 animate-pulse">
+        <i class="ti ti-check mr-1"></i> @_copyStatus
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/byte-array" OnRestore="RestoreState" />
+
+@code {
+    private string _rawInput = string.Empty;
+    private byte[]? _bytes;
+    private string? _error;
+    private string? _detectedFormat;
+    private string? _copyStatus;
+    private RecentEntryPanel? _recentPanel;
+
+    private int _nullCount;
+    private int _printableCount;
+    private int _nonPrintableCount;
+    private int _highByteCount;
+
+    sealed record ToolState(string RawInput);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/byte-array");
+            if (state is not null)
+            {
+                _rawInput = state.RawInput;
+                ParseInput();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/byte-array", new ToolState(_rawInput));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _rawInput = state.RawInput;
+            ParseInput();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnInputChanged()
+    {
+        ParseInput();
+        await SaveState();
+        if (_bytes is not null && _bytes.Length > 0)
+        {
+            string label = _rawInput.Length > 50 ? _rawInput[..50] + "..." : _rawInput;
+            await Storage.AddRecentAsync("tools/data/byte-array", label, new ToolState(_rawInput));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private void ParseInput()
+    {
+        _error = null;
+        _detectedFormat = null;
+        _bytes = null;
+
+        if (string.IsNullOrWhiteSpace(_rawInput))
+            return;
+
+        ByteArrayVisualizerCore.ParseResult result = ByteArrayVisualizerCore.ParseInput(_rawInput);
+
+        if (result.Error is not null)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        _bytes = result.Bytes;
+        _detectedFormat = result.DetectedFormat;
+
+        if (_bytes is not null && _bytes.Length > 0)
+        {
+            ByteArrayVisualizerCore.ByteStats stats = ByteArrayVisualizerCore.ComputeStats(_bytes);
+            _nullCount = stats.NullCount;
+            _printableCount = stats.PrintableCount;
+            _nonPrintableCount = stats.NonPrintableCount;
+            _highByteCount = stats.HighByteCount;
+        }
+    }
+
+    private string BuildHexDump() => _bytes is null ? string.Empty : ByteArrayVisualizerCore.BuildHexDump(_bytes);
+    private string BuildCSharpLiteral() => _bytes is null ? string.Empty : ByteArrayVisualizerCore.BuildCSharpLiteral(_bytes);
+    private string BuildDecimalCsv() => _bytes is null ? string.Empty : ByteArrayVisualizerCore.BuildDecimalCsv(_bytes);
+    private string BuildBinaryRepresentation() => _bytes is null ? string.Empty : ByteArrayVisualizerCore.BuildBinaryRepresentation(_bytes);
+    private string BuildUtf8String() => _bytes is null ? string.Empty : ByteArrayVisualizerCore.BuildUtf8String(_bytes);
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+
+        await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        _copyStatus = "Copied to clipboard!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copyStatus = null;
+        StateHasChanged();
+    }
+
+    private void LoadSampleData()
+    {
+        _rawInput = "0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x2C, 0x20, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0x21, 0x00, 0x0A, 0xFF, 0xFE, 0x80, 0x42, 0x4C, 0x61, 0x7A, 0x6F, 0x72";
+        ParseInput();
+    }
+
+    private void Clear()
+    {
+        _rawInput = string.Empty;
+        _bytes = null;
+        _error = null;
+        _detectedFormat = null;
+        _copyStatus = null;
+        _nullCount = 0;
+        _printableCount = 0;
+        _nonPrintableCount = 0;
+        _highByteCount = 0;
+    }
+}

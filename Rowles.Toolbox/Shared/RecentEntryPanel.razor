@@ -1,0 +1,72 @@
+@inject LocalStorageService Storage
+
+@if (_entries.Count > 0)
+{
+    <div class="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
+        <button class="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 cursor-pointer bg-transparent border-none p-0"
+                @onclick="ToggleExpanded">
+            <i class="ti ti-history mr-1"></i>
+            Recent (@_entries.Count)
+            <i class="@(_expanded ? "ti ti-chevron-up" : "ti ti-chevron-down") text-xs ml-1"></i>
+        </button>
+
+        @if (_expanded)
+        {
+            <div class="mt-2 space-y-1">
+                @foreach (RecentEntry entry in _entries)
+                {
+                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded text-sm group">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-xs text-gray-400 whitespace-nowrap">@entry.Timestamp</span>
+                            <span class="text-gray-700 dark:text-gray-300 truncate">@entry.Label</span>
+                        </div>
+                        <button class="text-blue-500 hover:text-blue-700 text-xs cursor-pointer bg-transparent border-none opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap ml-2"
+                                @onclick="() => Restore(entry)">
+                            <i class="ti ti-restore mr-0.5"></i> Restore
+                        </button>
+                    </div>
+                }
+                <button class="text-xs text-red-500 hover:text-red-700 cursor-pointer bg-transparent border-none mt-1 p-0"
+                        @onclick="ClearHistory">
+                    <i class="ti ti-trash mr-0.5"></i> Clear history
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string ToolKey { get; set; } = "";
+    [Parameter] public EventCallback<string> OnRestore { get; set; }
+
+    private List<RecentEntry> _entries = [];
+    private bool _expanded;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _entries = await Storage.GetRecentAsync(ToolKey);
+            StateHasChanged();
+        }
+    }
+
+    public async Task RefreshAsync()
+    {
+        _entries = await Storage.GetRecentAsync(ToolKey);
+        StateHasChanged();
+    }
+
+    private void ToggleExpanded() => _expanded = !_expanded;
+
+    private async Task Restore(RecentEntry entry)
+    {
+        await OnRestore.InvokeAsync(entry.StateJson);
+    }
+
+    private async Task ClearHistory()
+    {
+        await Storage.ClearRecentAsync(ToolKey);
+        _entries.Clear();
+    }
+}

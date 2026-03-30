@@ -1,0 +1,364 @@
+@page "/tools/generators/markdown-table"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+
+<PageTitle>Markdown Table Generator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Markdown Table Generator" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-table mr-1"></i> Build tables visually or import CSV/TSV</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Table Size</h3>
+            <div class="flex items-center gap-4">
+                <div>
+                    <label class="text-xs font-medium">Columns</label>
+                    <input type="number" min="1" max="20"
+                           class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_colCount" @bind:event="oninput" @bind:after="ResizeGrid" />
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Rows (excl. header)</label>
+                    <input type="number" min="1" max="50"
+                           class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_rowCount" @bind:event="oninput" @bind:after="ResizeGrid" />
+                </div>
+            </div>
+
+            <div class="mt-3 flex gap-2 flex-wrap">
+                <button class="bg-blue-600 text-white px-3 py-1 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                        @onclick="AddRow">
+                    <i class="ti ti-row-insert-bottom mr-0.5"></i> Add Row
+                </button>
+                <button class="bg-blue-600 text-white px-3 py-1 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                        @onclick="AddColumn">
+                    <i class="ti ti-column-insert-right mr-0.5"></i> Add Column
+                </button>
+                <button class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                        @onclick="ClearGrid">
+                    <i class="ti ti-trash mr-0.5"></i> Clear
+                </button>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-import mr-1"></i> Import CSV / TSV</h3>
+            <textarea class="w-full h-20 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono resize-y focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                      placeholder="Paste CSV or TSV data here…"
+                      @bind="_importText" @bind:event="oninput" @bind:after="SaveState"></textarea>
+            <div class="mt-2 flex gap-2">
+                <button class="bg-indigo-600 text-white px-3 py-1 text-xs rounded hover:bg-indigo-700 cursor-pointer border-none"
+                        @onclick="ImportData">
+                    <i class="ti ti-upload mr-0.5"></i> Import
+                </button>
+                <button class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                        @onclick="ImportFromClipboard">
+                    <i class="ti ti-clipboard mr-0.5"></i> Paste from clipboard
+                </button>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 overflow-x-auto">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-edit mr-1"></i> Edit Table</h3>
+            <table class="w-full text-xs">
+                <thead>
+                    <tr>
+                        <th class="px-1 py-1 text-gray-400 text-[10px]">#</th>
+                        @for (int c = 0; c < SafeColCount; c++)
+                        {
+                            int col = c;
+                            <th class="px-1 py-1">
+                                <input type="text"
+                                       class="w-full border border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded px-1.5 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                       placeholder="@($"Header {col + 1}")"
+                                       value="@GetCell(0, col)"
+                                       @onchange="(e) => SetCell(0, col, e)" />
+                                <div class="mt-1 flex justify-center gap-0.5">
+                                    <button class="px-1 py-0.5 text-[10px] rounded cursor-pointer border-none @(AlignBtnClass(col, AlignLeft))"
+                                            @onclick="() => SetAlign(col, AlignLeft)" title="Align left">
+                                        <i class="ti ti-align-left"></i>
+                                    </button>
+                                    <button class="px-1 py-0.5 text-[10px] rounded cursor-pointer border-none @(AlignBtnClass(col, AlignCenter))"
+                                            @onclick="() => SetAlign(col, AlignCenter)" title="Align center">
+                                        <i class="ti ti-align-center"></i>
+                                    </button>
+                                    <button class="px-1 py-0.5 text-[10px] rounded cursor-pointer border-none @(AlignBtnClass(col, AlignRight))"
+                                            @onclick="() => SetAlign(col, AlignRight)" title="Align right">
+                                        <i class="ti ti-align-right"></i>
+                                    </button>
+                                </div>
+                            </th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int r = 1; r <= SafeRowCount; r++)
+                    {
+                        int row = r;
+                        <tr>
+                            <td class="px-1 py-1 text-gray-400 text-[10px] text-center">@row</td>
+                            @for (int c = 0; c < SafeColCount; c++)
+                            {
+                                int col = c;
+                                <td class="px-1 py-1">
+                                    <input type="text"
+                                           class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                           placeholder="…"
+                                           value="@GetCell(row, col)"
+                                           @onchange="(e) => SetCell(row, col, e)" />
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-markdown mr-1"></i> Generated Markdown</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="CopyMarkdown">
+                    <i class="ti ti-copy mr-0.5"></i> Copy
+                </button>
+            </div>
+            <pre class="w-full p-3 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-900/30 text-xs font-mono whitespace-pre overflow-x-auto text-gray-900 dark:text-gray-100 min-h-[120px]">@GenerateMarkdown()</pre>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-eye mr-1"></i> Preview</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b-2 border-gray-300 dark:border-gray-600">
+                            @for (int c = 0; c < SafeColCount; c++)
+                            {
+                                string align = GetAlign(c);
+                                string alignClass = align switch { "center" => "text-center", "right" => "text-right", _ => "text-left" };
+                                <th class="px-2 py-1.5 font-semibold text-gray-700 dark:text-gray-300 @alignClass">@(string.IsNullOrEmpty(GetCell(0, c)) ? $"Header {c + 1}" : GetCell(0, c))</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int r = 1; r <= SafeRowCount; r++)
+                        {
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                @for (int c = 0; c < SafeColCount; c++)
+                                {
+                                    string align = GetAlign(c);
+                                    string alignClass = align switch { "center" => "text-center", "right" => "text-right", _ => "text-left" };
+                                    <td class="px-2 py-1 text-gray-600 dark:text-gray-400 @alignClass">@GetCell(r, c)</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/markdown-table" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(int ColCount, int RowCount, string ImportText,
+        Dictionary<string, string> Cells, Dictionary<string, string> Alignments);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/generators/markdown-table");
+            if (state is not null) { ApplyState(state); StateHasChanged(); }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        Dictionary<string, string> cellsDict = new();
+        foreach (KeyValuePair<(int Row, int Col), string> kv in _cells)
+            cellsDict[$"{kv.Key.Row},{kv.Key.Col}"] = kv.Value;
+        Dictionary<string, string> alignDict = new();
+        foreach (KeyValuePair<int, string> kv in _alignments)
+            alignDict[kv.Key.ToString()] = kv.Value;
+        await Storage.SaveStateAsync("tools/generators/markdown-table",
+            new ToolState(_colCount, _rowCount, _importText, cellsDict, alignDict));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null) { ApplyState(state); StateHasChanged(); }
+    }
+
+    private void ApplyState(ToolState state)
+    {
+        _colCount = state.ColCount;
+        _rowCount = state.RowCount;
+        _importText = state.ImportText;
+        _cells.Clear();
+        if (state.Cells is not null)
+        {
+            foreach (KeyValuePair<string, string> kv in state.Cells)
+            {
+                string[] parts = kv.Key.Split(',');
+                if (parts.Length == 2 && int.TryParse(parts[0], out int r) && int.TryParse(parts[1], out int c))
+                    _cells[(r, c)] = kv.Value;
+            }
+        }
+        _alignments.Clear();
+        if (state.Alignments is not null)
+        {
+            foreach (KeyValuePair<string, string> kv in state.Alignments)
+            {
+                if (int.TryParse(kv.Key, out int col))
+                    _alignments[col] = kv.Value;
+            }
+        }
+    }
+
+    private const string AlignLeft = "left";
+    private const string AlignCenter = "center";
+    private const string AlignRight = "right";
+
+    private int _colCount = 3;
+    private int _rowCount = 3;
+    private string _importText = string.Empty;
+    private string? _statusMessage;
+
+    // Grid data: key = (row, col), value = cell text. Row 0 = header.
+    private readonly Dictionary<(int Row, int Col), string> _cells = new();
+    private readonly Dictionary<int, string> _alignments = new();
+
+    private int SafeColCount => Math.Clamp(_colCount, 1, 20);
+    private int SafeRowCount => Math.Clamp(_rowCount, 1, 50);
+
+    private string GetCell(int row, int col) =>
+        _cells.TryGetValue((row, col), out string? value) ? value : string.Empty;
+
+    private void SetCell(int row, int col, ChangeEventArgs e)
+    {
+        string text = e.Value?.ToString() ?? string.Empty;
+        _cells[(row, col)] = text;
+    }
+
+    private string GetAlign(int col) =>
+        _alignments.TryGetValue(col, out string? align) ? align : "left";
+
+    private void SetAlign(int col, string align) => _alignments[col] = align;
+
+    private string AlignBtnClass(int col, string align) =>
+        GetAlign(col) == align
+            ? "bg-blue-600 text-white"
+            : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400";
+
+    private async Task ResizeGrid()
+    {
+        // Grid auto-expands via dictionary; nothing to trim
+        await SaveState();
+    }
+
+    private void AddRow()
+    {
+        _rowCount = Math.Min(_rowCount + 1, 50);
+    }
+
+    private void AddColumn()
+    {
+        _colCount = Math.Min(_colCount + 1, 20);
+    }
+
+    private void ClearGrid()
+    {
+        _cells.Clear();
+        _alignments.Clear();
+        _colCount = 3;
+        _rowCount = 3;
+    }
+
+    private void ImportData()
+    {
+        if (string.IsNullOrWhiteSpace(_importText)) return;
+
+        string[] lines = _importText.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length == 0) return;
+
+        char delimiter = _importText.Contains('\t') ? '\t' : ',';
+
+        _cells.Clear();
+        _alignments.Clear();
+
+        int maxCols = 0;
+        for (int r = 0; r < lines.Length; r++)
+        {
+            string[] parts = MarkdownTableGeneratorCore.ParseDelimitedLine(lines[r], delimiter);
+            maxCols = Math.Max(maxCols, parts.Length);
+            for (int c = 0; c < parts.Length; c++)
+            {
+                _cells[(r, c)] = parts[c];
+            }
+        }
+
+        _colCount = Math.Clamp(maxCols, 1, 20);
+        _rowCount = Math.Clamp(lines.Length - 1, 1, 50);
+    }
+
+    private static string[] ParseDelimitedLine(string line, char delimiter) =>
+        MarkdownTableGeneratorCore.ParseDelimitedLine(line, delimiter);
+
+    private async Task ImportFromClipboard()
+    {
+        try
+        {
+            string text = await JS.InvokeAsync<string>("navigator.clipboard.readText");
+            _importText = text;
+            ImportData();
+        }
+        catch
+        {
+            _statusMessage = "Clipboard access denied";
+            StateHasChanged();
+            await Task.Delay(2000);
+            _statusMessage = null;
+        }
+    }
+
+    private string GenerateMarkdown() =>
+        MarkdownTableGeneratorCore.GenerateMarkdown(SafeColCount, SafeRowCount, GetCell, GetAlign);
+
+    private async Task CopyMarkdown()
+    {
+        string md = GenerateMarkdown();
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", md);
+        string label = $"{SafeColCount}x{SafeRowCount} table";
+        Dictionary<string, string> cellsDict = new();
+        foreach (KeyValuePair<(int Row, int Col), string> kv in _cells)
+            cellsDict[$"{kv.Key.Row},{kv.Key.Col}"] = kv.Value;
+        Dictionary<string, string> alignDict = new();
+        foreach (KeyValuePair<int, string> kv in _alignments)
+            alignDict[kv.Key.ToString()] = kv.Value;
+        await Storage.AddRecentAsync("tools/generators/markdown-table", label,
+            new ToolState(_colCount, _rowCount, _importText, cellsDict, alignDict));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        _statusMessage = "Markdown copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+}

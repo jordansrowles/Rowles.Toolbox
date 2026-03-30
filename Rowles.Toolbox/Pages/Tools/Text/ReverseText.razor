@@ -1,0 +1,134 @@
+@page "/tools/text/reverse"
+@inject IJSRuntime JsRuntime
+@inject LocalStorageService Storage
+
+<PageTitle>Reverse Text - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Reverse Text" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-switch-horizontal mr-1"></i> Reverse strings, lines, or word order</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Input</label>
+        <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Type or paste your text here…"
+                  @bind="_inputText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-4">
+        <label class="text-xs font-medium text-gray-500">Mode:</label>
+        @foreach (Core.Text.ReverseTextCore.ReverseMode mode in Enum.GetValues<Core.Text.ReverseTextCore.ReverseMode>())
+        {
+            <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input type="radio"
+                       name="reverseMode"
+                       class="accent-blue-600"
+                       checked="@(_selectedMode == mode)"
+                       @onchange="() => SetMode(mode)" />
+                @GetModeLabel(mode)
+            </label>
+        }
+    </div>
+
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Output</label>
+            @if (!string.IsNullOrEmpty(OutputText))
+            {
+                <span class="text-xs text-gray-400">@OutputText.Length.ToString("N0") chars</span>
+            }
+        </div>
+        <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  readonly
+                  value="@OutputText"></textarea>
+    </div>
+
+    <div class="flex justify-end gap-2">
+        <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-sm font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                @onclick="Clear">
+            <i class="ti ti-trash"></i> Clear
+        </button>
+        <button class="bg-blue-600 text-white px-3 py-1.5 text-sm font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                @onclick="CopyOutput">
+            <i class="ti ti-copy"></i> @(_copied ? "Copied!" : "Copy")
+        </button>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/reverse" OnRestore="RestoreState" />
+
+@code {
+    private string _inputText = string.Empty;
+    private Core.Text.ReverseTextCore.ReverseMode _selectedMode = Core.Text.ReverseTextCore.ReverseMode.EntireString;
+    private bool _copied;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string InputText, Core.Text.ReverseTextCore.ReverseMode SelectedMode);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/reverse");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                _selectedMode = state.SelectedMode;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/reverse", new ToolState(_inputText, _selectedMode));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            _selectedMode = state.SelectedMode;
+            StateHasChanged();
+        }
+    }
+
+    private string OutputText => Core.Text.ReverseTextCore.Reverse(_inputText, _selectedMode);
+
+    private async Task SetMode(Core.Text.ReverseTextCore.ReverseMode mode)
+    {
+        _selectedMode = mode;
+        _copied = false;
+        await SaveState();
+    }
+
+    private static string GetModeLabel(Core.Text.ReverseTextCore.ReverseMode mode) =>
+        Core.Text.ReverseTextCore.GetModeLabel(mode);
+
+    private async Task CopyOutput()
+    {
+        string output = OutputText;
+        if (!string.IsNullOrEmpty(output))
+        {
+            await JsRuntime.InvokeVoidAsync("navigator.clipboard.writeText", output);
+            _copied = true;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copied = false;
+            StateHasChanged();
+        }
+    }
+
+    private void Clear()
+    {
+        _inputText = string.Empty;
+        _copied = false;
+    }
+}

@@ -1,0 +1,198 @@
+@page "/tools/web/user-agent"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject LocalStorageService Storage
+
+@implements IAsyncDisposable
+
+<PageTitle>User Agent Parser - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="User Agent Parser" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-device-desktop-analytics mr-1"></i> Parse and analyse browser user agent strings</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1">User Agent String</label>
+            <textarea class="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Paste a user agent string here…"
+                      @bind="_userAgent"
+                      @bind:after="SaveState"></textarea>
+            <div class="mt-2 flex gap-2">
+                <button type="button"
+                        class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
+                        @onclick="ParseUserAgent">
+                    <i class="ti ti-analyze mr-1"></i> Parse
+                </button>
+                <button type="button"
+                        class="px-3 py-1.5 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
+                        @onclick="DetectCurrentUserAgent">
+                    <i class="ti ti-device-desktop mr-1"></i> Your User Agent
+                </button>
+                <button type="button"
+                        class="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                        @onclick="Clear">
+                    <i class="ti ti-trash mr-1"></i> Clear
+                </button>
+            </div>
+        </div>
+
+        @if (_parsed is not null)
+        {
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-browser mr-1"></i> Browser</h3>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-browser mr-1 text-gray-400"></i>Name</span><span class="font-mono font-bold">@_parsed.BrowserName</span></div>
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-tag mr-1 text-gray-400"></i>Version</span><span class="font-mono font-bold">@_parsed.BrowserVersion</span></div>
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-engine mr-1 text-gray-400"></i>Engine</span><span class="font-mono font-bold">@_parsed.Engine</span></div>
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-versions mr-1 text-gray-400"></i>Engine Version</span><span class="font-mono font-bold">@_parsed.EngineVersion</span></div>
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-device-laptop mr-1"></i> System</h3>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-cpu mr-1 text-gray-400"></i>OS</span><span class="font-mono font-bold">@_parsed.OsName</span></div>
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-tag mr-1 text-gray-400"></i>OS Version</span><span class="font-mono font-bold">@_parsed.OsVersion</span></div>
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-device-desktop mr-1 text-gray-400"></i>Device Type</span><span class="font-mono font-bold">@_parsed.DeviceType</span></div>
+                        <div class="flex items-center justify-between text-sm"><span class="text-gray-600 dark:text-gray-400"><i class="ti ti-cpu-2 mr-1 text-gray-400"></i>Architecture</span><span class="font-mono font-bold">@_parsed.Architecture</span></div>
+                    </div>
+                </div>
+            </div>
+
+            @if (_parsed.IsBot)
+            {
+                <div class="border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 rounded p-4">
+                    <div class="flex items-center gap-2">
+                        <i class="ti ti-robot text-yellow-600 dark:text-yellow-400 text-xl"></i>
+                        <div>
+                            <span class="text-sm font-semibold text-yellow-700 dark:text-yellow-300">Bot / Crawler Detected</span>
+                            <p class="text-xs text-yellow-600 dark:text-yellow-400 mt-0.5">This user agent belongs to @_parsed.BotName.</p>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-code mr-1"></i> Raw Analysis</h3>
+                <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap break-all">@_parsed.RawBreakdown</pre>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-bookmarks mr-1"></i> Example User Agents</h3>
+            <div class="space-y-2">
+                @foreach (UserAgentParserCore.UaExample example in UserAgentParserCore.Examples)
+                {
+                    <button type="button"
+                            class="w-full text-left p-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 text-sm transition-colors"
+                            @onclick="async () => { _userAgent = example.Value; await ParseUserAgent(); }">
+                        <div class="font-medium text-blue-600 dark:text-blue-400">
+                            <i class="ti @example.Icon mr-1"></i>@example.Name
+                        </div>
+                        <div class="text-xs text-gray-400 truncate mt-0.5">@example.Value[..Math.Min(60, example.Value.Length)]…</div>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/user-agent" OnRestore="RestoreState" />
+
+@code {
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private RecentEntryPanel? _recentPanel;
+    private string _userAgent = string.Empty;
+    private UserAgentParserCore.ParsedUserAgent? _parsed;
+
+    sealed record ToolState(string UserAgent);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/user-agent");
+        if (state is not null)
+        {
+            _userAgent = state.UserAgent;
+            if (!string.IsNullOrWhiteSpace(_userAgent))
+            {
+                await ParseUserAgent();
+            }
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_userAgent);
+        await Storage.SaveStateAsync("tools/web/user-agent", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _userAgent = state.UserAgent;
+                if (!string.IsNullOrWhiteSpace(_userAgent))
+                {
+                    await ParseUserAgent();
+                }
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task DetectCurrentUserAgent()
+    {
+        _userAgent = await JS.InvokeAsync<string>("eval", "navigator.userAgent");
+        await ParseUserAgent();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/user-agent", "Detected current browser",
+            new ToolState(_userAgent));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    private async Task ParseUserAgent()
+    {
+        if (string.IsNullOrWhiteSpace(_userAgent))
+        {
+            _parsed = null;
+            return;
+        }
+
+        _parsed = UserAgentParserCore.Parse(_userAgent);
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/user-agent", $"Parsed: {_parsed.BrowserName} {_parsed.BrowserVersion}",
+            new ToolState(_userAgent));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    private async Task Clear()
+    {
+        _userAgent = string.Empty;
+        _parsed = null;
+        await SaveState();
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+

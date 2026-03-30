@@ -1,0 +1,308 @@
+@page "/tools/colour/palette"
+@using Rowles.Toolbox.Core.Colour
+@using System.Text.Json
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Palette Generator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Palette Generator" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-palette mr-1"></i> Generate shades, tints, and harmonies from a base colour</span>
+    </Actions>
+</PageHeader>
+
+@* Base Colour Input *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex flex-wrap items-end gap-4">
+        <div>
+            <label class="block text-sm font-medium mb-1">Base Colour</label>
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-mono text-gray-400">#</span>
+                <input type="text" maxlength="6" class="w-32 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="3b82f6"
+                       value="@_baseHex"
+                       @oninput="OnBaseInput" />
+            </div>
+        </div>
+        <div class="w-16 h-10 rounded border border-gray-300 dark:border-gray-600" style="background-color: #@_baseHex;"></div>
+        <div class="ml-auto">
+            <button class="btn-primary flex items-center gap-2" @onclick="ExportCssProperties">
+                <i class="ti ti-download"></i> Export CSS
+            </button>
+        </div>
+    </div>
+</div>
+
+@* Gradient Bar *@
+<div class="mb-6">
+    <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-gradient mr-1"></i> Full Gradient</h3>
+    <div class="h-10 rounded overflow-hidden flex">
+        @foreach (string shade in _shades)
+        {
+            <div class="flex-1" style="background-color: #@shade;"></div>
+        }
+        <div class="flex-1" style="background-color: #@_baseHex;"></div>
+        @foreach (string tint in _tints)
+        {
+            <div class="flex-1" style="background-color: #@tint;"></div>
+        }
+    </div>
+</div>
+
+<div class="space-y-6">
+    @* Shades *@
+    <section>
+        <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-moon mr-1"></i> Shades (darker)</h3>
+        <div class="flex flex-wrap gap-2">
+            @foreach (string shade in _shades)
+            {
+                string textCol = IsLight(shade) ? "#000000" : "#ffffff";
+                string hexVal = shade;
+                <button class="group w-20 h-20 rounded border border-gray-300 dark:border-gray-600 flex items-end justify-center p-1 transition-transform hover:scale-105 cursor-pointer"
+                        style="background-color: #@shade;"
+                        @onclick="() => CopyHexValue(hexVal)">
+                    <span class="text-[10px] font-mono opacity-80 group-hover:opacity-100" style="color: @textCol;">#@shade</span>
+                </button>
+            }
+        </div>
+    </section>
+
+    @* Tints *@
+    <section>
+        <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-sun mr-1"></i> Tints (lighter)</h3>
+        <div class="flex flex-wrap gap-2">
+            @foreach (string tint in _tints)
+            {
+                string textCol = IsLight(tint) ? "#000000" : "#ffffff";
+                string hexVal = tint;
+                <button class="group w-20 h-20 rounded border border-gray-300 dark:border-gray-600 flex items-end justify-center p-1 transition-transform hover:scale-105 cursor-pointer"
+                        style="background-color: #@tint;"
+                        @onclick="() => CopyHexValue(hexVal)">
+                    <span class="text-[10px] font-mono opacity-80 group-hover:opacity-100" style="color: @textCol;">#@tint</span>
+                </button>
+            }
+        </div>
+    </section>
+
+    @* Tones *@
+    <section>
+        <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-adjustments mr-1"></i> Tones (mixed with grey)</h3>
+        <div class="flex flex-wrap gap-2">
+            @foreach (string tone in _tones)
+            {
+                string textCol = IsLight(tone) ? "#000000" : "#ffffff";
+                string hexVal = tone;
+                <button class="group w-20 h-20 rounded border border-gray-300 dark:border-gray-600 flex items-end justify-center p-1 transition-transform hover:scale-105 cursor-pointer"
+                        style="background-color: #@tone;"
+                        @onclick="() => CopyHexValue(hexVal)">
+                    <span class="text-[10px] font-mono opacity-80 group-hover:opacity-100" style="color: @textCol;">#@tone</span>
+                </button>
+            }
+        </div>
+    </section>
+
+    @* Colour Harmonies *@
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        @* Complementary *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-arrows-maximize mr-1"></i> Complementary</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (string hex in new[] { _baseHex, _complementary })
+                {
+                    string textCol = IsLight(hex) ? "#000000" : "#ffffff";
+                    string hexVal = hex;
+                    <button class="group w-20 h-20 rounded border border-gray-300 dark:border-gray-600 flex items-end justify-center p-1 transition-transform hover:scale-105 cursor-pointer"
+                            style="background-color: #@hex;"
+                            @onclick="() => CopyHexValue(hexVal)">
+                        <span class="text-[10px] font-mono opacity-80 group-hover:opacity-100" style="color: @textCol;">#@hex</span>
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Analogous *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-rotate mr-1"></i> Analogous (±30°)</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (string hex in new[] { _analogous[0], _baseHex, _analogous[1] })
+                {
+                    string textCol = IsLight(hex) ? "#000000" : "#ffffff";
+                    string hexVal = hex;
+                    <button class="group w-20 h-20 rounded border border-gray-300 dark:border-gray-600 flex items-end justify-center p-1 transition-transform hover:scale-105 cursor-pointer"
+                            style="background-color: #@hex;"
+                            @onclick="() => CopyHexValue(hexVal)">
+                        <span class="text-[10px] font-mono opacity-80 group-hover:opacity-100" style="color: @textCol;">#@hex</span>
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Triadic *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-triangle mr-1"></i> Triadic (120° apart)</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (string hex in new[] { _baseHex, _triadic[0], _triadic[1] })
+                {
+                    string textCol = IsLight(hex) ? "#000000" : "#ffffff";
+                    string hexVal = hex;
+                    <button class="group w-20 h-20 rounded border border-gray-300 dark:border-gray-600 flex items-end justify-center p-1 transition-transform hover:scale-105 cursor-pointer"
+                            style="background-color: #@hex;"
+                            @onclick="() => CopyHexValue(hexVal)">
+                        <span class="text-[10px] font-mono opacity-80 group-hover:opacity-100" style="color: @textCol;">#@hex</span>
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Split-complementary *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-arrows-split mr-1"></i> Split-complementary</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (string hex in new[] { _baseHex, _splitComplementary[0], _splitComplementary[1] })
+                {
+                    string textCol = IsLight(hex) ? "#000000" : "#ffffff";
+                    string hexVal = hex;
+                    <button class="group w-20 h-20 rounded border border-gray-300 dark:border-gray-600 flex items-end justify-center p-1 transition-transform hover:scale-105 cursor-pointer"
+                            style="background-color: #@hex;"
+                            @onclick="() => CopyHexValue(hexVal)">
+                        <span class="text-[10px] font-mono opacity-80 group-hover:opacity-100" style="color: @textCol;">#@hex</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@* CSS Export Modal *@
+@if (_showCssExport)
+{
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @onclick="CloseCssExport">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto" @onclick:stopPropagation>
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold"><i class="ti ti-code mr-2"></i>CSS Custom Properties</h3>
+                <button class="text-gray-400 hover:text-gray-600" @onclick="CloseCssExport">
+                    <i class="ti ti-x"></i>
+                </button>
+            </div>
+            <pre class="bg-gray-100 dark:bg-gray-900 rounded p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap">@_cssExport</pre>
+            <div class="mt-4 flex justify-end">
+                <button class="btn-primary flex items-center gap-2" @onclick="CopyCssExport">
+                    <i class="ti ti-copy"></i> Copy
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Copy Feedback *@
+@if (!string.IsNullOrEmpty(_copyMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-sm px-4 py-2 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_copyMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/colour/palette" OnRestore="RestoreState" />
+
+@code {
+    private string _baseHex = "3b82f6";
+    private List<string> _shades = [];
+    private List<string> _tints = [];
+    private List<string> _tones = [];
+    private string _complementary = string.Empty;
+    private string[] _analogous = ["", ""];
+    private string[] _triadic = ["", ""];
+    private string[] _splitComplementary = ["", ""];
+    private bool _showCssExport;
+    private string _cssExport = string.Empty;
+    private string _copyMessage = string.Empty;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string BaseHex);
+
+    protected override void OnInitialized()
+    {
+        GeneratePalette();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/colour/palette");
+            if (state is not null)
+            {
+                _baseHex = state.BaseHex;
+                GeneratePalette();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/colour/palette", new ToolState(_baseHex));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _baseHex = state.BaseHex;
+            GeneratePalette();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnBaseInput(ChangeEventArgs e)
+    {
+        string raw = (e.Value?.ToString() ?? string.Empty).TrimStart('#').Trim();
+        if (ColourConverterCore.IsValidHexColour(raw))
+        {
+            _baseHex = ColourConverterCore.NormaliseHex(raw);
+            GeneratePalette();
+            await SaveState();
+        }
+    }
+
+    private void GeneratePalette()
+    {
+        PaletteGeneratorCore.PaletteResult result = PaletteGeneratorCore.GeneratePalette(_baseHex);
+        _shades = result.Shades;
+        _tints = result.Tints;
+        _tones = result.Tones;
+        _complementary = result.Complementary;
+        _analogous = result.Analogous;
+        _triadic = result.Triadic;
+        _splitComplementary = result.SplitComplementary;
+    }
+
+    private async Task ExportCssProperties()
+    {
+        PaletteGeneratorCore.PaletteResult palette = new(_shades, _tints, _tones, _complementary, _analogous, _triadic, _splitComplementary);
+        _cssExport = PaletteGeneratorCore.GenerateCssExport(_baseHex, palette);
+        _showCssExport = true;
+        await Storage.AddRecentAsync("tools/colour/palette", $"Export CSS for #{_baseHex}", new ToolState(_baseHex));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        _copyMessage = $"Copied: {text}";
+        StateHasChanged();
+        await Task.Delay(2000);
+        _copyMessage = string.Empty;
+        StateHasChanged();
+    }
+
+    private Task CopyHexValue(string hex) => CopyToClipboard($"#{hex}");
+
+    private Task CopyCssExport() => CopyToClipboard(_cssExport);
+
+    private void CloseCssExport() => _showCssExport = false;
+
+    private static bool IsLight(string hex) => ColourConverterCore.IsLight(hex);
+}

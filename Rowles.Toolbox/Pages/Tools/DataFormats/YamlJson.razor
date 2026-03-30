@@ -1,0 +1,210 @@
+@page "/tools/data/yaml-json"
+@using Rowles.Toolbox.Core.DataFormats
+@using System.Text
+@using System.Text.Json
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>YAML ↔ JSON - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="YAML ↔ JSON Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-transform mr-1"></i> Convert between YAML and JSON</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="ConvertYamlToJson">
+        <i class="ti ti-arrow-right"></i> YAML → JSON
+    </button>
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="ConvertJsonToYaml">
+        <i class="ti ti-arrow-left"></i> JSON → YAML
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="ClearAll">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="LoadSample">
+        <i class="ti ti-file-text"></i> Sample
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">YAML</label>
+            <button class="text-xs text-gray-400 hover:text-blue-500 transition-colors" @onclick="() => CopyToClipboard(_yamlText)">
+                <i class="ti ti-copy mr-0.5"></i> Copy
+            </button>
+        </div>
+        <textarea class="w-full h-80 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter YAML here..."
+                  @bind="_yamlText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">JSON</label>
+            <button class="text-xs text-gray-400 hover:text-blue-500 transition-colors" @onclick="() => CopyToClipboard(_jsonText)">
+                <i class="ti ti-copy mr-0.5"></i> Copy
+            </button>
+        </div>
+        <textarea class="w-full h-80 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter JSON here..."
+                  @bind="_jsonText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+</div>
+
+<div class="mt-3 text-xs text-gray-400">
+    <i class="ti ti-info-circle mr-1"></i>
+    Supports simple YAML: key-value pairs, nested objects, arrays (block &amp; flow style), quoted strings, booleans, numbers, null.
+    Multi-line scalars (| and &gt;), anchors, aliases, and tags are not supported.
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/yaml-json" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string YamlText, string JsonText);
+
+    private string _yamlText = string.Empty;
+    private string _jsonText = string.Empty;
+    private string? _error;
+
+    private async Task ConvertYamlToJson()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_yamlText))
+        {
+            _error = "YAML input is empty.";
+            return;
+        }
+        try
+        {
+            object? parsed = YamlJsonCore.ParseYamlDocument(_yamlText);
+            JsonSerializerOptions options = new() { WriteIndented = true };
+            _jsonText = JsonSerializer.Serialize(parsed, options);
+            await SaveState();
+            string label = _yamlText.Length > 50 ? _yamlText[..50] + "..." : _yamlText;
+            await Storage.AddRecentAsync("tools/data/yaml-json", $"YAML to JSON: {label}", new ToolState(_yamlText, _jsonText));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"YAML parse error: {ex.Message}";
+        }
+    }
+
+    private async Task ConvertJsonToYaml()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_jsonText))
+        {
+            _error = "JSON input is empty.";
+            return;
+        }
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(_jsonText);
+            StringBuilder sb = new();
+            YamlJsonCore.WriteYamlElement(sb, doc.RootElement, 0);
+            _yamlText = sb.ToString().TrimEnd();
+            await SaveState();
+            string label = _jsonText.Length > 50 ? _jsonText[..50] + "..." : _jsonText;
+            await Storage.AddRecentAsync("tools/data/yaml-json", $"JSON to YAML: {label}", new ToolState(_yamlText, _jsonText));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (JsonException ex)
+        {
+            _error = $"JSON parse error: {ex.Message}";
+        }
+    }
+
+    private void ClearAll()
+    {
+        _yamlText = string.Empty;
+        _jsonText = string.Empty;
+        _error = null;
+    }
+
+    private void LoadSample()
+    {
+        _yamlText = """
+            name: My Application
+            version: 2.1.0
+            debug: false
+            database:
+              host: localhost
+              port: 5432
+              name: mydb
+            features:
+              - authentication
+              - logging
+              - caching
+            servers:
+              - name: web-01
+                port: 8080
+                enabled: true
+              - name: web-02
+                port: 8081
+                enabled: false
+            tags: [production, stable, v2]
+            metadata: {author: admin, reviewed: true}
+            """;
+        _yamlText = YamlJsonCore.UnindentSample(_yamlText);
+        _error = null;
+        _jsonText = string.Empty;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/yaml-json");
+            if (state is not null)
+            {
+                _yamlText = state.YamlText;
+                _jsonText = state.JsonText;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/yaml-json", new ToolState(_yamlText, _jsonText));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _yamlText = state.YamlText;
+            _jsonText = state.JsonText;
+            StateHasChanged();
+        }
+    }
+}

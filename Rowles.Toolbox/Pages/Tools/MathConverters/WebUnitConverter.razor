@@ -1,0 +1,220 @@
+@page "/tools/math/web-units"
+@using Rowles.Toolbox.Core.MathConverters
+@using System.Text.Json
+@inject LocalStorageService Storage
+
+<PageTitle>Web Unit Converter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Web Unit Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-dimensions mr-1"></i> Convert between CSS &amp; web units</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1">
+                <i class="ti ti-text-size mr-1 text-gray-400"></i> Base Font Size (px)
+            </label>
+            <input type="number" step="1" min="1"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   @bind="_baseFontSize" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1">
+                <i class="ti ti-arrows-horizontal mr-1 text-gray-400"></i> Viewport Width (px)
+            </label>
+            <input type="number" step="1" min="1"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   @bind="_viewportWidth" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1">
+                <i class="ti ti-arrows-vertical mr-1 text-gray-400"></i> Viewport Height (px)
+            </label>
+            <input type="number" step="1" min="1"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   @bind="_viewportHeight" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1">
+                <i class="ti ti-box mr-1 text-gray-400"></i> Parent Width (px)
+            </label>
+            <input type="number" step="1" min="1"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   @bind="_parentWidth" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-transform mr-1"></i> Input Value</h3>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Value</label>
+                    <input type="number" step="any"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_inputValue" @bind:event="oninput" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Unit</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            @bind="_inputUnit" @bind:after="SaveState">
+                        <option value="px">Pixels (px)</option>
+                        <option value="rem">rem</option>
+                        <option value="em">em</option>
+                        <option value="pt">Points (pt)</option>
+                        <option value="vw">vw</option>
+                        <option value="vh">vh</option>
+                        <option value="pct">Percentage (%)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-table mr-1"></i> All Equivalents</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500">Unit</th>
+                                <th class="text-right p-2 text-gray-500">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ((string label, string value) row in GetAllConversions())
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2 text-gray-600 dark:text-gray-400">@row.label</td>
+                                    <td class="p-2 text-right font-mono font-bold">@row.value</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-device-desktop mr-1"></i> Common Breakpoints</h3>
+                <div class="space-y-2">
+                    @foreach ((string name, int width) bp in WebUnitConverterCore.Breakpoints)
+                    {
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400">
+                                <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded text-xs">@bp.name</code>
+                            </span>
+                            <span class="font-mono font-bold">@bp.width px</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Quick Reference</h3>
+                <div class="space-y-2 text-xs text-gray-500">
+                    <p><strong>rem</strong> — relative to root font size</p>
+                    <p><strong>em</strong> — relative to parent font size</p>
+                    <p><strong>vw</strong> — 1% of viewport width</p>
+                    <p><strong>vh</strong> — 1% of viewport height</p>
+                    <p><strong>pt</strong> — 1pt = 1/72 inch ≈ 1.333px</p>
+                    <p><strong>%</strong> — relative to parent element</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/web-units" OnRestore="RestoreState" />
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(double BaseFontSize, double ViewportWidth, double ViewportHeight, double ParentWidth, double InputValue, string InputUnit);
+
+
+    private double _baseFontSize = 16;
+    private double _viewportWidth = 1920;
+    private double _viewportHeight = 1080;
+    private double _parentWidth = 1200;
+    private double _inputValue = 16;
+    private string _inputUnit = "px";
+
+    private double ToPixels()
+    {
+        if (_baseFontSize <= 0) return 0;
+        return _inputUnit switch
+        {
+            "px" => _inputValue,
+            "rem" => _inputValue * _baseFontSize,
+            "em" => _inputValue * _baseFontSize,
+            "pt" => _inputValue * 96.0 / 72.0,
+            "vw" => _viewportWidth > 0 ? _inputValue * _viewportWidth / 100.0 : 0,
+            "vh" => _viewportHeight > 0 ? _inputValue * _viewportHeight / 100.0 : 0,
+            "pct" => _parentWidth > 0 ? _inputValue * _parentWidth / 100.0 : 0,
+            _ => _inputValue
+        };
+    }
+
+    private List<(string label, string value)> GetAllConversions()
+    {
+        double px = ToPixels();
+        List<(string label, string value)> results =
+        [
+            ("Pixels (px)", Format(px)),
+            ("rem", _baseFontSize > 0 ? Format(px / _baseFontSize) : "—"),
+            ("em", _baseFontSize > 0 ? Format(px / _baseFontSize) : "—"),
+            ("Points (pt)", Format(px * 72.0 / 96.0)),
+            ("vw", _viewportWidth > 0 ? Format(px / _viewportWidth * 100.0) : "—"),
+            ("vh", _viewportHeight > 0 ? Format(px / _viewportHeight * 100.0) : "—"),
+            ("Percentage (%)", _parentWidth > 0 ? Format(px / _parentWidth * 100.0) : "—")
+        ];
+        return results;
+    }
+
+    private static string Format(double value) => WebUnitConverterCore.Format(value);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/math/web-units");
+            if (state is not null)
+            {
+                _baseFontSize = state.BaseFontSize;
+                _viewportWidth = state.ViewportWidth;
+                _viewportHeight = state.ViewportHeight;
+                _parentWidth = state.ParentWidth;
+                _inputValue = state.InputValue;
+                _inputUnit = state.InputUnit;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_baseFontSize, _viewportWidth, _viewportHeight, _parentWidth, _inputValue, _inputUnit);
+        await Storage.SaveStateAsync("tools/math/web-units", state);
+    }
+
+    private void RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _baseFontSize = state.BaseFontSize;
+                _viewportWidth = state.ViewportWidth;
+                _viewportHeight = state.ViewportHeight;
+                _parentWidth = state.ParentWidth;
+                _inputValue = state.InputValue;
+                _inputUnit = state.InputUnit;
+            }
+        }
+        catch { /* ignore */ }
+    }
+}

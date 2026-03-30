@@ -1,0 +1,273 @@
+@page "/tools/dev/error-codes"
+@using Rowles.Toolbox.Core.Developer
+@inject LocalStorageService Storage
+
+<PageTitle>Error Code Reference - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Error Code Reference" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-bug mr-1"></i> Searchable reference for HTTP, gRPC, Win32 &amp; HRESULT codes</span>
+    </Actions>
+</PageHeader>
+
+@* ----─ Global search ----─ *@
+<div class="mb-4">
+    <input type="text"
+           placeholder="Search all error codes by number, name, or description…"
+           class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500"
+           @oninput="OnSearchInput" />
+</div>
+
+@* ----─ Tabs ----─ *@
+<div class="flex gap-2 mb-4 flex-wrap">
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "http" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='async () => { _activeTab = "http"; await SaveState(); }'>
+        <i class="ti ti-world mr-0.5"></i> HTTP
+    </button>
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "grpc" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='async () => { _activeTab = "grpc"; await SaveState(); }'>
+        <i class="ti ti-api mr-0.5"></i> gRPC
+    </button>
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "win32" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='async () => { _activeTab = "win32"; await SaveState(); }'>
+        <i class="ti ti-brand-windows mr-0.5"></i> Win32
+    </button>
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "hresult" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='async () => { _activeTab = "hresult"; await SaveState(); }'>
+        <i class="ti ti-hexagon mr-0.5"></i> HRESULT
+    </button>
+</div>
+
+@{
+    bool isSearching = !string.IsNullOrWhiteSpace(_searchQuery);
+}
+
+@* ----─ HTTP tab ----─ *@
+@if (_activeTab == "http" || isSearching)
+{
+    List<ErrorCodeReferenceCore.ErrorCode> filteredHttp = isSearching
+        ? ErrorCodeReferenceCore.HttpCodes.Where(c => ErrorCodeReferenceCore.MatchesSearch(c, _searchQuery)).ToList()
+        : ErrorCodeReferenceCore.HttpCodes;
+
+    if (filteredHttp.Count > 0)
+    {
+        if (isSearching)
+        {
+            <h2 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-world mr-1"></i> HTTP Status Codes</h2>
+        }
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="text-left p-2 text-gray-500 font-medium w-24">Code</th>
+                            <th class="text-left p-2 text-gray-500 font-medium w-48">Name</th>
+                            <th class="text-left p-2 text-gray-500 font-medium">Description</th>
+                            <th class="text-left p-2 text-gray-500 font-medium w-28">Category</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (ErrorCodeReferenceCore.ErrorCode entry in filteredHttp)
+                        {
+                            <tr class="border-b border-gray-100 dark:border-gray-800">
+                                <td class="p-2 font-mono font-bold @ErrorCodeReferenceCore.GetHttpCodeColor(entry.Category)">@entry.Code</td>
+                                <td class="p-2 font-medium text-gray-700 dark:text-gray-300">@entry.Name</td>
+                                <td class="p-2 text-gray-600 dark:text-gray-400">@entry.Description</td>
+                                <td class="p-2">
+                                    <span class="px-2 py-0.5 rounded-full text-xs font-medium @ErrorCodeReferenceCore.GetHttpBadgeColor(entry.Category)">
+                                        @entry.Category
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2 text-xs text-gray-400">@filteredHttp.Count code(s)</div>
+        </div>
+    }
+}
+
+@* ----─ gRPC tab ----─ *@
+@if (_activeTab == "grpc" || isSearching)
+{
+    List<ErrorCodeReferenceCore.GrpcCode> filteredGrpc = isSearching
+        ? ErrorCodeReferenceCore.GrpcCodes.Where(c => ErrorCodeReferenceCore.MatchesGrpcSearch(c, _searchQuery)).ToList()
+        : ErrorCodeReferenceCore.GrpcCodes;
+
+    if (filteredGrpc.Count > 0)
+    {
+        if (isSearching)
+        {
+            <h2 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-api mr-1"></i> gRPC Status Codes</h2>
+        }
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="text-left p-2 text-gray-500 font-medium w-20">Code</th>
+                            <th class="text-left p-2 text-gray-500 font-medium w-44">Name</th>
+                            <th class="text-left p-2 text-gray-500 font-medium">Description</th>
+                            <th class="text-left p-2 text-gray-500 font-medium w-32">HTTP Equivalent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (ErrorCodeReferenceCore.GrpcCode entry in filteredGrpc)
+                        {
+                            <tr class="border-b border-gray-100 dark:border-gray-800">
+                                <td class="p-2 font-mono font-bold text-purple-600 dark:text-purple-400">@entry.Code</td>
+                                <td class="p-2 font-medium text-gray-700 dark:text-gray-300">@entry.Name</td>
+                                <td class="p-2 text-gray-600 dark:text-gray-400">@entry.Description</td>
+                                <td class="p-2 font-mono text-xs text-gray-500 dark:text-gray-400">@entry.HttpEquivalent</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2 text-xs text-gray-400">@filteredGrpc.Count code(s)</div>
+        </div>
+    }
+}
+
+@* ----─ Win32 tab ----─ *@
+@if (_activeTab == "win32" || isSearching)
+{
+    List<ErrorCodeReferenceCore.ErrorCode> filteredWin32 = isSearching
+        ? ErrorCodeReferenceCore.Win32Codes.Where(c => ErrorCodeReferenceCore.MatchesSearch(c, _searchQuery)).ToList()
+        : ErrorCodeReferenceCore.Win32Codes;
+
+    if (filteredWin32.Count > 0)
+    {
+        if (isSearching)
+        {
+            <h2 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-brand-windows mr-1"></i> Win32 Error Codes</h2>
+        }
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="text-left p-2 text-gray-500 font-medium w-20">Code</th>
+                            <th class="text-left p-2 text-gray-500 font-medium w-56">Constant</th>
+                            <th class="text-left p-2 text-gray-500 font-medium">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (ErrorCodeReferenceCore.ErrorCode entry in filteredWin32)
+                        {
+                            <tr class="border-b border-gray-100 dark:border-gray-800">
+                                <td class="p-2 font-mono font-bold text-amber-600 dark:text-amber-400">@entry.Code</td>
+                                <td class="p-2 font-mono text-sm text-gray-700 dark:text-gray-300">@entry.Name</td>
+                                <td class="p-2 text-gray-600 dark:text-gray-400">@entry.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2 text-xs text-gray-400">@filteredWin32.Count code(s)</div>
+        </div>
+    }
+}
+
+@* ----─ HRESULT tab ----─ *@
+@if (_activeTab == "hresult" || isSearching)
+{
+    List<ErrorCodeReferenceCore.ErrorCode> filteredHresult = isSearching
+        ? ErrorCodeReferenceCore.HresultCodes.Where(c => ErrorCodeReferenceCore.MatchesSearch(c, _searchQuery)).ToList()
+        : ErrorCodeReferenceCore.HresultCodes;
+
+    if (filteredHresult.Count > 0)
+    {
+        if (isSearching)
+        {
+            <h2 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-hexagon mr-1"></i> HRESULT Values</h2>
+        }
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="text-left p-2 text-gray-500 font-medium w-32">Value</th>
+                            <th class="text-left p-2 text-gray-500 font-medium w-52">Constant</th>
+                            <th class="text-left p-2 text-gray-500 font-medium">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (ErrorCodeReferenceCore.ErrorCode entry in filteredHresult)
+                        {
+                            <tr class="border-b border-gray-100 dark:border-gray-800">
+                                <td class="p-2 font-mono font-bold text-rose-600 dark:text-rose-400">@entry.Code</td>
+                                <td class="p-2 font-mono text-sm text-gray-700 dark:text-gray-300">@entry.Name</td>
+                                <td class="p-2 text-gray-600 dark:text-gray-400">@entry.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2 text-xs text-gray-400">@filteredHresult.Count code(s)</div>
+        </div>
+    }
+}
+
+@if (isSearching)
+{
+    int totalResults = ErrorCodeReferenceCore.HttpCodes.Count(c => ErrorCodeReferenceCore.MatchesSearch(c, _searchQuery))
+        + ErrorCodeReferenceCore.GrpcCodes.Count(c => ErrorCodeReferenceCore.MatchesGrpcSearch(c, _searchQuery))
+        + ErrorCodeReferenceCore.Win32Codes.Count(c => ErrorCodeReferenceCore.MatchesSearch(c, _searchQuery))
+        + ErrorCodeReferenceCore.HresultCodes.Count(c => ErrorCodeReferenceCore.MatchesSearch(c, _searchQuery));
+
+    if (totalResults == 0)
+    {
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-8 text-center">
+            <i class="ti ti-search-off text-3xl text-gray-400 mb-2"></i>
+            <p class="text-sm text-gray-500">No error codes match "<strong>@_searchQuery</strong>"</p>
+        </div>
+    }
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/error-codes" OnRestore="RestoreState" />
+
+@code {
+    sealed record ToolState(string ActiveTab, string SearchQuery);
+
+    private string _activeTab = "http";
+    private string _searchQuery = string.Empty;
+    private RecentEntryPanel? _recentPanel;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/error-codes");
+            if (state is not null)
+            {
+                _activeTab = state.ActiveTab;
+                _searchQuery = state.SearchQuery;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_activeTab, _searchQuery);
+        await Storage.SaveStateAsync("tools/dev/error-codes", state);
+    }
+
+    private void RestoreState(string json)
+    {
+        ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _activeTab = state.ActiveTab;
+            _searchQuery = state.SearchQuery;
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        _searchQuery = e.Value?.ToString() ?? string.Empty;
+        await SaveState();
+    }
+}

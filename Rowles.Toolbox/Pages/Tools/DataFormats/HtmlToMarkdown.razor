@@ -1,0 +1,212 @@
+@page "/tools/data/html-markdown"
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>HTML → Markdown - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="HTML → Markdown" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-markdown mr-1"></i> Convert HTML to Markdown</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="ConvertHtmlToMarkdown">
+        <i class="ti ti-arrow-right"></i> Convert
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="Clear">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="LoadSample">
+        <i class="ti ti-file-text"></i> Sample
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="CopyOutput">
+        <i class="ti ti-copy"></i> @(_copied ? "Copied!" : "Copy")
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">HTML Input</label>
+            <span class="text-xs text-gray-400">@_htmlInput.Length chars</span>
+        </div>
+        <textarea class="w-full h-96 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Paste HTML here..."
+                  @bind="_htmlInput"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Markdown Output</label>
+            <span class="text-xs text-gray-400">@_mdOutput.Length chars</span>
+        </div>
+        <textarea class="w-full h-96 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  readonly
+                  @bind="_mdOutput"></textarea>
+    </div>
+</div>
+
+<div class="mt-3 text-xs text-gray-400">
+    <i class="ti ti-info-circle mr-1"></i>
+    Supports: headings (h1–h6), paragraphs, bold, italic, links, images, ordered &amp; unordered lists, code blocks, inline code, blockquotes, horizontal rules, and tables.
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/html-markdown" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string HtmlInput);
+
+    private string _htmlInput = string.Empty;
+    private string _mdOutput = string.Empty;
+    private string? _error;
+    private bool _copied;
+
+    private async Task ConvertHtmlToMarkdown()
+    {
+        _error = null;
+        _copied = false;
+
+        if (string.IsNullOrWhiteSpace(_htmlInput))
+        {
+            _error = "HTML input is empty.";
+            return;
+        }
+
+        try
+        {
+            _mdOutput = HtmlToMarkdownCore.HtmlToMd(_htmlInput);
+            await SaveState();
+            string label = _htmlInput.Length > 50 ? _htmlInput[..50] + "..." : _htmlInput;
+            await Storage.AddRecentAsync("tools/data/html-markdown", $"HTML to MD: {label}", new ToolState(_htmlInput));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Conversion error: {ex.Message}";
+        }
+    }
+
+    private void LoadSample()
+    {
+        _htmlInput = """
+            <h1>Welcome to My Page</h1>
+            <p>This is a <strong>bold</strong> and <em>italic</em> paragraph with a <a href="https://example.com">link</a>.</p>
+
+            <h2>Features</h2>
+            <ul>
+                <li>Fast and reliable</li>
+                <li>Easy to use</li>
+                <li>Open source</li>
+            </ul>
+
+            <h3>Getting Started</h3>
+            <ol>
+                <li>Clone the repository</li>
+                <li>Install dependencies</li>
+                <li>Run the application</li>
+            </ol>
+
+            <blockquote>
+                <p>This is a blockquote with <strong>bold text</strong>.</p>
+            </blockquote>
+
+            <pre><code>console.log("Hello, World!");</code></pre>
+
+            <p>Here is some <code>inline code</code> in a sentence.</p>
+
+            <p><img src="https://example.com/image.png" alt="Example Image" /></p>
+
+            <hr />
+
+            <h2>Comparison Table</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Parsing</td>
+                        <td>Done</td>
+                        <td>Fully implemented</td>
+                    </tr>
+                    <tr>
+                        <td>Rendering</td>
+                        <td>WIP</td>
+                        <td>In progress</td>
+                    </tr>
+                </tbody>
+            </table>
+            """;
+        _error = null;
+        _mdOutput = string.Empty;
+    }
+
+    private void Clear()
+    {
+        _htmlInput = string.Empty;
+        _mdOutput = string.Empty;
+        _error = null;
+        _copied = false;
+    }
+
+    private async Task CopyOutput()
+    {
+        if (!string.IsNullOrEmpty(_mdOutput))
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", _mdOutput);
+            _copied = true;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copied = false;
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/html-markdown");
+            if (state is not null)
+            {
+                _htmlInput = state.HtmlInput;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/html-markdown", new ToolState(_htmlInput));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _htmlInput = state.HtmlInput;
+            StateHasChanged();
+        }
+    }
+}

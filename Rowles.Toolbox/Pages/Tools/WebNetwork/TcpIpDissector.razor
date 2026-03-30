@@ -1,0 +1,358 @@
+@page "/tools/web/tcp-dissector"
+@using System.Text
+@using Rowles.Toolbox.Core.WebNetwork
+@using System.Text.Json
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>TCP/IP Header Dissector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="TCP/IP Header Dissector" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-file-analytics mr-1"></i> Parse IPv4/TCP/UDP headers from hex</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-keyboard mr-1"></i> Hex Input</h3>
+        <textarea class="w-full h-28 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Paste raw hex bytes, e.g. 45 00 00 3c 1c 46 40 00 ..."
+                  @bind="_hexInput"
+                  @bind:after="SaveState"></textarea>
+        <div class="mt-3 flex flex-wrap gap-2 items-center">
+            <button type="button"
+                    class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors cursor-pointer"
+                    @onclick="Parse">
+                <i class="ti ti-analyze mr-1"></i> Parse
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="LoadTcpSynExample">
+                <i class="ti ti-plug mr-1"></i> TCP SYN Example
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="LoadUdpDnsExample">
+                <i class="ti ti-send mr-1"></i> UDP DNS Example
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="LoadTcpAckExample">
+                <i class="ti ti-arrows-exchange mr-1"></i> TCP ACK Example
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="ClearAll">
+                <i class="ti ti-trash mr-1"></i> Clear
+            </button>
+        </div>
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="mt-2 text-red-500 text-sm"><i class="ti ti-alert-circle mr-1"></i>@_errorMessage</div>
+        }
+    </div>
+
+    @if (_result is not null)
+    {
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-binary mr-1"></i> Colour-Coded Hex Dump</h3>
+            <div class="flex flex-wrap gap-1 mb-3 text-xs">
+                <span class="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">IPv4 Header</span>
+                @if (_result.Protocol == "TCP")
+                {
+                    <span class="px-2 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">TCP Header</span>
+                }
+                @if (_result.Protocol == "UDP")
+                {
+                    <span class="px-2 py-0.5 rounded bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300">UDP Header</span>
+                }
+                @if (_result.RawBytes.Length > _result.Ipv4HeaderLength + _result.TransportHeaderLength)
+                {
+                    <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">Payload / Options</span>
+                }
+            </div>
+            <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded font-mono text-sm leading-relaxed flex flex-wrap gap-1">
+                @for (int i = 0; i < _result.RawBytes.Length; i++)
+                {
+                    int idx = i;
+                    <span class="@GetByteColorClass(idx) px-1 rounded">@_result.RawBytes[idx].ToString("X2")</span>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-network mr-1"></i> IPv4 Header</h3>
+                <button type="button"
+                        class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        @onclick="CopyParsedOutput">
+                    <i class="ti ti-copy mr-1"></i> @(_copied ? "Copied!" : "Copy All")
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-xs text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                            <th class="pb-2 pr-4">Field</th>
+                            <th class="pb-2 pr-4">Value</th>
+                            <th class="pb-2 pr-4">Hex Bytes</th>
+                            <th class="pb-2">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (TcpIpDissectorCore.HeaderField field in _result.Ipv4Fields)
+                        {
+                            <tr class="border-b border-gray-100 dark:border-gray-800">
+                                <td class="py-1.5 pr-4 font-medium text-blue-600 dark:text-blue-400">@field.Name</td>
+                                <td class="py-1.5 pr-4 font-mono">@field.Value</td>
+                                <td class="py-1.5 pr-4 font-mono text-xs text-gray-500">@field.HexBytes</td>
+                                <td class="py-1.5 text-gray-500 text-xs">@field.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @if (_result.TransportFields.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    @if (_result.Protocol == "TCP")
+                    {
+                        <i class="ti ti-transfer-vertical mr-1"></i>@:TCP Header
+                    }
+                    else
+                    {
+                        <i class="ti ti-send mr-1"></i>@:UDP Header
+                    }
+                </h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-xs text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                                <th class="pb-2 pr-4">Field</th>
+                                <th class="pb-2 pr-4">Value</th>
+                                <th class="pb-2 pr-4">Hex Bytes</th>
+                                <th class="pb-2">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (TcpIpDissectorCore.HeaderField field in _result.TransportFields)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="py-1.5 pr-4 font-medium @GetTransportColorClass()">@field.Name</td>
+                                    <td class="py-1.5 pr-4 font-mono">@field.Value</td>
+                                    <td class="py-1.5 pr-4 font-mono text-xs text-gray-500">@field.HexBytes</td>
+                                    <td class="py-1.5 text-gray-500 text-xs">@field.Description</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Packet Summary</h3>
+            <div class="space-y-2">
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Total Bytes</span>
+                    <span class="font-mono font-bold">@_result.RawBytes.Length bytes</span>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">IPv4 Header</span>
+                    <span class="font-mono font-bold">@_result.Ipv4HeaderLength bytes</span>
+                </div>
+                @if (_result.TransportHeaderLength > 0)
+                {
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400">@_result.Protocol Header</span>
+                        <span class="font-mono font-bold">@_result.TransportHeaderLength bytes</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400">Payload</span>
+                        <span class="font-mono font-bold">@ComputePayloadLength() bytes</span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/tcp-dissector" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    string _hexInput = string.Empty;
+    string? _errorMessage;
+    TcpIpDissectorCore.DissectionResult? _result;
+    bool _copied;
+
+    sealed record ToolState(string HexInput);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await LoadState();
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/tcp-dissector");
+        if (state is not null)
+        {
+            _hexInput = state.HexInput;
+            if (!string.IsNullOrWhiteSpace(_hexInput))
+                ParseInternal();
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/web/tcp-dissector", new ToolState(_hexInput));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _hexInput = state.HexInput;
+                if (!string.IsNullOrWhiteSpace(_hexInput))
+                    ParseInternal();
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { }
+    }
+
+    async Task LoadTcpSynExample()
+    {
+        _hexInput = TcpIpDissectorCore.TcpSynSample;
+        ParseInternal();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/tcp-dissector", "TCP SYN example", new ToolState(_hexInput));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    async Task LoadUdpDnsExample()
+    {
+        _hexInput = TcpIpDissectorCore.UdpDnsSample;
+        ParseInternal();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/tcp-dissector", "UDP DNS example", new ToolState(_hexInput));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    async Task LoadTcpAckExample()
+    {
+        _hexInput = TcpIpDissectorCore.TcpAckSample;
+        ParseInternal();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/tcp-dissector", "TCP ACK example", new ToolState(_hexInput));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    async Task ClearAll()
+    {
+        _hexInput = string.Empty;
+        _errorMessage = null;
+        _result = null;
+        _copied = false;
+        await SaveState();
+    }
+
+    int ComputePayloadLength()
+    {
+        if (_result is null) return 0;
+        int headerTotal = _result.Ipv4HeaderLength + _result.TransportHeaderLength;
+        int remaining = _result.RawBytes.Length - headerTotal;
+        return remaining > 0 ? remaining : 0;
+    }
+
+    string GetTransportColorClass()
+    {
+        if (_result?.Protocol == "TCP")
+            return "text-green-600 dark:text-green-400";
+        return "text-orange-600 dark:text-orange-400";
+    }
+
+    string GetByteColorClass(int byteIndex)
+    {
+        if (_result is null) return string.Empty;
+
+        if (byteIndex < _result.Ipv4HeaderLength)
+            return "bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300";
+
+        int transportEnd = _result.Ipv4HeaderLength + _result.TransportHeaderLength;
+        if (byteIndex < transportEnd)
+        {
+            if (_result.Protocol == "TCP")
+                return "bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300";
+            if (_result.Protocol == "UDP")
+                return "bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-300";
+        }
+
+        return "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400";
+    }
+
+    private void ParseInternal()
+    {
+        _errorMessage = null;
+        _result = null;
+        _copied = false;
+
+        (TcpIpDissectorCore.DissectionResult? result, string? error) = TcpIpDissectorCore.Dissect(_hexInput);
+        if (error is not null)
+        {
+            _errorMessage = error;
+            return;
+        }
+
+        _result = result;
+    }
+
+    async Task Parse()
+    {
+        ParseInternal();
+        await SaveState();
+        if (_result is not null)
+        {
+            await Storage.AddRecentAsync("tools/web/tcp-dissector", $"Parsed: {_result.Protocol ?? "packet"}", new ToolState(_hexInput));
+            await _recentPanel?.RefreshAsync()!;
+        }
+    }
+
+    async Task CopyParsedOutput()
+    {
+        if (_result is null) return;
+
+        StringBuilder sb = new StringBuilder();
+        sb.AppendLine("=== IPv4 Header ===");
+        foreach (TcpIpDissectorCore.HeaderField field in _result.Ipv4Fields)
+        {
+            sb.AppendLine($"{field.Name}: {field.Value}  [{field.HexBytes}]  {field.Description}");
+        }
+
+        if (_result.TransportFields.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"=== {_result.Protocol} Header ===");
+            foreach (TcpIpDissectorCore.HeaderField field in _result.TransportFields)
+            {
+                sb.AppendLine($"{field.Name}: {field.Value}  [{field.HexBytes}]  {field.Description}");
+            }
+        }
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", sb.ToString());
+        _copied = true;
+        await Task.Delay(1500);
+        _copied = false;
+    }
+}

@@ -1,0 +1,191 @@
+@inject ToolSearchService Search
+@implements IDisposable
+
+<div class="mb-3">
+    <div class="relative">
+        <input type="text" @bind="_searchQuery" @bind:event="oninput" @bind:after="OnSearchInput"
+               placeholder="Search @ToolRegistry.ActiveToolCount tools…"
+               class="w-full text-xs pl-7 pr-7 py-1.5 rounded border border-gray-300 dark:border-gray-600
+                      bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                      focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        <i class="ti ti-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+        @if (!string.IsNullOrEmpty(_searchQuery))
+        {
+            <button type="button" @onclick="ClearSearch"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs cursor-pointer">
+                <i class="ti ti-x"></i>
+            </button>
+        }
+    </div>
+    @if (Search.HasQuery)
+    {
+        <div class="text-[9px] text-gray-400 dark:text-gray-500 mt-1 px-1">
+            @_matchCount match@(_matchCount == 1 ? "" : "es")
+        </div>
+    }
+</div>
+
+<ul class="space-y-1">
+    <li class="nav-section-header">Navigation</li>
+    <li><NavLink class="nav-link" href="" Match="NavLinkMatch.All"><i class="ti ti-home mr-1"></i> Home</NavLink></li>
+
+    <li class="nav-section-header mt-3">Tools</li>
+
+    @foreach (ToolSection section in ToolRegistry.Sections)
+    {
+        bool sectionOpen = IsSectionOpen(section);
+        bool hasSearchMatch = Search.HasQuery && Search.SectionHasMatch(section);
+
+        @if (Search.HasQuery && !hasSearchMatch)
+        {
+            continue;
+        }
+
+        <li>
+            <button type="button" @onclick="() => ToggleSection(section.Name)"
+                    class="nav-link w-full text-left flex items-center justify-between">
+                <span><i class="ti @(section.Icon) mr-1 @(section.IconColorClass)"></i> @(section.Name)</span>
+                <i class="ti @(sectionOpen ? "ti-chevron-down" : "ti-chevron-right") text-[10px] text-gray-400"></i>
+            </button>
+            @if (sectionOpen)
+            {
+                <ul class="@(HasCollapsibleGroups(section) ? "ml-2" : "ml-3") space-y-0.5 mt-0.5">
+                    @foreach (ToolGroup grp in section.Groups)
+                    {
+                        @if (grp.IsCollapsible)
+                        {
+                            bool groupOpen = IsGroupOpen(section.Name, grp.Name);
+                            bool groupHasMatch = Search.HasQuery && Search.GroupHasMatch(grp);
+
+                            @if (Search.HasQuery && !groupHasMatch)
+                            {
+                                continue;
+                            }
+
+                            <li>
+                                <button type="button" @onclick="() => ToggleGroup(section.Name, grp.Name)"
+                                        class="w-full text-left text-xs px-2 py-1 flex items-center justify-between
+                                               text-gray-500 dark:text-gray-400 rounded
+                                               hover:bg-gray-100 dark:hover:bg-gray-800
+                                               hover:text-gray-700 dark:hover:text-gray-200
+                                               transition-colors duration-100">
+                                    <span><i class="ti @grp.Icon mr-1"></i> @grp.Name</span>
+                                    <i class="ti @(groupOpen ? "ti-chevron-down" : "ti-chevron-right") text-[9px] text-gray-400"></i>
+                                </button>
+                                @if (groupOpen)
+                                {
+                                    <ul class="ml-3 space-y-0.5 mt-0.5">
+                                        @foreach (ToolItem tool in grp.Tools)
+                                        {
+                                            @if (tool.IsPlanned)
+                                            {
+                                                continue;
+                                            }
+                                            <li class="@(Search.IsMatch(tool.Route) ? "nav-search-match" : "")">
+                                                <NavLink class="nav-link" href="@tool.Route"><i class="ti @tool.Icon mr-1"></i> @tool.Name</NavLink>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                            </li>
+                        }
+                        else if (grp.IsPlanned)
+                        {
+                            <li class="nav-sub-header-planned">
+                                <i class="ti @grp.Icon mr-0.5"></i> @grp.Name <span class="ml-1 opacity-60">(coming soon)</span>
+                            </li>
+                        }
+                        else
+                        {
+                            <li class="nav-sub-header"><i class="ti @grp.Icon mr-0.5"></i> @grp.Name</li>
+                            @foreach (ToolItem tool in grp.Tools)
+                            {
+                                @if (tool.IsPlanned)
+                                {
+                                    continue;
+                                }
+                                <li class="@(Search.IsMatch(tool.Route) ? "nav-search-match" : "")">
+                                    <NavLink class="nav-link" href="@tool.Route"><i class="ti @tool.Icon mr-1"></i> @tool.Name</NavLink>
+                                </li>
+                            }
+                        }
+                    }
+                </ul>
+            }
+        </li>
+    }
+</ul>
+
+@code {
+    private readonly Dictionary<string, bool> _sectionToggles = new();
+    private readonly Dictionary<string, bool> _groupToggles = new();
+
+    private string _searchQuery = "";
+    private int _matchCount;
+
+    protected override void OnInitialized()
+    {
+        Search.OnSearchChanged += OnExternalSearchChanged;
+    }
+
+    private void OnSearchInput()
+    {
+        Search.SetQuery(_searchQuery);
+        _matchCount = ToolRegistry.AllTools.Count(x => Search.IsMatch(x.Tool.Route));
+    }
+
+    private void ClearSearch()
+    {
+        _searchQuery = "";
+        Search.SetQuery("");
+        _matchCount = 0;
+    }
+
+    private void OnExternalSearchChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private bool HasCollapsibleGroups(ToolSection section)
+    {
+        return section.Groups.Any(g => g.IsCollapsible);
+    }
+
+    private bool IsSectionOpen(ToolSection section)
+    {
+        if (Search.HasQuery && Search.SectionHasMatch(section))
+            return true;
+        return _sectionToggles.TryGetValue(section.Name, out bool open) && open;
+    }
+
+    private void ToggleSection(string name)
+    {
+        bool current = _sectionToggles.TryGetValue(name, out bool v) && v;
+        _sectionToggles[name] = !current;
+    }
+
+    private bool IsGroupOpen(string sectionName, string groupName)
+    {
+        string key = $"{sectionName}/{groupName}";
+        if (Search.HasQuery)
+        {
+            ToolSection? section = ToolRegistry.Sections.FirstOrDefault(s => s.Name == sectionName);
+            ToolGroup? grp = section?.Groups.FirstOrDefault(g => g.Name == groupName);
+            if (grp is not null && Search.GroupHasMatch(grp))
+                return true;
+        }
+        return _groupToggles.TryGetValue(key, out bool open) && open;
+    }
+
+    private void ToggleGroup(string sectionName, string groupName)
+    {
+        string key = $"{sectionName}/{groupName}";
+        bool current = _groupToggles.TryGetValue(key, out bool v) && v;
+        _groupToggles[key] = !current;
+    }
+
+    public void Dispose()
+    {
+        Search.OnSearchChanged -= OnExternalSearchChanged;
+    }
+}

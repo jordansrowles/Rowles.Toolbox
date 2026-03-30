@@ -1,0 +1,1037 @@
+@page "/tools/security/cipher"
+@using System.Security.Cryptography
+@using System.Text
+@using System.Text.Json
+@using Rowles.Toolbox.Core.Security
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Cipher Playground - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Cipher Playground" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-lock-code mr-1"></i> Encrypt, decrypt &amp; explore classical and modern ciphers</span>
+    </Actions>
+</PageHeader>
+
+@* ── Tab bar ── *@
+<div class="flex flex-wrap gap-2 mb-4">
+    @foreach (var (id, icon, label) in _tabs)
+    {
+        <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == id ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+                @onclick="() => SetActiveTab(id)">
+            <i class="ti ti-@icon mr-0.5"></i> @label
+        </button>
+    }
+</div>
+
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@* Tab 1 — ROT13 / Caesar Cipher                                            *@
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@if (_activeTab == "caesar")
+{
+    <section class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-rotate mr-1"></i> ROT13 / Caesar Cipher</h3>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Plaintext</label>
+            <textarea rows="4"
+                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter text…"
+                      @bind="_caesarInput" @bind:event="oninput" @bind:after="SaveState"></textarea>
+        </div>
+
+        <div class="flex flex-wrap items-end gap-4">
+            <div>
+                <label class="block text-xs font-medium mb-1">Shift (1–25)</label>
+                <input type="number" min="1" max="25"
+                       class="w-24 p-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_caesarShift" @bind:after="SaveState" />
+            </div>
+            <div class="flex gap-2">
+                <button class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+                        @onclick="async () => { _caesarShift = 13; _caesarRot47Mode = false; await SaveState(); }">ROT13</button>
+                <button class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+                        @onclick="CaesarSetRot47">ROT47</button>
+            </div>
+        </div>
+
+        <div class="flex gap-2">
+            <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                    @onclick="() => CaesarApply(true)">
+                <i class="ti ti-lock mr-0.5"></i> Encode
+            </button>
+            <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                    @onclick="() => CaesarApply(false)">
+                <i class="ti ti-lock-open mr-0.5"></i> Decode
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_caesarError))
+        {
+            <div class="p-2 text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_caesarError
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_caesarOutput))
+        {
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-medium">Output</label>
+                    <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                            @onclick="() => CopyToClipboard(_caesarOutput)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <textarea rows="4" readonly
+                          class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-mono">@_caesarOutput</textarea>
+            </div>
+        }
+
+        @if (_caesarShift is >= 1 and <= 25 && !_caesarRot47Mode)
+        {
+            <div>
+                <h3 class="text-sm font-semibold text-gray-500 mb-2">Shifted Alphabet</h3>
+                <div class="grid grid-cols-13 gap-0.5 text-center text-xs font-mono">
+                    @for (int i = 0; i < 26; i++)
+                    {
+                        char original = (char)('A' + i);
+                        char shifted = (char)('A' + (i + _caesarShift) % 26);
+                        <div class="p-1 bg-gray-100 dark:bg-gray-800 rounded">
+                            <span class="text-gray-400">@original</span>→<span class="text-blue-600 dark:text-blue-400">@shifted</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </section>
+}
+
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@* Tab 2 — Vigenère Cipher                                                   *@
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@if (_activeTab == "vigenere")
+{
+    <section class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-key mr-1"></i> Vigenère Cipher</h3>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Plaintext</label>
+            <textarea rows="4"
+                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter text…"
+                      @bind="_vigenereInput" @bind:event="oninput" @bind:after="SaveState"></textarea>
+        </div>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Keyword</label>
+            <input type="text"
+                   class="w-full p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="e.g. SECRET"
+                   @bind="_vigenereKey" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+
+        <div class="flex gap-2">
+            <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                    @onclick="() => VigenereApply(true)">
+                <i class="ti ti-lock mr-0.5"></i> Encode
+            </button>
+            <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                    @onclick="() => VigenereApply(false)">
+                <i class="ti ti-lock-open mr-0.5"></i> Decode
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_vigenereError))
+        {
+            <div class="p-2 text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_vigenereError
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_vigenereOutput))
+        {
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-medium">Output</label>
+                    <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                            @onclick="() => CopyToClipboard(_vigenereOutput)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <textarea rows="4" readonly
+                          class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-mono">@_vigenereOutput</textarea>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_vigenereKey) && !string.IsNullOrEmpty(_vigenereInput))
+        {
+            <div>
+                <h3 class="text-sm font-semibold text-gray-500 mb-2">Key Expansion</h3>
+                <div class="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded font-mono text-xs break-all">
+                    <div><span class="text-gray-400">Text: </span>@_vigenereInput</div>
+                    <div><span class="text-gray-400">Key:  </span><span class="text-blue-600 dark:text-blue-400">@VigenereExpandKey()</span></div>
+                </div>
+            </div>
+        }
+    </section>
+}
+
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@* Tab 3 — Atbash Cipher                                                     *@
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@if (_activeTab == "atbash")
+{
+    <section class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-arrows-exchange mr-1"></i> Atbash Cipher</h3>
+        <span class="text-xs text-gray-500 dark:text-gray-400">Atbash is its own inverse — encoding and decoding are the same operation.</span>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Input</label>
+            <textarea rows="4"
+                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter text…"
+                      @bind="_atbashInput" @bind:event="oninput" @bind:after="SaveState"></textarea>
+        </div>
+
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                @onclick="AtbashApply">
+            <i class="ti ti-transform mr-0.5"></i> Encode / Decode
+        </button>
+
+        @if (!string.IsNullOrEmpty(_atbashOutput))
+        {
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-medium">Output</label>
+                    <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                            @onclick="() => CopyToClipboard(_atbashOutput)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <textarea rows="4" readonly
+                          class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-mono">@_atbashOutput</textarea>
+            </div>
+        }
+
+        <div>
+            <h3 class="text-sm font-semibold text-gray-500 mb-2">Mapping Table</h3>
+            <div class="grid grid-cols-13 gap-0.5 text-center text-xs font-mono">
+                @for (int i = 0; i < 26; i++)
+                {
+                    char original = (char)('A' + i);
+                    char mapped = (char)('Z' - i);
+                    <div class="p-1 bg-gray-100 dark:bg-gray-800 rounded">
+                        <span class="text-gray-400">@original</span>↔<span class="text-blue-600 dark:text-blue-400">@mapped</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
+}
+
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@* Tab 4 — XOR Encryptor                                                     *@
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@if (_activeTab == "xor")
+{
+    <section class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-math-xor mr-1"></i> XOR Encryptor</h3>
+        <span class="text-xs text-gray-500 dark:text-gray-400">XOR is symmetric — encrypt and decrypt are the same operation.</span>
+
+        <div class="flex gap-2 items-center">
+            <span class="text-xs font-medium">Input mode:</span>
+            <button class="px-3 py-1 text-sm rounded cursor-pointer border-none @(_xorInputHex ? "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300" : "bg-blue-600 text-white")"
+                    @onclick="() => SetXorInputHex(false)">Text</button>
+            <button class="px-3 py-1 text-sm rounded cursor-pointer border-none @(_xorInputHex ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                    @onclick="() => SetXorInputHex(true)">Hex</button>
+        </div>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Input @(_xorInputHex ? "(hex)" : "(text)")</label>
+            <textarea rows="4"
+                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="@(_xorInputHex ? "e.g. 48656c6c6f" : "Enter text…")"
+                      @bind="_xorInput" @bind:event="oninput" @bind:after="SaveState"></textarea>
+        </div>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Key</label>
+            <input type="text"
+                   class="w-full p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Enter key…"
+                   @bind="_xorKey" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+
+        <div class="flex gap-4 items-center">
+            <span class="text-xs font-medium">Output format:</span>
+            <button class="px-3 py-1 text-sm rounded cursor-pointer border-none @(_xorOutputBase64 ? "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300" : "bg-blue-600 text-white")"
+                    @onclick="() => SetXorOutputBase64(false)">Hex</button>
+            <button class="px-3 py-1 text-sm rounded cursor-pointer border-none @(_xorOutputBase64 ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                    @onclick="() => SetXorOutputBase64(true)">Base64</button>
+        </div>
+
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                @onclick="XorApply">
+            <i class="ti ti-transform mr-0.5"></i> Encrypt / Decrypt
+        </button>
+
+        @if (!string.IsNullOrEmpty(_xorError))
+        {
+            <div class="p-2 text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_xorError
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_xorOutput))
+        {
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-medium">Output (@(_xorOutputBase64 ? "Base64" : "Hex"))</label>
+                    <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                            @onclick="() => CopyToClipboard(_xorOutput)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <textarea rows="4" readonly
+                          class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-mono break-all">@_xorOutput</textarea>
+            </div>
+        }
+    </section>
+}
+
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@* Tab 5 — AES-GCM Simulator                                                *@
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@if (_activeTab == "aesgcm")
+{
+    <section class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-shield-lock mr-1"></i> AES-GCM Simulator</h3>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Plaintext</label>
+            <textarea rows="4"
+                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter text to encrypt…"
+                      @bind="_aesInput" @bind:event="oninput" @bind:after="SaveState"></textarea>
+        </div>
+
+        <div>
+            <div class="flex items-center justify-between mb-1">
+                <label class="text-xs font-medium">Key <span class="text-gray-400">(text → SHA-256 → AES-256 key)</span></label>
+                <button class="px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+                        @onclick="AesGenerateRandomKey">
+                    <i class="ti ti-dice mr-0.5"></i> Generate Random Key
+                </button>
+            </div>
+            <input type="text"
+                   class="w-full p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Enter a passphrase or paste hex key…"
+                   @bind="_aesKey" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+
+        <div class="flex gap-2">
+            <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                    @onclick="AesEncrypt">
+                <i class="ti ti-lock mr-0.5"></i> Encrypt
+            </button>
+            <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                    @onclick="AesDecrypt">
+                <i class="ti ti-lock-open mr-0.5"></i> Decrypt
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_aesError))
+        {
+            <div class="p-2 text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_aesError
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_aesEncryptedOutput))
+        {
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-medium">Encrypted (Base64)</label>
+                    <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                            @onclick="() => CopyToClipboard(_aesEncryptedOutput)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <textarea rows="3" readonly
+                          class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-mono break-all">@_aesEncryptedOutput</textarea>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_aesDecryptedOutput))
+        {
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-medium">Decrypted</label>
+                    <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                            @onclick="() => CopyToClipboard(_aesDecryptedOutput)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <textarea rows="3" readonly
+                          class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 text-sm font-mono">@_aesDecryptedOutput</textarea>
+            </div>
+        }
+
+        <div class="p-3 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded space-y-1">
+            <div class="font-semibold"><i class="ti ti-info-circle mr-0.5"></i> How it works</div>
+            <div>• Your text key is hashed with <strong>SHA-256</strong> to produce a 256-bit AES key.</div>
+            <div>• A random <strong>12-byte nonce</strong> is generated for each encryption.</div>
+            <div>• Output format: <code class="bg-blue-100 dark:bg-blue-900/40 px-1 rounded">Base64(nonce[12] + ciphertext + tag[16])</code></div>
+            <div>• To decrypt, paste the Base64 output into the plaintext field and click Decrypt.</div>
+        </div>
+    </section>
+}
+
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@* Tab 6 — HMAC Generator                                                    *@
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@if (_activeTab == "hmac")
+{
+    <section class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-fingerprint mr-1"></i> HMAC Generator</h3>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Message</label>
+            <textarea rows="4"
+                      class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter message…"
+                      @bind="_hmacInput" @bind:event="oninput" @bind:after="SaveState"></textarea>
+        </div>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Secret Key</label>
+            <input type="text"
+                   class="w-full p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Enter secret key…"
+                   @bind="_hmacKey" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+
+        <div>
+            <label class="block text-xs font-medium mb-1">Algorithm</label>
+            <select class="p-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    @bind="_hmacAlgorithm" @bind:after="SaveState">
+                <option value="SHA256">HMAC-SHA256</option>
+                <option value="SHA384">HMAC-SHA384</option>
+                <option value="SHA512">HMAC-SHA512</option>
+            </select>
+        </div>
+
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                @onclick="HmacGenerate">
+            <i class="ti ti-hash mr-0.5"></i> Generate
+        </button>
+
+        @if (!string.IsNullOrEmpty(_hmacError))
+        {
+            <div class="p-2 text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_hmacError
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_hmacOutputHex))
+        {
+            <div class="space-y-3">
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-medium">Hex</label>
+                        <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                                @onclick="() => CopyToClipboard(_hmacOutputHex)">
+                            <i class="ti ti-copy mr-0.5"></i> Copy
+                        </button>
+                    </div>
+                    <div class="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded">
+                        <code class="text-sm font-mono break-all select-all">@_hmacOutputHex</code>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-medium">Base64</label>
+                        <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                                @onclick="() => CopyToClipboard(_hmacOutputBase64!)">
+                            <i class="ti ti-copy mr-0.5"></i> Copy
+                        </button>
+                    </div>
+                    <div class="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded">
+                        <code class="text-sm font-mono break-all select-all">@_hmacOutputBase64</code>
+                    </div>
+                </div>
+            </div>
+        }
+    </section>
+}
+
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@* Tab 7 — Random Bytes Generator                                            *@
+@* ═══════════════════════════════════════════════════════════════════════════ *@
+@if (_activeTab == "random")
+{
+    <section class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-dice mr-1"></i> Random Bytes Generator</h3>
+
+        <div class="flex items-end gap-4">
+            <div>
+                <label class="block text-xs font-medium mb-1">Byte count (1–1024)</label>
+                <input type="number" min="1" max="1024"
+                       class="w-32 p-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_randomByteCount" @bind:after="SaveState" />
+            </div>
+            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input type="checkbox" class="rounded" @bind="_randomSpaceSeparated" @bind:after="SaveState" />
+                Space-separated hex
+            </label>
+        </div>
+
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none"
+                @onclick="RandomGenerate">
+            <i class="ti ti-refresh mr-0.5"></i> Generate
+        </button>
+
+        @if (!string.IsNullOrEmpty(_randomError))
+        {
+            <div class="p-2 text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_randomError
+            </div>
+        }
+
+        @if (_randomBytes is not null)
+        {
+            <div class="space-y-3">
+                @foreach (var (label, value) in new[] {
+                    ("Hex (lowercase)", _randomHexLower!),
+                    ("Hex (uppercase)", _randomHexUpper!),
+                    ("Base64", _randomBase64!),
+                    ("C# byte[]", _randomCSharp!),
+                    ("Decimal array", _randomDecimal!) })
+                {
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="text-xs font-medium">@label</label>
+                            <button class="px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                                    @onclick="() => CopyToClipboard(value)">
+                                <i class="ti ti-copy mr-0.5"></i> Copy
+                            </button>
+                        </div>
+                        <div class="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded">
+                            <code class="text-xs font-mono break-all select-all">@value</code>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/security/cipher" OnRestore="RestoreState" />
+
+@code {
+    // ── Tab definitions ─────────────────────────────────────────────────────
+    private static readonly (string Id, string Icon, string Label)[] _tabs =
+    [
+        ("caesar", "rotate", "ROT13 / Caesar"),
+        ("vigenere", "key", "Vigenère"),
+        ("atbash", "arrows-exchange", "Atbash"),
+        ("xor", "code", "XOR"),
+        ("aesgcm", "shield-lock", "AES-GCM"),
+        ("hmac", "fingerprint", "HMAC"),
+        ("random", "dice", "Random Bytes"),
+    ];
+
+    private string _activeTab = "caesar";
+
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(string ActiveTab, string CaesarInput, int CaesarShift, bool CaesarRot47Mode,
+        string VigenereInput, string VigenereKey, string AtbashInput,
+        string XorInput, string XorKey, bool XorInputHex, bool XorOutputBase64,
+        string AesInput, string AesKey,
+        string HmacInput, string HmacKey, string HmacAlgorithm,
+        int RandomByteCount, bool RandomSpaceSeparated);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/security/cipher");
+            if (state is not null)
+            {
+                _activeTab = state.ActiveTab;
+                _caesarInput = state.CaesarInput;
+                _caesarShift = state.CaesarShift;
+                _caesarRot47Mode = state.CaesarRot47Mode;
+                _vigenereInput = state.VigenereInput;
+                _vigenereKey = state.VigenereKey;
+                _atbashInput = state.AtbashInput;
+                _xorInput = state.XorInput;
+                _xorKey = state.XorKey;
+                _xorInputHex = state.XorInputHex;
+                _xorOutputBase64 = state.XorOutputBase64;
+                _aesInput = state.AesInput;
+                _aesKey = state.AesKey;
+                _hmacInput = state.HmacInput;
+                _hmacKey = state.HmacKey;
+                _hmacAlgorithm = state.HmacAlgorithm;
+                _randomByteCount = state.RandomByteCount;
+                _randomSpaceSeparated = state.RandomSpaceSeparated;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/security/cipher", new ToolState(
+            _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+            _vigenereInput, _vigenereKey, _atbashInput,
+            _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+            _aesInput, _aesKey,
+            _hmacInput, _hmacKey, _hmacAlgorithm,
+            _randomByteCount, _randomSpaceSeparated));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _activeTab = state.ActiveTab;
+            _caesarInput = state.CaesarInput;
+            _caesarShift = state.CaesarShift;
+            _caesarRot47Mode = state.CaesarRot47Mode;
+            _vigenereInput = state.VigenereInput;
+            _vigenereKey = state.VigenereKey;
+            _atbashInput = state.AtbashInput;
+            _xorInput = state.XorInput;
+            _xorKey = state.XorKey;
+            _xorInputHex = state.XorInputHex;
+            _xorOutputBase64 = state.XorOutputBase64;
+            _aesInput = state.AesInput;
+            _aesKey = state.AesKey;
+            _hmacInput = state.HmacInput;
+            _hmacKey = state.HmacKey;
+            _hmacAlgorithm = state.HmacAlgorithm;
+            _randomByteCount = state.RandomByteCount;
+            _randomSpaceSeparated = state.RandomSpaceSeparated;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetActiveTab(string id) { _activeTab = id; await SaveState(); }
+    private async Task SetXorInputHex(bool value) { _xorInputHex = value; await SaveState(); }
+    private async Task SetXorOutputBase64(bool value) { _xorOutputBase64 = value; await SaveState(); }
+
+    // ── Shared helpers ──────────────────────────────────────────────────────
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Tab 1 — ROT13 / Caesar
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private string _caesarInput = string.Empty;
+    private int _caesarShift = 13;
+    private string _caesarOutput = string.Empty;
+    private string? _caesarError;
+    private bool _caesarRot47Mode;
+
+    private async Task CaesarSetRot47()
+    {
+        _caesarRot47Mode = true;
+        _caesarShift = 47;
+        await SaveState();
+    }
+
+    private async Task CaesarApply(bool encode)
+    {
+        _caesarError = null;
+        _caesarOutput = string.Empty;
+
+        if (string.IsNullOrEmpty(_caesarInput))
+        {
+            _caesarError = "Please enter some text.";
+            return;
+        }
+
+        if (_caesarRot47Mode || _caesarShift == 47)
+        {
+            _caesarOutput = CipherPlaygroundCore.Rot47(_caesarInput);
+            await Storage.AddRecentAsync("tools/security/cipher", "Caesar ROT47", new ToolState(
+                _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+                _vigenereInput, _vigenereKey, _atbashInput,
+                _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+                _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+                _randomByteCount, _randomSpaceSeparated));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+            return;
+        }
+
+        if (_caesarShift is < 1 or > 25)
+        {
+            _caesarError = "Shift must be between 1 and 25.";
+            return;
+        }
+
+        int shift = encode ? _caesarShift : 26 - _caesarShift;
+        _caesarOutput = CipherPlaygroundCore.CaesarShift(_caesarInput, shift);
+
+        string direction = encode ? "encode" : "decode";
+        await Storage.AddRecentAsync("tools/security/cipher", $"Caesar shift {_caesarShift} {direction}", new ToolState(
+            _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+            _vigenereInput, _vigenereKey, _atbashInput,
+            _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+            _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+            _randomByteCount, _randomSpaceSeparated));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private static string CaesarShift(string text, int shift) => CipherPlaygroundCore.CaesarShift(text, shift);
+    private static string Rot47(string text) => CipherPlaygroundCore.Rot47(text);
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Tab 2 — Vigenère
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private string _vigenereInput = string.Empty;
+    private string _vigenereKey = string.Empty;
+    private string _vigenereOutput = string.Empty;
+    private string? _vigenereError;
+
+    private async Task VigenereApply(bool encode)
+    {
+        _vigenereError = null;
+        _vigenereOutput = string.Empty;
+
+        if (string.IsNullOrEmpty(_vigenereInput))
+        {
+            _vigenereError = "Please enter some text.";
+            return;
+        }
+
+        string keyLetters = new((_vigenereKey ?? "").Where(char.IsLetter).Select(char.ToUpper).ToArray());
+        if (keyLetters.Length == 0)
+        {
+            _vigenereError = "Keyword must contain at least one letter.";
+            return;
+        }
+
+        _vigenereOutput = CipherPlaygroundCore.VigenereApply(_vigenereInput, keyLetters, encode);
+
+        string direction = encode ? "encode" : "decode";
+        await Storage.AddRecentAsync("tools/security/cipher", $"Vigenere {direction}", new ToolState(
+            _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+            _vigenereInput, _vigenereKey ?? "", _atbashInput,
+            _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+            _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+            _randomByteCount, _randomSpaceSeparated));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private string VigenereExpandKey()
+    {
+        if (string.IsNullOrEmpty(_vigenereKey) || string.IsNullOrEmpty(_vigenereInput))
+            return string.Empty;
+
+        string keyLetters = new((_vigenereKey).Where(char.IsLetter).Select(char.ToUpper).ToArray());
+        return CipherPlaygroundCore.VigenereExpandKey(_vigenereInput, keyLetters);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Tab 3 — Atbash
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private string _atbashInput = string.Empty;
+    private string _atbashOutput = string.Empty;
+
+    private async Task AtbashApply()
+    {
+        if (string.IsNullOrEmpty(_atbashInput)) return;
+        _atbashOutput = CipherPlaygroundCore.Atbash(_atbashInput);
+
+        await Storage.AddRecentAsync("tools/security/cipher", "Atbash", new ToolState(
+            _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+            _vigenereInput, _vigenereKey, _atbashInput,
+            _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+            _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+            _randomByteCount, _randomSpaceSeparated));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Tab 4 — XOR
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private string _xorInput = string.Empty;
+    private string _xorKey = string.Empty;
+    private bool _xorInputHex;
+    private bool _xorOutputBase64;
+    private string _xorOutput = string.Empty;
+    private string? _xorError;
+
+    private async Task XorApply()
+    {
+        _xorError = null;
+        _xorOutput = string.Empty;
+
+        (string? result, string? error) = CipherPlaygroundCore.XorApply(_xorInput, _xorKey, _xorInputHex, _xorOutputBase64);
+        if (error is not null)
+            _xorError = error;
+        else if (result is not null)
+        {
+            _xorOutput = result;
+
+            await Storage.AddRecentAsync("tools/security/cipher", "XOR encrypt", new ToolState(
+                _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+                _vigenereInput, _vigenereKey, _atbashInput,
+                _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+                _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+                _randomByteCount, _randomSpaceSeparated));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Tab 5 — AES-GCM
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private string _aesInput = string.Empty;
+    private string _aesKey = string.Empty;
+    private string _aesEncryptedOutput = string.Empty;
+    private string _aesDecryptedOutput = string.Empty;
+    private string? _aesError;
+
+    private async Task AesGenerateRandomKey()
+    {
+        byte[] key = RandomNumberGenerator.GetBytes(32);
+        _aesKey = Convert.ToHexString(key).ToLowerInvariant();
+        await SaveState();
+    }
+
+    private byte[] DeriveAesKey(string keyText)
+    {
+        // If it looks like a 64-char hex string (32 bytes), use it directly
+        if (keyText.Length == 64 && keyText.All(c => char.IsAsciiHexDigit(c)))
+            return Convert.FromHexString(keyText);
+
+        return SHA256.HashData(Encoding.UTF8.GetBytes(keyText));
+    }
+
+    private async Task AesEncrypt()
+    {
+        _aesError = null;
+        _aesEncryptedOutput = string.Empty;
+        _aesDecryptedOutput = string.Empty;
+
+        if (string.IsNullOrEmpty(_aesInput))
+        {
+            _aesError = "Please enter text to encrypt.";
+            return;
+        }
+        if (string.IsNullOrEmpty(_aesKey))
+        {
+            _aesError = "Please enter a key.";
+            return;
+        }
+
+        try
+        {
+            byte[] key = DeriveAesKey(_aesKey);
+            byte[] plaintext = Encoding.UTF8.GetBytes(_aesInput);
+            byte[] nonce = RandomNumberGenerator.GetBytes(12);
+            byte[] ciphertext = new byte[plaintext.Length];
+            byte[] tag = new byte[16];
+
+            using var aes = new AesGcm(key, 16);
+            aes.Encrypt(nonce, plaintext, ciphertext, tag);
+
+            // Format: nonce(12) + ciphertext(N) + tag(16)
+            byte[] combined = new byte[12 + ciphertext.Length + 16];
+            nonce.CopyTo(combined, 0);
+            ciphertext.CopyTo(combined, 12);
+            tag.CopyTo(combined, 12 + ciphertext.Length);
+
+            _aesEncryptedOutput = Convert.ToBase64String(combined);
+
+            await Storage.AddRecentAsync("tools/security/cipher", "AES-GCM encrypt", new ToolState(
+                _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+                _vigenereInput, _vigenereKey, _atbashInput,
+                _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+                _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+                _randomByteCount, _randomSpaceSeparated));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _aesError = $"Encryption failed: {ex.Message}";
+        }
+    }
+
+    private async Task AesDecrypt()
+    {
+        _aesError = null;
+        _aesDecryptedOutput = string.Empty;
+
+        string input = !string.IsNullOrEmpty(_aesEncryptedOutput)
+            ? _aesEncryptedOutput
+            : _aesInput;
+
+        if (string.IsNullOrEmpty(input))
+        {
+            _aesError = "Please provide encrypted Base64 text (in the plaintext field or encrypt first).";
+            return;
+        }
+        if (string.IsNullOrEmpty(_aesKey))
+        {
+            _aesError = "Please enter the same key used for encryption.";
+            return;
+        }
+
+        try
+        {
+            byte[] combined = Convert.FromBase64String(input);
+            if (combined.Length < 28) // 12 nonce + 0 ciphertext + 16 tag minimum
+            {
+                _aesError = "Invalid ciphertext: too short.";
+                return;
+            }
+
+            byte[] key = DeriveAesKey(_aesKey);
+            byte[] nonce = combined[..12];
+            byte[] tag = combined[^16..];
+            byte[] ciphertext = combined[12..^16];
+            byte[] plaintext = new byte[ciphertext.Length];
+
+            using var aes = new AesGcm(key, 16);
+            aes.Decrypt(nonce, ciphertext, tag, plaintext);
+
+            _aesDecryptedOutput = Encoding.UTF8.GetString(plaintext);
+
+            await Storage.AddRecentAsync("tools/security/cipher", "AES-GCM decrypt", new ToolState(
+                _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+                _vigenereInput, _vigenereKey, _atbashInput,
+                _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+                _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+                _randomByteCount, _randomSpaceSeparated));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (FormatException)
+        {
+            _aesError = "Invalid Base64 input.";
+        }
+        catch (CryptographicException)
+        {
+            _aesError = "Decryption failed — wrong key or corrupted ciphertext.";
+        }
+        catch (Exception ex)
+        {
+            _aesError = $"Decryption failed: {ex.Message}";
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Tab 6 — HMAC
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private string _hmacInput = string.Empty;
+    private string _hmacKey = string.Empty;
+    private string _hmacAlgorithm = "SHA256";
+    private string _hmacOutputHex = string.Empty;
+    private string? _hmacOutputBase64;
+    private string? _hmacError;
+
+    private async Task HmacGenerate()
+    {
+        _hmacError = null;
+        _hmacOutputHex = string.Empty;
+        _hmacOutputBase64 = null;
+
+        if (string.IsNullOrEmpty(_hmacInput))
+        {
+            _hmacError = "Please enter a message.";
+            return;
+        }
+        if (string.IsNullOrEmpty(_hmacKey))
+        {
+            _hmacError = "Please enter a secret key.";
+            return;
+        }
+
+        try
+        {
+            byte[] keyBytes = Encoding.UTF8.GetBytes(_hmacKey);
+            byte[] messageBytes = Encoding.UTF8.GetBytes(_hmacInput);
+
+            byte[] hash = _hmacAlgorithm switch
+            {
+                "SHA256" => HMACSHA256.HashData(keyBytes, messageBytes),
+                "SHA384" => HMACSHA384.HashData(keyBytes, messageBytes),
+                "SHA512" => HMACSHA512.HashData(keyBytes, messageBytes),
+                _ => HMACSHA256.HashData(keyBytes, messageBytes),
+            };
+
+            _hmacOutputHex = Convert.ToHexString(hash).ToLowerInvariant();
+            _hmacOutputBase64 = Convert.ToBase64String(hash);
+
+            await Storage.AddRecentAsync("tools/security/cipher", $"HMAC-{_hmacAlgorithm}", new ToolState(
+                _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+                _vigenereInput, _vigenereKey, _atbashInput,
+                _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+                _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+                _randomByteCount, _randomSpaceSeparated));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _hmacError = $"HMAC generation failed: {ex.Message}";
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Tab 7 — Random Bytes
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private int _randomByteCount = 32;
+    private bool _randomSpaceSeparated;
+    private byte[]? _randomBytes;
+    private string? _randomHexLower;
+    private string? _randomHexUpper;
+    private string? _randomBase64;
+    private string? _randomCSharp;
+    private string? _randomDecimal;
+    private string? _randomError;
+
+    private async Task RandomGenerate()
+    {
+        _randomError = null;
+        _randomBytes = null;
+
+        if (_randomByteCount is < 1 or > 1024)
+        {
+            _randomError = "Byte count must be between 1 and 1024.";
+            return;
+        }
+
+        _randomBytes = RandomNumberGenerator.GetBytes(_randomByteCount);
+
+        _randomHexLower = CipherPlaygroundCore.FormatHex(_randomBytes, _randomSpaceSeparated, false);
+        _randomHexUpper = CipherPlaygroundCore.FormatHex(_randomBytes, _randomSpaceSeparated, true);
+        _randomBase64 = Convert.ToBase64String(_randomBytes);
+        _randomCSharp = CipherPlaygroundCore.FormatCSharpLiteral(_randomBytes);
+        _randomDecimal = CipherPlaygroundCore.FormatDecimalArray(_randomBytes);
+
+        await Storage.AddRecentAsync("tools/security/cipher", $"Random {_randomByteCount} bytes", new ToolState(
+            _activeTab, _caesarInput, _caesarShift, _caesarRot47Mode,
+            _vigenereInput, _vigenereKey, _atbashInput,
+            _xorInput, _xorKey, _xorInputHex, _xorOutputBase64,
+            _aesInput, _aesKey, _hmacInput, _hmacKey, _hmacAlgorithm,
+            _randomByteCount, _randomSpaceSeparated));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+}

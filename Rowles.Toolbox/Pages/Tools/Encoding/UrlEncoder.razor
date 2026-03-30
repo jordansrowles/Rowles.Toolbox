@@ -1,0 +1,177 @@
+@page "/tools/encoding/url"
+@using Rowles.Toolbox.Core.Encoding
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>URL Encoder/Decoder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="URL Encoder / Decoder" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-link mr-1"></i> Encode &amp; decode URL strings</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex gap-1 mb-4">
+    <button type="button"
+            class="@(_encodeComponent ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300") px-3 py-1.5 text-xs rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
+            @onclick="() => SetComponentMode(true)">
+        Component Only
+    </button>
+    <button type="button"
+            class="@(!_encodeComponent ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300") px-3 py-1.5 text-xs rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
+            @onclick="() => SetComponentMode(false)">
+        Full URL
+    </button>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Plain Text</label>
+        <textarea class="w-full h-48 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_plainText" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="Enter text to URL-encode…"></textarea>
+    </div>
+    <div>
+        <label class="block text-sm font-medium mb-1">URL-Encoded</label>
+        <textarea class="w-full h-48 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_encodedText" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="Enter URL-encoded text to decode…"></textarea>
+    </div>
+</div>
+
+<div class="flex flex-wrap items-center gap-2 mt-3">
+    <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+            @onclick="Encode">
+        <i class="ti ti-arrow-right mr-0.5"></i> Encode
+    </button>
+    <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+            @onclick="Decode">
+        <i class="ti ti-arrow-left mr-0.5"></i> Decode
+    </button>
+    <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+            @onclick="CopyEncoded">
+        <i class="ti ti-copy mr-0.5"></i> Copy Encoded
+    </button>
+    <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+            @onclick="Clear">
+        <i class="ti ti-eraser mr-0.5"></i> Clear
+    </button>
+</div>
+
+<p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+    <i class="ti ti-info-circle mr-0.5"></i>
+    @if (_encodeComponent)
+    {
+        <span>Component mode encodes all characters except unreserved ones (letters, digits, <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">-._~</code>).</span>
+    }
+    else
+    {
+        <span>Full URL mode preserves structural characters (<code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">:/?#[]&#64;!$&amp;'()*+,;=</code>).</span>
+    }
+</p>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="mt-3 p-2 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+        <i class="ti ti-alert-triangle mr-0.5"></i> @_error
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/url" OnRestore="RestoreState" />
+
+@code {
+    private string _plainText = string.Empty;
+    private string _encodedText = string.Empty;
+    private bool _encodeComponent = true;
+    private string? _error;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string PlainText, string EncodedText, bool EncodeComponent);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/url");
+            if (state is not null)
+            {
+                _plainText = state.PlainText;
+                _encodedText = state.EncodedText;
+                _encodeComponent = state.EncodeComponent;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/url", new ToolState(_plainText, _encodedText, _encodeComponent));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _plainText = state.PlainText;
+            _encodedText = state.EncodedText;
+            _encodeComponent = state.EncodeComponent;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetComponentMode(bool component)
+    {
+        _encodeComponent = component;
+        await SaveState();
+    }
+
+    private async Task Encode()
+    {
+        _error = null;
+        try
+        {
+            _encodedText = _encodeComponent
+                ? UrlEncoderCore.EncodeComponent(_plainText)
+                : UrlEncoderCore.EncodeFullUrl(_plainText);
+            string label = _plainText.Length > 40 ? _plainText[..40] + "..." : _plainText;
+            await Storage.AddRecentAsync("tools/encoding/url", $"Encode: {label}", new ToolState(_plainText, _encodedText, _encodeComponent));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Encoding failed: {ex.Message}";
+        }
+    }
+
+    private async Task Decode()
+    {
+        _error = null;
+        try
+        {
+            _plainText = UrlEncoderCore.Decode(_encodedText);
+            string label = _encodedText.Length > 40 ? _encodedText[..40] + "..." : _encodedText;
+            await Storage.AddRecentAsync("tools/encoding/url", $"Decode: {label}", new ToolState(_plainText, _encodedText, _encodeComponent));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Decoding failed: {ex.Message}";
+        }
+    }
+
+    private async Task CopyEncoded()
+    {
+        if (!string.IsNullOrEmpty(_encodedText))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _encodedText);
+        }
+    }
+
+    private void Clear()
+    {
+        _plainText = string.Empty;
+        _encodedText = string.Empty;
+        _error = null;
+    }
+}

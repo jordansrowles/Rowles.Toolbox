@@ -1,0 +1,351 @@
+@page "/tools/generators/css-filter"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+
+<PageTitle>CSS Filter Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="CSS Filter Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-photo-edit mr-1"></i> Visual filter chain builder with live preview</span>
+    </Actions>
+</PageHeader>
+
+@* ── Preview Section (top) ── *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-eye mr-1"></i> Preview</h3>
+        <button class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                @onclick="ResetAllFilters">
+            <i class="ti ti-refresh mr-0.5"></i> Reset All
+        </button>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+            <p class="text-xs text-gray-400 mb-1 text-center">Original</p>
+            <div class="rounded overflow-hidden flex items-center justify-center"
+                 style="width: 100%; height: 200px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <span class="text-white text-sm font-semibold drop-shadow-lg">Sample Preview</span>
+            </div>
+        </div>
+        <div>
+            <p class="text-xs text-gray-400 mb-1 text-center">Filtered</p>
+            <div class="rounded overflow-hidden flex items-center justify-center"
+                 style="width: 100%; height: 200px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); @GetFilterStyle()">
+                <span class="text-white text-sm font-semibold drop-shadow-lg">Sample Preview</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* ── Presets Bar ── *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+    <div class="flex flex-wrap gap-2">
+        @foreach (CssFilterBuilderCore.FilterPreset preset in _presets)
+        {
+            <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="() => ApplyPreset(preset)">
+                @preset.Name
+            </button>
+        }
+    </div>
+</div>
+
+@* ── Filter Controls (middle) ── *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-adjustments mr-1"></i> Filter Controls</h3>
+    <div class="space-y-3">
+        @* blur *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_blurEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-blur mr-1"></i> Blur</span>
+            <input type="range" min="0" max="20" step="0.5" class="flex-1" @bind="_blur" @bind:event="oninput" disabled="@(!_blurEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@FormatDecimal(_blur)px</span>
+        </div>
+
+        @* brightness *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_brightnessEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-sun mr-1"></i> Brightness</span>
+            <input type="range" min="0" max="300" class="flex-1" @bind="_brightness" @bind:event="oninput" disabled="@(!_brightnessEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_brightness%</span>
+        </div>
+
+        @* contrast *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_contrastEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-contrast mr-1"></i> Contrast</span>
+            <input type="range" min="0" max="300" class="flex-1" @bind="_contrast" @bind:event="oninput" disabled="@(!_contrastEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_contrast%</span>
+        </div>
+
+        @* saturate *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_saturateEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-droplet mr-1"></i> Saturate</span>
+            <input type="range" min="0" max="300" class="flex-1" @bind="_saturate" @bind:event="oninput" disabled="@(!_saturateEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_saturate%</span>
+        </div>
+
+        @* grayscale *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_grayscaleEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-color-filter mr-1"></i> Grayscale</span>
+            <input type="range" min="0" max="100" class="flex-1" @bind="_grayscale" @bind:event="oninput" disabled="@(!_grayscaleEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_grayscale%</span>
+        </div>
+
+        @* sepia *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_sepiaEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-photo mr-1"></i> Sepia</span>
+            <input type="range" min="0" max="100" class="flex-1" @bind="_sepia" @bind:event="oninput" disabled="@(!_sepiaEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_sepia%</span>
+        </div>
+
+        @* invert *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_invertEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-switch-horizontal mr-1"></i> Invert</span>
+            <input type="range" min="0" max="100" class="flex-1" @bind="_invert" @bind:event="oninput" disabled="@(!_invertEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_invert%</span>
+        </div>
+
+        @* hue-rotate *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_hueRotateEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-rotate mr-1"></i> Hue Rotate</span>
+            <input type="range" min="0" max="360" class="flex-1" @bind="_hueRotate" @bind:event="oninput" disabled="@(!_hueRotateEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_hueRotate°</span>
+        </div>
+
+        @* opacity *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_opacityEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-ghost mr-1"></i> Opacity</span>
+            <input type="range" min="0" max="100" class="flex-1" @bind="_opacity" @bind:event="oninput" disabled="@(!_opacityEnabled)" />
+            <span class="w-16 text-right text-gray-400 font-mono">@_opacity%</span>
+        </div>
+
+        @* drop-shadow *@
+        <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1 w-5">
+                <input type="checkbox" class="accent-blue-600" @bind="_dropShadowEnabled" />
+            </label>
+            <span class="w-24 font-medium text-gray-700 dark:text-gray-300"><i class="ti ti-shadow mr-1"></i> Drop Shadow</span>
+            <div class="flex-1 flex items-center gap-2">
+                <label class="text-gray-400">X</label>
+                <input type="number" class="w-14 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                       @bind="_shadowX" @bind:event="oninput" disabled="@(!_dropShadowEnabled)" />
+                <label class="text-gray-400">Y</label>
+                <input type="number" class="w-14 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                       @bind="_shadowY" @bind:event="oninput" disabled="@(!_dropShadowEnabled)" />
+                <label class="text-gray-400">Blur</label>
+                <input type="number" min="0" class="w-14 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                       @bind="_shadowBlur" @bind:event="oninput" disabled="@(!_dropShadowEnabled)" />
+                <input type="color" class="w-7 h-7 rounded cursor-pointer border border-gray-300 dark:border-gray-600"
+                       @bind="_shadowColour" @bind:event="oninput" disabled="@(!_dropShadowEnabled)" />
+            </div>
+            <span class="w-16 text-right text-gray-400 font-mono truncate" title="@_shadowX @_shadowY @_shadowBlur @_shadowColour">@(_shadowX)px</span>
+        </div>
+    </div>
+</div>
+
+@* ── CSS Output (bottom) ── *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> CSS Output</h3>
+        <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                @onclick="CopyOutput">
+            <i class="ti ti-copy mr-0.5"></i> Copy
+        </button>
+    </div>
+
+    <div class="flex flex-wrap gap-3 mb-3 text-xs">
+        <label class="flex items-center gap-1 text-gray-600 dark:text-gray-400 cursor-pointer">
+            <input type="checkbox" class="accent-blue-600" @bind="_showBackdropFilter" />
+            <span>backdrop-filter</span>
+        </label>
+        <label class="flex items-center gap-1 text-gray-600 dark:text-gray-400 cursor-pointer">
+            <input type="checkbox" class="accent-blue-600" @bind="_showWebkitPrefix" />
+            <span>-webkit-filter</span>
+        </label>
+    </div>
+
+    <pre class="w-full p-3 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-900/30 text-xs font-mono text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-all overflow-x-auto">@GetOutputText()</pre>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/css-filter" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private static string FormatDecimal(double value) => CssFilterBuilderCore.FormatDecimal(value);
+
+    // ── Filter values ──
+    private double _blur;
+    private int _brightness = 100;
+    private int _contrast = 100;
+    private int _saturate = 100;
+    private int _grayscale;
+    private int _sepia;
+    private int _invert;
+    private int _hueRotate;
+    private int _opacity = 100;
+    private int _shadowX;
+    private int _shadowY;
+    private int _shadowBlur;
+    private string _shadowColour = "#000000";
+
+    // ── Enable flags ──
+    private bool _blurEnabled;
+    private bool _brightnessEnabled;
+    private bool _contrastEnabled;
+    private bool _saturateEnabled;
+    private bool _grayscaleEnabled;
+    private bool _sepiaEnabled;
+    private bool _invertEnabled;
+    private bool _hueRotateEnabled;
+    private bool _opacityEnabled;
+    private bool _dropShadowEnabled;
+
+    // ── Output options ──
+    private bool _showBackdropFilter;
+    private bool _showWebkitPrefix;
+
+    private string? _statusMessage;
+
+    sealed record ToolState(
+        double Blur, int Brightness, int Contrast, int Saturate, int Grayscale, int Sepia, int Invert, int HueRotate, int Opacity,
+        int ShadowX, int ShadowY, int ShadowBlur, string ShadowColour,
+        bool BlurEnabled, bool BrightnessEnabled, bool ContrastEnabled, bool SaturateEnabled, bool GrayscaleEnabled,
+        bool SepiaEnabled, bool InvertEnabled, bool HueRotateEnabled, bool OpacityEnabled, bool DropShadowEnabled,
+        bool ShowBackdropFilter, bool ShowWebkitPrefix
+    );
+
+    // ── Presets ──
+    private readonly List<CssFilterBuilderCore.FilterPreset> _presets =
+    [
+        new("Vintage",        0,  90, 110, 100, 0, 60,  0,   0, 100, false, 0, 0, 0, "#000000"),
+        new("Dramatic B&W",   0, 100, 150, 100, 100, 0, 0,   0, 100, false, 0, 0, 0, "#000000"),
+        new("Frosted Glass",  8, 105, 100, 100, 0, 0,   0,   0, 100, false, 0, 0, 0, "#000000"),
+        new("Washed Out",     0, 130,  80,  50, 0, 0,   0,   0, 100, false, 0, 0, 0, "#000000"),
+        new("Night Vision",   0, 150, 130, 200, 0, 0,   0, 120, 100, false, 0, 0, 0, "#000000")
+    ];
+
+    private string BuildFilterValue() =>
+        CssFilterBuilderCore.BuildFilterValue(
+            _blurEnabled, _blur,
+            _brightnessEnabled, _brightness,
+            _contrastEnabled, _contrast,
+            _saturateEnabled, _saturate,
+            _grayscaleEnabled, _grayscale,
+            _sepiaEnabled, _sepia,
+            _invertEnabled, _invert,
+            _hueRotateEnabled, _hueRotate,
+            _opacityEnabled, _opacity,
+            _dropShadowEnabled, _shadowX, _shadowY, _shadowBlur, _shadowColour);
+
+    private string GetFilterStyle() =>
+        CssFilterBuilderCore.GetFilterStyle(BuildFilterValue());
+
+    private string GetOutputText() =>
+        CssFilterBuilderCore.GetOutputText(BuildFilterValue(), _showWebkitPrefix, _showBackdropFilter);
+
+    private void ResetAllFilters()
+    {
+        _blur = 0;
+        _brightness = 100;
+        _contrast = 100;
+        _saturate = 100;
+        _grayscale = 0;
+        _sepia = 0;
+        _invert = 0;
+        _hueRotate = 0;
+        _opacity = 100;
+        _shadowX = 0;
+        _shadowY = 0;
+        _shadowBlur = 0;
+        _shadowColour = "#000000";
+
+        _blurEnabled = false;
+        _brightnessEnabled = false;
+        _contrastEnabled = false;
+        _saturateEnabled = false;
+        _grayscaleEnabled = false;
+        _sepiaEnabled = false;
+        _invertEnabled = false;
+        _hueRotateEnabled = false;
+        _opacityEnabled = false;
+        _dropShadowEnabled = false;
+    }
+
+    private void ApplyPreset(CssFilterBuilderCore.FilterPreset preset)
+    {
+        ResetAllFilters();
+
+        _blur = preset.Blur;
+        _brightness = preset.Brightness;
+        _contrast = preset.Contrast;
+        _saturate = preset.Saturate;
+        _grayscale = preset.Grayscale;
+        _sepia = preset.Sepia;
+        _invert = preset.Invert;
+        _hueRotate = preset.HueRotate;
+        _opacity = preset.Opacity;
+        _shadowX = preset.ShadowX;
+        _shadowY = preset.ShadowY;
+        _shadowBlur = preset.ShadowBlur;
+        _shadowColour = preset.ShadowColour;
+        _dropShadowEnabled = preset.DropShadowEnabled;
+
+        _blurEnabled = _blur != 0;
+        _brightnessEnabled = _brightness != 100;
+        _contrastEnabled = _contrast != 100;
+        _saturateEnabled = _saturate != 100;
+        _grayscaleEnabled = _grayscale != 0;
+        _sepiaEnabled = _sepia != 0;
+        _invertEnabled = _invert != 0;
+        _hueRotateEnabled = _hueRotate != 0;
+        _opacityEnabled = _opacity != 100;
+    }
+
+    private async Task CopyOutput()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GetOutputText());
+        _statusMessage = "CSS copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+
+    private void RestoreState(string json)
+    {
+        // CssFilterBuilder doesn't have state persistence yet - placeholder method
+    }
+}

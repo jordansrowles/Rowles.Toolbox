@@ -1,0 +1,294 @@
+@page "/tools/dev/big-o"
+@using Rowles.Toolbox.Core.Developer
+@inject LocalStorageService Storage
+
+<PageTitle>Big O Reference - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Big O Reference" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-chart-line mr-1"></i> Algorithm complexity cheat sheet</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-6">
+
+    @* -- Complexity Overview -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h2 class="text-lg font-semibold mb-3">
+            <i class="ti ti-list-numbers mr-1"></i> Complexity Overview
+        </h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                        <th class="text-left p-2 text-gray-500">Notation</th>
+                        <th class="text-left p-2 text-gray-500">Name</th>
+                        <th class="text-left p-2 text-gray-500">Description</th>
+                        <th class="text-left p-2 text-gray-500">Example Algorithms</th>
+                        <th class="text-center p-2 text-gray-500">Growth</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (BigOReferenceCore.ComplexityInfo info in BigOReferenceCore.Complexities)
+                    {
+                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <td class="p-2 font-mono font-bold">@RenderBadge(info.Notation, info.Rating)</td>
+                            <td class="p-2 text-gray-700 dark:text-gray-300 font-medium">@info.Name</td>
+                            <td class="p-2 text-gray-600 dark:text-gray-400">@info.Description</td>
+                            <td class="p-2 text-gray-600 dark:text-gray-400 text-xs">@info.Examples</td>
+                            <td class="p-2 text-center">@RenderRating(info.Rating)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* -- Data Structure Operations -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h2 class="text-lg font-semibold mb-3">
+            <i class="ti ti-database mr-1"></i> Data Structure Operations
+        </h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                        <th class="text-left p-2 text-gray-500" rowspan="2">Data Structure</th>
+                        <th class="text-center p-2 text-gray-500 border-b border-gray-200 dark:border-gray-700" colspan="2">Access</th>
+                        <th class="text-center p-2 text-gray-500 border-b border-gray-200 dark:border-gray-700" colspan="2">Search</th>
+                        <th class="text-center p-2 text-gray-500 border-b border-gray-200 dark:border-gray-700" colspan="2">Insert</th>
+                        <th class="text-center p-2 text-gray-500 border-b border-gray-200 dark:border-gray-700" colspan="2">Delete</th>
+                        <th class="text-center p-2 text-gray-500" rowspan="2">Space</th>
+                    </tr>
+                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                        <th class="text-center p-1 text-gray-400 text-xs">Avg</th>
+                        <th class="text-center p-1 text-gray-400 text-xs">Worst</th>
+                        <th class="text-center p-1 text-gray-400 text-xs">Avg</th>
+                        <th class="text-center p-1 text-gray-400 text-xs">Worst</th>
+                        <th class="text-center p-1 text-gray-400 text-xs">Avg</th>
+                        <th class="text-center p-1 text-gray-400 text-xs">Worst</th>
+                        <th class="text-center p-1 text-gray-400 text-xs">Avg</th>
+                        <th class="text-center p-1 text-gray-400 text-xs">Worst</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (BigOReferenceCore.DataStructureInfo ds in BigOReferenceCore.DataStructures)
+                    {
+                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <td class="p-2 font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">@ds.Name</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.AccessAvg)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.AccessWorst)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.SearchAvg)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.SearchWorst)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.InsertAvg)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.InsertWorst)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.DeleteAvg)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.DeleteWorst)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(ds.Space)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* -- Sorting Algorithms -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h2 class="text-lg font-semibold mb-3">
+            <i class="ti ti-arrows-sort mr-1"></i> Sorting Algorithms
+        </h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                        <th class="text-left p-2 text-gray-500">Algorithm</th>
+                        <th class="text-center p-2 text-gray-500">Best</th>
+                        <th class="text-center p-2 text-gray-500">Average</th>
+                        <th class="text-center p-2 text-gray-500">Worst</th>
+                        <th class="text-center p-2 text-gray-500">Space</th>
+                        <th class="text-center p-2 text-gray-500">Stable?</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (BigOReferenceCore.SortAlgorithmInfo algo in BigOReferenceCore.SortAlgorithms)
+                    {
+                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <td class="p-2 font-medium text-gray-700 dark:text-gray-300">@algo.Name</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(algo.Best)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(algo.Average)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(algo.Worst)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(algo.Space)</td>
+                            <td class="p-2 text-center">
+                                @if (algo.Stable)
+                                {
+                                    <span class="text-green-600 dark:text-green-400"><i class="ti ti-check"></i></span>
+                                }
+                                else
+                                {
+                                    <span class="text-red-500 dark:text-red-400"><i class="ti ti-x"></i></span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* -- Visual Growth Comparison -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h2 class="text-lg font-semibold mb-3">
+            <i class="ti ti-chart-bar mr-1"></i> Visual Growth Comparison
+        </h2>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            @foreach (int n in BigOReferenceCore.GrowthInputSizes)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3">n = @n.ToString("N0")</h3>
+                    <div class="space-y-2">
+                        @foreach (BigOReferenceCore.GrowthEntry entry in BigOReferenceCore.ComputeGrowthBars(n))
+                        {
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-mono w-20 text-right text-gray-600 dark:text-gray-400 shrink-0">@entry.Label</span>
+                                <div class="flex-1 bg-gray-100 dark:bg-gray-800 rounded h-5 overflow-hidden">
+                                    <div class="h-full rounded @entry.Color flex items-center pl-1"
+                                         style="width: @entry.WidthPercent%;">
+                                        <span class="text-[10px] font-mono text-white whitespace-nowrap drop-shadow">@entry.DisplayValue</span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* -- .NET Collection Complexities -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h2 class="text-lg font-semibold mb-3">
+            <i class="ti ti-brand-csharp mr-1"></i> .NET Collection Complexities
+        </h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-200 dark:border-gray-700">
+                        <th class="text-left p-2 text-gray-500">Type</th>
+                        <th class="text-center p-2 text-gray-500">Add / Insert</th>
+                        <th class="text-center p-2 text-gray-500">Remove</th>
+                        <th class="text-center p-2 text-gray-500">Lookup</th>
+                        <th class="text-center p-2 text-gray-500">Access by Index</th>
+                        <th class="text-left p-2 text-gray-500">Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (BigOReferenceCore.DotNetCollectionInfo col in BigOReferenceCore.DotNetCollections)
+                    {
+                        <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <td class="p-2 font-mono text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">@col.TypeName</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(col.Add)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(col.Remove)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(col.Lookup)</td>
+                            <td class="p-2 text-center">@RenderComplexityBadge(col.IndexAccess)</td>
+                            <td class="p-2 text-xs text-gray-500 dark:text-gray-400">@col.Notes</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/big-o" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState();
+    private static RenderFragment RenderBadge(string notation, BigOReferenceCore.Rating rating) => builder =>
+    {
+        string css = rating switch
+        {
+            BigOReferenceCore.Rating.Excellent => "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200",
+            BigOReferenceCore.Rating.Good      => "bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200",
+            BigOReferenceCore.Rating.Fair      => "bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200",
+            BigOReferenceCore.Rating.Bad       => "bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200",
+            BigOReferenceCore.Rating.Horrible  => "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200",
+            _                => "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300",
+        };
+
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", $"px-2 py-0.5 rounded text-xs font-mono font-bold {css}");
+        builder.AddContent(2, notation);
+        builder.CloseElement();
+    };
+
+    private static RenderFragment RenderRating(BigOReferenceCore.Rating rating) => builder =>
+    {
+        (string label, string css, string icon) = rating switch
+        {
+            BigOReferenceCore.Rating.Excellent => ("Excellent", "text-green-600 dark:text-green-400",   "ti-star-filled"),
+            BigOReferenceCore.Rating.Good      => ("Good",      "text-emerald-600 dark:text-emerald-400","ti-star-filled"),
+            BigOReferenceCore.Rating.Fair      => ("Fair",      "text-yellow-600 dark:text-yellow-400",  "ti-star-half-filled"),
+            BigOReferenceCore.Rating.Bad       => ("Bad",       "text-orange-600 dark:text-orange-400",  "ti-alert-triangle"),
+            BigOReferenceCore.Rating.Horrible  => ("Horrible",  "text-red-600 dark:text-red-400",        "ti-alert-circle"),
+            _                => ("—",         "text-gray-500",                          "ti-minus"),
+        };
+
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", $"text-xs font-semibold {css}");
+
+        builder.OpenElement(2, "i");
+        builder.AddAttribute(3, "class", $"ti {icon} mr-0.5");
+        builder.CloseElement();
+
+        builder.AddContent(4, label);
+        builder.CloseElement();
+    };
+
+    private static RenderFragment RenderComplexityBadge(string complexity) => builder =>
+    {
+        if (complexity == "—")
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "text-gray-400 text-xs");
+            builder.AddContent(2, "—");
+            builder.CloseElement();
+            return;
+        }
+
+        string css = BigOReferenceCore.ComplexityColor(complexity);
+
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", $"px-2 py-0.5 rounded text-xs font-mono {css}");
+        builder.AddContent(2, complexity);
+        builder.CloseElement();
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/big-o");
+            if (state is not null)
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/big-o", new ToolState());
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            StateHasChanged();
+        }
+    }
+}

@@ -1,0 +1,298 @@
+@page "/tools/inspect/dom"
+@using System.Text
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using Rowles.Toolbox.Core.Inspection
+@inject LocalStorageService Storage
+
+<PageTitle>DOM Tree Visualizer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="DOM Tree Visualizer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary-tree mr-1"></i> Parse &amp; visualize HTML DOM structure</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">HTML Input</label>
+        <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Paste your HTML here…"
+                  @bind="_inputHtml"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+        <div class="mt-2 flex items-center gap-2">
+            <button class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                    @onclick="ParseHtml">
+                <i class="ti ti-code mr-1"></i> Parse HTML
+            </button>
+            <button class="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-1.5 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer border-none"
+                    @onclick="TogglePrettyPrint">
+                <i class="ti ti-indent-increase mr-1"></i> Pretty Print
+            </button>
+        </div>
+    </div>
+
+    @if (_showPrettyPrint && _rootNodes.Count > 0)
+    {
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-indent-increase mr-1"></i> Formatted HTML</h3>
+            <pre class="text-xs font-mono bg-gray-50 dark:bg-gray-900 p-3 rounded overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap"><code>@_prettyHtml</code></pre>
+        </div>
+    }
+
+    @if (_rootNodes.Count > 0)
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="lg:col-span-2">
+                <div class="mb-3">
+                    <label class="block text-xs font-medium mb-1">CSS Selector Filter</label>
+                    <div class="flex items-center gap-2">
+                        <input type="text"
+                               class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="e.g. div, .class, #id, tag.class"
+                               @bind="_selectorInput"
+                               @bind:event="oninput"
+                               @bind:after="SaveAndApplySelector" />
+                        @if (_matchCount > 0)
+                        {
+                            <span class="text-xs text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap">
+                                <i class="ti ti-target mr-1"></i> @_matchCount match@(_matchCount != 1 ? "es" : "")
+                            </span>
+                        }
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4 max-h-[60vh] overflow-y-auto">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-binary-tree mr-1"></i> DOM Tree</h3>
+                        <div class="flex items-center gap-2">
+                            <button class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                                    @onclick="ExpandAll">
+                                <i class="ti ti-arrows-maximize mr-0.5"></i> Expand
+                            </button>
+                            <button class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent"
+                                    @onclick="CollapseAll">
+                                <i class="ti ti-arrows-minimize mr-0.5"></i> Collapse
+                            </button>
+                        </div>
+                    </div>
+                    @foreach (DomTreeVisualizerCore.HtmlNode node in _rootNodes)
+                    {
+                        @RenderTreeNode(node)
+                    }
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-chart-bar mr-1"></i> Statistics</h3>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-hash mr-1 text-gray-400"></i> Total Elements</span>
+                            <span class="font-bold">@_totalElements</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-arrows-vertical mr-1 text-gray-400"></i> Max Depth</span>
+                            <span class="font-bold">@_maxDepth</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-tags mr-1 text-gray-400"></i> Unique Tags</span>
+                            <span class="font-bold">@_uniqueTags.Count</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-id mr-1 text-gray-400"></i> Elements with ID</span>
+                            <span class="font-bold">@_elementsWithId</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-palette mr-1 text-gray-400"></i> Elements with Classes</span>
+                            <span class="font-bold">@_elementsWithClasses</span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_uniqueTags.Count > 0)
+                {
+                    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Tag Breakdown</h3>
+                        <div class="space-y-1">
+                            @foreach (KeyValuePair<string, int> tag in _uniqueTags.OrderByDescending(t => t.Value))
+                            {
+                                <div class="flex items-center justify-between text-xs">
+                                    <code class="text-blue-600 dark:text-blue-400">&lt;@tag.Key&gt;</code>
+                                    <span class="text-gray-500">@tag.Value</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/inspect/dom" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _inputHtml = DomTreeVisualizerCore.DefaultHtml;
+    private string _selectorInput = string.Empty;
+    private string _prettyHtml = string.Empty;
+    private bool _showPrettyPrint;
+    private int _matchCount;
+    private int _totalElements;
+    private int _maxDepth;
+    private int _elementsWithId;
+    private int _elementsWithClasses;
+    private List<DomTreeVisualizerCore.HtmlNode> _rootNodes = [];
+    private Dictionary<string, int> _uniqueTags = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/inspect/dom");
+            if (state is not null)
+            {
+                _inputHtml = state.InputHtml;
+                _selectorInput = state.SelectorInput;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/inspect/dom", new ToolState(_inputHtml, _selectorInput));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputHtml = state.InputHtml;
+            _selectorInput = state.SelectorInput;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAndApplySelector()
+    {
+        ApplySelector();
+        await SaveState();
+    }
+
+    private async Task ParseHtml()
+    {
+        _showPrettyPrint = false;
+        _selectorInput = string.Empty;
+        _matchCount = 0;
+
+        _rootNodes = DomTreeVisualizerCore.ParseHtml(_inputHtml);
+        ComputeStatistics();
+
+        if (_recentPanel is not null)
+        {
+            string label = $"Parse HTML ({_inputHtml.Length} chars)";
+            await Storage.AddRecentAsync("tools/inspect/dom", label, new ToolState(_inputHtml, _selectorInput));
+            await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private void ComputeStatistics()
+    {
+        (int totalElements, int maxDepth, int elementsWithId, int elementsWithClasses, Dictionary<string, int> uniqueTags) =
+            DomTreeVisualizerCore.ComputeStatistics(_rootNodes);
+        _totalElements = totalElements;
+        _maxDepth = maxDepth;
+        _elementsWithId = elementsWithId;
+        _elementsWithClasses = elementsWithClasses;
+        _uniqueTags = uniqueTags;
+    }
+
+    private void ApplySelector()
+    {
+        _matchCount = 0;
+        DomTreeVisualizerCore.ClearMatches(_rootNodes);
+
+        if (string.IsNullOrWhiteSpace(_selectorInput))
+            return;
+
+        (string? filterTag, string? filterId, string? filterClass) =
+            DomTreeVisualizerCore.ParseSelector(_selectorInput.Trim());
+
+        _matchCount = DomTreeVisualizerCore.MatchSelectorNodes(_rootNodes, filterTag, filterId, filterClass);
+    }
+
+    private async Task TogglePrettyPrint()
+    {
+        if (_rootNodes.Count == 0)
+            await ParseHtml();
+
+        _showPrettyPrint = !_showPrettyPrint;
+
+        if (_showPrettyPrint && _rootNodes.Count > 0)
+            _prettyHtml = DomTreeVisualizerCore.GeneratePrettyPrint(_rootNodes);
+    }
+
+    private void ExpandAll() => DomTreeVisualizerCore.SetExpandState(_rootNodes, true);
+
+    private void CollapseAll() => DomTreeVisualizerCore.SetExpandState(_rootNodes, false);
+
+    sealed record ToolState(string InputHtml, string SelectorInput);
+
+    private RenderFragment RenderTreeNode(DomTreeVisualizerCore.HtmlNode node) => __builder =>
+    {
+        <div style="margin-left: @(node.Depth * 24)px"
+             class="@($"flex items-center gap-1 py-0.5 text-sm rounded px-1{(node.IsMatched ? " bg-amber-100 dark:bg-amber-900/30" : "")}")">
+            @if (!node.IsTextNode)
+            {
+                @if (node.Children.Count > 0)
+                {
+                    <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer border-none bg-transparent p-0 leading-none"
+                            @onclick="() => node.IsExpanded = !node.IsExpanded">
+                        <i class="ti @(node.IsExpanded ? "ti-chevron-down" : "ti-chevron-right") text-xs"></i>
+                    </button>
+                }
+                else
+                {
+                    <span class="inline-block w-4"></span>
+                }
+
+                <code class="text-blue-600 dark:text-blue-400 font-bold text-xs">&lt;@node.TagName&gt;</code>
+
+                @if (node.Id is not null)
+                {
+                    <span class="text-orange-500 dark:text-orange-400 text-xs font-mono">#@node.Id</span>
+                }
+
+                @if (node.Classes.Count > 0)
+                {
+                    @foreach (string cls in node.Classes)
+                    {
+                        <span class="text-green-600 dark:text-green-400 text-xs font-mono">.@cls</span>
+                    }
+                }
+
+                @if (node.Attributes.Count > 0)
+                {
+                    <span class="text-gray-400 text-xs">[@node.Attributes.Count attr@(node.Attributes.Count != 1 ? "s" : "")]</span>
+                }
+            }
+            else
+            {
+                <span class="inline-block w-4"></span>
+                <span class="text-gray-500 dark:text-gray-400 italic text-xs">"@DomTreeVisualizerCore.TruncateText(node.TextContent ?? string.Empty, 80)"</span>
+            }
+        </div>
+
+        @if (!node.IsTextNode && node.IsExpanded)
+        {
+            @foreach (DomTreeVisualizerCore.HtmlNode child in node.Children)
+            {
+                @RenderTreeNode(child)
+            }
+        }
+    };
+}

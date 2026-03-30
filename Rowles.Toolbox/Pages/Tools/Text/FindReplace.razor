@@ -1,0 +1,169 @@
+@page "/tools/text/find-replace"
+@using System.Text.RegularExpressions
+@inject LocalStorageService Storage
+
+<PageTitle>Find &amp; Replace - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Find & Replace" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-replace mr-1"></i> Search and replace text with regex support</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Source Text</label>
+        <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Type or paste your text here…"
+                  @bind="_sourceText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-search mr-1"></i> Find</label>
+            <input type="text"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Search pattern…"
+                   @bind="_findText"
+                   @bind:event="oninput"
+                   @bind:after="SaveState" />
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-replace mr-1"></i> Replace</label>
+            <input type="text"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Replacement text…"
+                   @bind="_replaceText"
+                   @bind:event="oninput"
+                   @bind:after="SaveState" />
+        </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-4">
+        <label class="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" class="rounded" @bind="_caseSensitive" @bind:after="SaveState" />
+            <i class="ti ti-letter-case text-gray-400"></i> Case sensitive
+        </label>
+        <label class="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" class="rounded" @bind="_wholeWord" @bind:after="SaveState" />
+            <i class="ti ti-text-wrap-disabled text-gray-400"></i> Whole word
+        </label>
+        <label class="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" class="rounded" @bind="_useRegex" @bind:after="SaveState" />
+            <i class="ti ti-regex text-gray-400"></i> Regex
+        </label>
+    </div>
+
+    <div class="flex items-center gap-4">
+        <button class="bg-blue-600 text-white px-3 py-1.5 text-sm rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled="@(!CanReplace)"
+                @onclick="ReplaceAll">
+            <i class="ti ti-replace mr-1"></i> Replace All
+        </button>
+
+        <span class="text-sm text-gray-500">
+            @if (!string.IsNullOrEmpty(_regexError))
+            {
+                <span class="text-red-500 text-xs"><i class="ti ti-alert-triangle mr-1"></i>@_regexError</span>
+            }
+            else if (!string.IsNullOrEmpty(_findText) && !string.IsNullOrEmpty(_sourceText))
+            {
+                <span>
+                    <i class="ti ti-hash mr-1 text-gray-400"></i>
+                    <strong class="text-blue-600 dark:text-blue-400">@MatchCount</strong> match@(MatchCount == 1 ? "" : "es") found
+                </span>
+            }
+        </span>
+    </div>
+
+    <div>
+        <label class="block text-sm font-medium mb-1">Result</label>
+        <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y"
+                  readonly
+                  placeholder="Result will appear here…">@_resultText</textarea>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/find-replace" OnRestore="RestoreState" />
+
+@code {
+    private string _sourceText = string.Empty;
+    private string _findText = string.Empty;
+    private string _replaceText = string.Empty;
+    private string _resultText = string.Empty;
+    private bool _caseSensitive;
+    private bool _wholeWord;
+    private bool _useRegex;
+    private string? _regexError;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string SourceText, string FindText, string ReplaceText, bool CaseSensitive, bool WholeWord, bool UseRegex);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/find-replace");
+            if (state is not null)
+            {
+                _sourceText = state.SourceText;
+                _findText = state.FindText;
+                _replaceText = state.ReplaceText;
+                _caseSensitive = state.CaseSensitive;
+                _wholeWord = state.WholeWord;
+                _useRegex = state.UseRegex;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/find-replace", new ToolState(_sourceText, _findText, _replaceText, _caseSensitive, _wholeWord, _useRegex));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _sourceText = state.SourceText;
+            _findText = state.FindText;
+            _replaceText = state.ReplaceText;
+            _caseSensitive = state.CaseSensitive;
+            _wholeWord = state.WholeWord;
+            _useRegex = state.UseRegex;
+            _resultText = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private bool CanReplace => !string.IsNullOrEmpty(_sourceText)
+                               && !string.IsNullOrEmpty(_findText)
+                               && string.IsNullOrEmpty(_regexError);
+
+    private int MatchCount
+    {
+        get
+        {
+            int count = Core.Text.FindReplaceCore.CountMatches(_sourceText, _findText, _caseSensitive, _useRegex, _wholeWord, out string? error);
+            _regexError = error;
+            return count;
+        }
+    }
+
+    private async Task ReplaceAll()
+    {
+        _resultText = Core.Text.FindReplaceCore.ReplaceAll(_sourceText, _findText, _replaceText, _caseSensitive, _useRegex, _wholeWord, out string? error);
+        _regexError = error;
+
+        if (string.IsNullOrEmpty(error))
+        {
+            string label = _findText.Length > 30 ? _findText[..30] + "..." : _findText;
+            await Storage.AddRecentAsync("tools/text/find-replace", label, new ToolState(_sourceText, _findText, _replaceText, _caseSensitive, _wholeWord, _useRegex));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+}

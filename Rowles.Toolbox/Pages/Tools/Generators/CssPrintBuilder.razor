@@ -1,0 +1,726 @@
+@page "/tools/generators/css-print"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+@using System.Text.Json
+
+<PageTitle>CSS Print Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="CSS Print Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-printer mr-1"></i> Build @@media print override rules</span>
+    </Actions>
+</PageHeader>
+
+@* ── Presets ── *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-3 mb-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+    <div class="flex flex-wrap gap-2">
+        <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                @onclick="ApplyCleanArticle">
+            <i class="ti ti-article mr-0.5"></i> Clean article
+        </button>
+        <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                @onclick="ApplyBookStyle">
+            <i class="ti ti-book mr-0.5"></i> Book-style
+        </button>
+        <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                @onclick="ApplyMinimal">
+            <i class="ti ti-layout mr-0.5"></i> Minimal
+        </button>
+        <button class="px-2 py-1 text-xs rounded cursor-pointer border border-red-300 dark:border-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400"
+                @onclick="ResetAll">
+            <i class="ti ti-refresh mr-0.5"></i> Reset
+        </button>
+    </div>
+</div>
+
+@* ── Section Tabs ── *@
+<div class="flex gap-2 mb-4">
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "page" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='() => SetActiveTab("page")'>
+        <i class="ti ti-file-settings mr-0.5"></i> Page Setup
+    </button>
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "breaks" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='() => SetActiveTab("breaks")'>
+        <i class="ti ti-separator mr-0.5"></i> Page Breaks
+    </button>
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "visibility" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='() => SetActiveTab("visibility")'>
+        <i class="ti ti-eye-off mr-0.5"></i> Hide / Show
+    </button>
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == "typography" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick='() => SetActiveTab("typography")'>
+        <i class="ti ti-typography mr-0.5"></i> Typography
+    </button>
+</div>
+
+@* ── Main 2-Column Grid ── *@
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    @* ── Left: Controls ── *@
+    <div class="space-y-3">
+
+        @* ── Page Setup ── *@
+        @if (_activeTab == "page")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-file-settings mr-1"></i> Page Setup</h3>
+
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-medium w-24 shrink-0">Page Size</label>
+                    <select class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_pageSize" @bind:after="SaveState">
+                        <option value="A4">A4 (210 × 297 mm)</option>
+                        <option value="Letter">Letter (216 × 279 mm)</option>
+                        <option value="Legal">Legal (216 × 356 mm)</option>
+                        <option value="A3">A3 (297 × 420 mm)</option>
+                        <option value="Custom">Custom</option>
+                    </select>
+                </div>
+
+                @if (_pageSize == "Custom")
+                {
+                    <div class="flex items-center gap-3">
+                        <label class="text-xs font-medium w-24 shrink-0">Width (mm)</label>
+                        <input type="number" min="50" max="1000" class="w-24 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_customWidthMm" @bind:after="SaveState" />
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="text-xs font-medium w-24 shrink-0">Height (mm)</label>
+                        <input type="number" min="50" max="1000" class="w-24 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_customHeightMm" @bind:after="SaveState" />
+                    </div>
+                }
+
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-medium w-24 shrink-0">Orientation</label>
+                    <div class="flex gap-2">
+                        <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @(!_landscape ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                                @onclick="() => SetLandscape(false)">
+                            Portrait
+                        </button>
+                        <button class="px-3 py-1 text-xs rounded cursor-pointer border-none @(_landscape ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                                @onclick="() => SetLandscape(true)">
+                            Landscape
+                        </button>
+                    </div>
+                </div>
+
+                <div class="border-t border-gray-100 dark:border-gray-800 pt-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-semibold text-gray-500">Margins (mm)</h4>
+                        <label class="flex items-center gap-1.5 text-xs text-gray-500">
+                            <input type="checkbox" class="rounded" @bind="_sameAllMargins" @bind:after="SaveState" />
+                            Same all sides
+                        </label>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <label class="text-xs font-medium w-24 shrink-0">Top</label>
+                        <input type="number" min="0" max="100" class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               value="@_marginTop"
+                               @oninput="async (e) => { if (int.TryParse(e.Value?.ToString(), out int v)) await SetMargin(0, v); }" />
+                        <span class="text-xs text-gray-400">mm</span>
+                    </div>
+
+                    @if (!_sameAllMargins)
+                    {
+                        <div class="flex items-center gap-3 mt-1">
+                            <label class="text-xs font-medium w-24 shrink-0">Right</label>
+                            <input type="number" min="0" max="100" class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                   @bind="_marginRight" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400">mm</span>
+                        </div>
+                        <div class="flex items-center gap-3 mt-1">
+                            <label class="text-xs font-medium w-24 shrink-0">Bottom</label>
+                            <input type="number" min="0" max="100" class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                   @bind="_marginBottom" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400">mm</span>
+                        </div>
+                        <div class="flex items-center gap-3 mt-1">
+                            <label class="text-xs font-medium w-24 shrink-0">Left</label>
+                            <input type="number" min="0" max="100" class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                   @bind="_marginLeft" @bind:after="SaveState" />
+                            <span class="text-xs text-gray-400">mm</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        @* ── Page Breaks ── *@
+        @if (_activeTab == "breaks")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-separator mr-1"></i> Page Break Rules</h3>
+                    <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                            @onclick="AddBreakRule">
+                        <i class="ti ti-plus mr-0.5"></i> Add rule
+                    </button>
+                </div>
+
+                <div class="space-y-2">
+                    @for (int i = 0; i < _breakRules.Count; i++)
+                    {
+                        int idx = i;
+                        <div class="flex items-center gap-2 border border-gray-100 dark:border-gray-800 rounded p-2">
+                            <input type="text" class="w-28 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                   value="@_breakRules[idx].Selector"
+                                   @onchange="async (e) => { _breakRules[idx].Selector = e.Value?.ToString() ?? string.Empty; await SaveState(); }" />
+
+                            <div class="flex flex-col gap-1 flex-1">
+                                <div class="flex items-center gap-1">
+                                    <span class="text-xs text-gray-400 w-16 shrink-0">before</span>
+                                    <select class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            @bind="_breakRules[idx].Before" @bind:after="SaveState">
+                                        @foreach (string bv in _breakValues)
+                                        {
+                                            <option value="@bv">@bv</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <span class="text-xs text-gray-400 w-16 shrink-0">inside</span>
+                                    <select class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            @bind="_breakRules[idx].Inside" @bind:after="SaveState">
+                                        @foreach (string bv in _breakValues)
+                                        {
+                                            <option value="@bv">@bv</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <span class="text-xs text-gray-400 w-16 shrink-0">after</span>
+                                    <select class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            @bind="_breakRules[idx].After" @bind:after="SaveState">
+                                        @foreach (string bv in _breakValues)
+                                        {
+                                            <option value="@bv">@bv</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button class="text-red-400 hover:text-red-600 cursor-pointer border-none bg-transparent"
+                                    @onclick="async () => { _breakRules.RemoveAt(idx); await SaveState(); }">
+                                <i class="ti ti-x text-xs"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+
+                <div class="flex items-center gap-2 mt-2">
+                    <input type="text" placeholder="Custom selector, e.g. .chapter"
+                           class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_newBreakSelector" @bind:after="SaveState" />
+                    <button class="bg-blue-600 text-white px-3 py-1 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                            @onclick="AddCustomBreakRule">
+                        <i class="ti ti-plus mr-0.5"></i> Add
+                    </button>
+                </div>
+            </div>
+        }
+
+        @* ── Hide / Show Elements ── *@
+        @if (_activeTab == "visibility")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-eye-off mr-1"></i> Hide in Print</h3>
+
+                <div class="grid grid-cols-2 gap-1">
+                    @for (int i = 0; i < _hideSelectors.Count; i++)
+                    {
+                        int idx = i;
+                        <label class="flex items-center gap-1.5 text-xs p-1 rounded hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <input type="checkbox" class="rounded" checked="@_hideSelectors[idx].Hidden"
+                                   @onchange="async (e) => { _hideSelectors[idx].Hidden = (bool)(e.Value ?? false); await SaveState(); }" />
+                            <code class="font-mono text-xs">@_hideSelectors[idx].Selector</code>
+                        </label>
+                    }
+                </div>
+
+                <div class="flex items-center gap-2 mt-2">
+                    <input type="text" placeholder="Custom selector, e.g. .cookie-banner"
+                           class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_newHideSelector" @bind:after="SaveState" />
+                    <button class="bg-blue-600 text-white px-3 py-1 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                            @onclick="AddHideSelector">
+                        <i class="ti ti-plus mr-0.5"></i> Add
+                    </button>
+                </div>
+
+                <div class="border-t border-gray-100 dark:border-gray-800 pt-3">
+                    <h4 class="text-xs font-semibold text-gray-500 mb-2"><i class="ti ti-eye mr-1"></i> Print-Only Elements</h4>
+                    <label class="flex items-center gap-1.5 text-xs">
+                        <input type="checkbox" class="rounded" @bind="_enablePrintOnly" @bind:after="SaveState" />
+                        Enable <code class="font-mono mx-0.5">.print-only</code> class (hidden on screen, shown in print)
+                    </label>
+                </div>
+            </div>
+        }
+
+        @* ── Typography ── *@
+        @if (_activeTab == "typography")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-typography mr-1"></i> Typography Overrides</h3>
+
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-medium w-28 shrink-0">Body font-size</label>
+                    <input type="number" min="6" max="36" step="0.5" class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_bodyFontSize" @bind:after="SaveState" />
+                    <select class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-1 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_fontSizeUnit" @bind:after="SaveState">
+                        <option value="pt">pt</option>
+                        <option value="px">px</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-medium w-28 shrink-0">Line-height</label>
+                    <input type="number" min="0.8" max="3.0" step="0.1" class="w-20 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_bodyLineHeight" @bind:after="SaveState" />
+                </div>
+
+                <div class="border-t border-gray-100 dark:border-gray-800 pt-3 space-y-2">
+                    <h4 class="text-xs font-semibold text-gray-500">Link &amp; Colour Options</h4>
+
+                    <label class="flex items-center gap-1.5 text-xs">
+                        <input type="checkbox" class="rounded" @bind="_showUrls" @bind:after="SaveState" />
+                        Show URLs after links — <code class="font-mono text-xs">a[href]:after</code>
+                    </label>
+
+                    <label class="flex items-center gap-1.5 text-xs">
+                        <input type="checkbox" class="rounded" @bind="_forceBlackText" @bind:after="SaveState" />
+                        Force black text — <code class="font-mono text-xs">color: #000 !important</code>
+                    </label>
+
+                    <label class="flex items-center gap-1.5 text-xs">
+                                        <input type="checkbox" class="rounded" @bind="_removeBackgrounds" @bind:after="SaveState" />
+                        Remove backgrounds — <code class="font-mono text-xs">background: transparent !important</code>
+                    </label>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* ── Right: CSS Output ── *@
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> Generated CSS</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                        @onclick="CopyOutput">
+                    <i class="ti ti-copy mr-0.5"></i> Copy
+                </button>
+            </div>
+            <pre class="p-3 bg-gray-50 dark:bg-gray-900/30 rounded text-xs font-mono leading-relaxed overflow-x-auto max-h-[70vh] overflow-y-auto select-all">@((MarkupString)HighlightedCss)</pre>
+        </div>
+
+        @* ── Quick Preview ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-eye mr-1"></i> Rule Summary</h3>
+            <div class="text-xs text-gray-500 space-y-1">
+                <p><span class="font-medium text-gray-700 dark:text-gray-300">Page:</span> @PageSizeName @(_landscape ? "landscape" : "portrait"), margins @MarginsDescription</p>
+                <p><span class="font-medium text-gray-700 dark:text-gray-300">Break rules:</span> @ActiveBreakRuleCount active</p>
+                <p><span class="font-medium text-gray-700 dark:text-gray-300">Hidden elements:</span> @ActiveHiddenCount selectors</p>
+                <p><span class="font-medium text-gray-700 dark:text-gray-300">Typography:</span> @(_bodyFontSize > 0 ? $"{_bodyFontSize}{_fontSizeUnit}" : "default")@(_showUrls ? ", show URLs" : "")@(_forceBlackText ? ", black text" : "")@(_removeBackgrounds ? ", no backgrounds" : "")</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/css-print" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    
+    sealed record ToolState(
+        string ActiveTab, string PageSize, bool Landscape, int CustomWidthMm, int CustomHeightMm,
+        bool SameAllMargins, int MarginTop, int MarginRight, int MarginBottom, int MarginLeft,
+        List<CssPrintBuilderCore.BreakRule> BreakRules, string NewBreakSelector,
+        List<CssPrintBuilderCore.HideEntry> HideSelectors, string NewHideSelector, bool EnablePrintOnly,
+        double BodyFontSize, string FontSizeUnit, double BodyLineHeight,
+        bool ShowUrls, bool ForceBlackText, bool RemoveBackgrounds
+    );
+    
+    private string _activeTab = "page";
+    private string? _statusMessage;
+
+    // ── Page Setup ──
+    private string _pageSize = "A4";
+    private bool _landscape;
+    private int _customWidthMm = 210;
+    private int _customHeightMm = 297;
+    private bool _sameAllMargins = true;
+    private int _marginTop = 20;
+    private int _marginRight = 15;
+    private int _marginBottom = 20;
+    private int _marginLeft = 15;
+
+    // ── Page Breaks ──
+    private List<CssPrintBuilderCore.BreakRule> _breakRules = new()
+    {
+        new() { Selector = "h1", Before = "auto", Inside = "avoid", After = "auto" },
+        new() { Selector = "h2", Before = "auto", Inside = "avoid", After = "auto" },
+        new() { Selector = "h3", Before = "auto", Inside = "avoid", After = "auto" },
+        new() { Selector = "h4", Before = "auto", Inside = "avoid", After = "auto" },
+        new() { Selector = "table", Before = "auto", Inside = "avoid", After = "auto" },
+        new() { Selector = "figure", Before = "auto", Inside = "avoid", After = "auto" },
+        new() { Selector = "blockquote", Before = "auto", Inside = "avoid", After = "auto" },
+    };
+    private string _newBreakSelector = string.Empty;
+    private static readonly string[] _breakValues = ["auto", "always", "avoid", "page"];
+
+    // ── Hide / Show ──
+    private List<CssPrintBuilderCore.HideEntry> _hideSelectors = new()
+    {
+        new() { Selector = "nav", Hidden = false },
+        new() { Selector = ".sidebar", Hidden = false },
+        new() { Selector = ".no-print", Hidden = false },
+        new() { Selector = "footer", Hidden = false },
+        new() { Selector = ".ads", Hidden = false },
+        new() { Selector = "button", Hidden = false },
+        new() { Selector = ".modal", Hidden = false },
+        new() { Selector = "video", Hidden = false },
+        new() { Selector = "audio", Hidden = false },
+    };
+    private string _newHideSelector = string.Empty;
+    private bool _enablePrintOnly;
+
+    // ── Typography ──
+    private double _bodyFontSize = 12;
+    private string _fontSizeUnit = "pt";
+    private double _bodyLineHeight = 1.5;
+    private bool _showUrls;
+    private bool _forceBlackText;
+    private bool _removeBackgrounds;
+
+    // ── Computed helpers ──
+    private string PageSizeName => _pageSize == "Custom" ? $"{_customWidthMm}mm × {_customHeightMm}mm" : _pageSize;
+
+    private string MarginsDescription
+    {
+        get
+        {
+            if (_sameAllMargins)
+                return $"{_marginTop}mm all sides";
+            return $"{_marginTop}mm {_marginRight}mm {_marginBottom}mm {_marginLeft}mm";
+        }
+    }
+
+    private int ActiveBreakRuleCount => _breakRules.Count(r =>
+        r.Before != "auto" || r.Inside != "auto" || r.After != "auto");
+
+    private int ActiveHiddenCount => _hideSelectors.Count(h => h.Hidden);
+
+    // ── CSS Generation (delegates to Core) ──
+    private string GeneratedCss =>
+        CssPrintBuilderCore.GenerateCss(
+            _pageSize, _landscape, _customWidthMm, _customHeightMm,
+            _sameAllMargins, _marginTop, _marginRight, _marginBottom, _marginLeft,
+            _breakRules, _hideSelectors,
+            _bodyFontSize, _fontSizeUnit, _bodyLineHeight,
+            _showUrls, _forceBlackText, _removeBackgrounds, _enablePrintOnly);
+
+    private string OptimisedCss =>
+        CssPrintBuilderCore.GenerateOptimisedCss(
+            _pageSize, _landscape, _customWidthMm, _customHeightMm,
+            _sameAllMargins, _marginTop, _marginRight, _marginBottom, _marginLeft,
+            _breakRules, _hideSelectors,
+            _bodyFontSize, _fontSizeUnit, _bodyLineHeight,
+            _showUrls, _forceBlackText, _removeBackgrounds, _enablePrintOnly);
+
+    private string HighlightedCss => CssPrintBuilderCore.HighlightCss(OptimisedCss);
+
+    // ── Margin helper ──
+    private async Task SetMargin(int side, int value)
+    {
+        if (_sameAllMargins)
+        {
+            _marginTop = value;
+            _marginRight = value;
+            _marginBottom = value;
+            _marginLeft = value;
+        }
+        else
+        {
+            switch (side)
+            {
+                case 0: _marginTop = value; break;
+                case 1: _marginRight = value; break;
+                case 2: _marginBottom = value; break;
+                case 3: _marginLeft = value; break;
+            }
+        }
+        await SaveState();
+    }
+
+    // ── Break rules ──
+    private async Task AddBreakRule()
+    {
+        _breakRules.Add(new CssPrintBuilderCore.BreakRule { Selector = "section", Before = "auto", Inside = "avoid", After = "auto" });
+        await SaveState();
+    }
+
+    private async Task AddCustomBreakRule()
+    {
+        string selector = _newBreakSelector.Trim();
+        if (string.IsNullOrEmpty(selector))
+            return;
+        _breakRules.Add(new CssPrintBuilderCore.BreakRule { Selector = selector, Before = "auto", Inside = "auto", After = "auto" });
+        _newBreakSelector = string.Empty;
+        await SaveState();
+    }
+
+    // ── Hide selectors ──
+    private async Task AddHideSelector()
+    {
+        string selector = _newHideSelector.Trim();
+        if (string.IsNullOrEmpty(selector))
+            return;
+        if (_hideSelectors.Any(h => h.Selector == selector))
+            return;
+        _hideSelectors.Add(new CssPrintBuilderCore.HideEntry { Selector = selector, Hidden = true });
+        _newHideSelector = string.Empty;
+        await SaveState();
+    }
+
+    // ── Presets ──
+    private async Task ApplyCleanArticle()
+    {
+        await ResetAll();
+        _pageSize = "A4";
+        _landscape = false;
+        _marginTop = 20; _marginRight = 15; _marginBottom = 20; _marginLeft = 15;
+        _sameAllMargins = false;
+
+        SetHidden("nav", true);
+        SetHidden(".sidebar", true);
+        SetHidden(".ads", true);
+
+        _showUrls = true;
+        _forceBlackText = true;
+        _removeBackgrounds = true;
+
+        EnsureBreakRule("p", "auto", "avoid", "auto");
+        EnsureBreakRule("blockquote", "auto", "avoid", "auto");
+        
+        await SaveState();
+    }
+
+    private async Task ApplyBookStyle()
+    {
+        await ResetAll();
+        _pageSize = "A4";
+        _landscape = false;
+        _sameAllMargins = true;
+        _marginTop = 25; _marginRight = 25; _marginBottom = 25; _marginLeft = 25;
+
+        _bodyFontSize = 14;
+        _fontSizeUnit = "pt";
+        _bodyLineHeight = 1.6;
+
+        EnsureBreakRule(".chapter", "always", "auto", "auto");
+        EnsureBreakRule("h1", "always", "avoid", "auto");
+
+        _forceBlackText = true;
+        
+        await SaveState();
+    }
+
+    private async Task ApplyMinimal()
+    {
+        await ResetAll();
+        SetHidden("nav", true);
+        SetHidden("button", true);
+        
+        await SaveState();
+    }
+
+    private async Task ResetAll()
+    {
+        _pageSize = "A4";
+        _landscape = false;
+        _customWidthMm = 210;
+        _customHeightMm = 297;
+        _sameAllMargins = true;
+        _marginTop = 20;
+        _marginRight = 15;
+        _marginBottom = 20;
+        _marginLeft = 15;
+
+        _breakRules = new List<CssPrintBuilderCore.BreakRule>
+        {
+            new() { Selector = "h1", Before = "auto", Inside = "avoid", After = "auto" },
+            new() { Selector = "h2", Before = "auto", Inside = "avoid", After = "auto" },
+            new() { Selector = "h3", Before = "auto", Inside = "avoid", After = "auto" },
+            new() { Selector = "h4", Before = "auto", Inside = "avoid", After = "auto" },
+            new() { Selector = "table", Before = "auto", Inside = "avoid", After = "auto" },
+            new() { Selector = "figure", Before = "auto", Inside = "avoid", After = "auto" },
+            new() { Selector = "blockquote", Before = "auto", Inside = "avoid", After = "auto" },
+        };
+        _newBreakSelector = string.Empty;
+
+        _hideSelectors = new List<CssPrintBuilderCore.HideEntry>
+        {
+            new() { Selector = "nav", Hidden = false },
+            new() { Selector = ".sidebar", Hidden = false },
+            new() { Selector = ".no-print", Hidden = false },
+            new() { Selector = "footer", Hidden = false },
+            new() { Selector = ".ads", Hidden = false },
+            new() { Selector = "button", Hidden = false },
+            new() { Selector = ".modal", Hidden = false },
+            new() { Selector = "video", Hidden = false },
+            new() { Selector = "audio", Hidden = false },
+        };
+        _newHideSelector = string.Empty;
+        _enablePrintOnly = false;
+
+        _bodyFontSize = 12;
+        _fontSizeUnit = "pt";
+        _bodyLineHeight = 1.5;
+        _showUrls = false;
+        _forceBlackText = false;
+        _removeBackgrounds = false;
+        
+        await SaveState();
+    }
+
+    private void SetHidden(string selector, bool hidden)
+    {
+        CssPrintBuilderCore.HideEntry? entry = _hideSelectors.FirstOrDefault(h => h.Selector == selector);
+        if (entry is not null)
+            entry.Hidden = hidden;
+    }
+
+    private void EnsureBreakRule(string selector, string before, string inside, string after)
+    {
+        CssPrintBuilderCore.BreakRule? existing = _breakRules.FirstOrDefault(r => r.Selector == selector);
+        if (existing is not null)
+        {
+            existing.Before = before;
+            existing.Inside = inside;
+            existing.After = after;
+        }
+        else
+        {
+            _breakRules.Add(new CssPrintBuilderCore.BreakRule { Selector = selector, Before = before, Inside = inside, After = after });
+        }
+    }
+
+    // ── Helper methods for UI actions ──
+    private async Task SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+        await SaveState();
+    }
+
+    private async Task SetLandscape(bool value)
+    {
+        _landscape = value;
+        await SaveState();
+    }
+
+    // ── Copy ──
+    private async Task CopyOutput()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", OptimisedCss);
+        _statusMessage = "CSS copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+        
+        // Add recent entry when CSS is copied
+        await Storage.AddRecentAsync("tools/generators/css-print", $"CSS for {PageSizeName} ({MarginsDescription})", new ToolState(
+            _activeTab, _pageSize, _landscape, _customWidthMm, _customHeightMm,
+            _sameAllMargins, _marginTop, _marginRight, _marginBottom, _marginLeft,
+            _breakRules, _newBreakSelector, _hideSelectors, _newHideSelector, _enablePrintOnly,
+            _bodyFontSize, _fontSizeUnit, _bodyLineHeight, _showUrls, _forceBlackText, _removeBackgrounds
+        ));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    // ── localStorage persistence ──
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/generators/css-print");
+            if (state is not null)
+            {
+                _activeTab = state.ActiveTab;
+                _pageSize = state.PageSize;
+                _landscape = state.Landscape;
+                _customWidthMm = state.CustomWidthMm;
+                _customHeightMm = state.CustomHeightMm;
+                _sameAllMargins = state.SameAllMargins;
+                _marginTop = state.MarginTop;
+                _marginRight = state.MarginRight;
+                _marginBottom = state.MarginBottom;
+                _marginLeft = state.MarginLeft;
+                _breakRules = state.BreakRules;
+                _newBreakSelector = state.NewBreakSelector;
+                _hideSelectors = state.HideSelectors;
+                _newHideSelector = state.NewHideSelector;
+                _enablePrintOnly = state.EnablePrintOnly;
+                _bodyFontSize = state.BodyFontSize;
+                _fontSizeUnit = state.FontSizeUnit;
+                _bodyLineHeight = state.BodyLineHeight;
+                _showUrls = state.ShowUrls;
+                _forceBlackText = state.ForceBlackText;
+                _removeBackgrounds = state.RemoveBackgrounds;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/generators/css-print", new ToolState(
+            _activeTab, _pageSize, _landscape, _customWidthMm, _customHeightMm,
+            _sameAllMargins, _marginTop, _marginRight, _marginBottom, _marginLeft,
+            _breakRules, _newBreakSelector, _hideSelectors, _newHideSelector, _enablePrintOnly,
+            _bodyFontSize, _fontSizeUnit, _bodyLineHeight, _showUrls, _forceBlackText, _removeBackgrounds
+        ));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _activeTab = state.ActiveTab;
+            _pageSize = state.PageSize;
+            _landscape = state.Landscape;
+            _customWidthMm = state.CustomWidthMm;
+            _customHeightMm = state.CustomHeightMm;
+            _sameAllMargins = state.SameAllMargins;
+            _marginTop = state.MarginTop;
+            _marginRight = state.MarginRight;
+            _marginBottom = state.MarginBottom;
+            _marginLeft = state.MarginLeft;
+            _breakRules = state.BreakRules;
+            _newBreakSelector = state.NewBreakSelector;
+            _hideSelectors = state.HideSelectors;
+            _newHideSelector = state.NewHideSelector;
+            _enablePrintOnly = state.EnablePrintOnly;
+            _bodyFontSize = state.BodyFontSize;
+            _fontSizeUnit = state.FontSizeUnit;
+            _bodyLineHeight = state.BodyLineHeight;
+            _showUrls = state.ShowUrls;
+            _forceBlackText = state.ForceBlackText;
+            _removeBackgrounds = state.RemoveBackgrounds;
+            StateHasChanged();
+        }
+    }
+}

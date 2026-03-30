@@ -1,0 +1,629 @@
+@page "/tools/web/robots-txt"
+@using Rowles.Toolbox.Core.WebNetwork
+@using static Rowles.Toolbox.Core.WebNetwork.RobotsTxtBuilderCore
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>robots.txt Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="robots.txt Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-robot mr-1"></i> Build and validate robots.txt files</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    @* ── Tab bar ── *@
+    <div class="flex gap-1 text-sm">
+        <button type="button" class="@TabClass(_mode == "build")" @onclick='async () => { _mode = "build"; await SaveState(); }'>
+            <i class="ti ti-hammer mr-1"></i> Build
+        </button>
+        <button type="button" class="@TabClass(_mode == "validate")" @onclick='async () => { _mode = "validate"; await SaveState(); }'>
+            <i class="ti ti-checklist mr-1"></i> Validate
+        </button>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════════════
+       BUILD TAB
+       ══════════════════════════════════════════════════════════════════════ *@
+    @if (_mode == "build")
+    {
+        @* ── Preset buttons ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="text-xs font-medium text-gray-400 mb-2"><i class="ti ti-template mr-1"></i> Presets</div>
+            <div class="flex flex-wrap gap-2">
+                <button type="button"
+                        class="px-3 py-1.5 text-xs rounded cursor-pointer border border-green-400 dark:border-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400"
+                        @onclick="ApplyPresetAllowAll">
+                    <i class="ti ti-lock-open mr-0.5"></i> Allow All
+                </button>
+                <button type="button"
+                        class="px-3 py-1.5 text-xs rounded cursor-pointer border border-red-400 dark:border-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-700 dark:text-red-400"
+                        @onclick="ApplyPresetBlockAll">
+                    <i class="ti ti-lock mr-0.5"></i> Block All
+                </button>
+                <button type="button"
+                        class="px-3 py-1.5 text-xs rounded cursor-pointer border border-amber-400 dark:border-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                        @onclick="ApplyPresetBlockAiBots">
+                    <i class="ti ti-brain mr-0.5"></i> Block AI Bots
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            @* ── Left column: editor ── *@
+            <div class="space-y-4">
+
+                @* ── Rule groups ── *@
+                @for (int groupIdx = 0; groupIdx < _ruleGroups.Count; groupIdx++)
+                {
+                    int capturedIdx = groupIdx;
+                    RuleGroup currentGroup = _ruleGroups[capturedIdx];
+
+                    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                        <div class="flex items-center gap-2">
+                            <i class="ti ti-user-scan text-blue-500"></i>
+                            <span class="text-sm font-semibold text-gray-500">Group @(capturedIdx + 1)</span>
+                            <button type="button"
+                                    class="ml-auto text-red-400 hover:text-red-600 text-sm"
+                                    title="Remove group"
+                                    @onclick="() => RemoveGroup(capturedIdx)">
+                                <i class="ti ti-trash"></i>
+                            </button>
+                        </div>
+
+                        @* User-agent input *@
+                        <div>
+                            <label class="block text-xs font-medium text-gray-400 mb-1">User-agent</label>
+                            <div class="flex gap-2">
+                                <input type="text"
+                                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                                       placeholder="* (all crawlers)"
+                                       value="@currentGroup.UserAgent"
+                                       @oninput="(ChangeEventArgs e) => currentGroup.UserAgent = e.Value?.ToString() ?? string.Empty" />
+                                <select class="p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                        @onchange="(ChangeEventArgs e) => ApplyAgentSuggestion(currentGroup, e)">
+                                    <option value="">Common agents</option>
+                                    @foreach (string agent in CommonAgents)
+                                    {
+                                        <option value="@agent">@agent</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        @* Path rules *@
+                        <div class="space-y-2">
+                            @for (int ruleIdx = 0; ruleIdx < currentGroup.Rules.Count; ruleIdx++)
+                            {
+                                int capturedRuleIdx = ruleIdx;
+                                PathRule currentRule = currentGroup.Rules[capturedRuleIdx];
+
+                                <div class="flex items-center gap-2">
+                                    <select class="p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono w-28"
+                                            value="@currentRule.Directive"
+                                            @onchange="(ChangeEventArgs e) => currentRule.Directive = e.Value?.ToString() ?? GetDefaultDirective()">
+                                        <option value="Disallow">Disallow</option>
+                                        <option value="Allow">Allow</option>
+                                    </select>
+                                    <input type="text"
+                                           class="flex-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                                           placeholder="/path"
+                                           value="@currentRule.Path"
+                                           @oninput="(ChangeEventArgs e) => currentRule.Path = e.Value?.ToString() ?? string.Empty" />
+                                    <button type="button"
+                                            class="text-red-400 hover:text-red-600 text-sm flex-shrink-0"
+                                            title="Remove rule"
+                                            @onclick="() => RemoveRule(currentGroup, capturedRuleIdx)">
+                                        <i class="ti ti-x"></i>
+                                    </button>
+                                </div>
+                            }
+
+                            @if (currentGroup.Rules.Count == 0)
+                            {
+                                <div class="text-xs text-gray-400 italic py-1">No rules yet. Add Allow or Disallow below.</div>
+                            }
+                        </div>
+
+                        @* Add rule buttons *@
+                        <div class="flex gap-2">
+                            <button type="button"
+                                    class="px-2 py-1 text-xs rounded border border-green-400 dark:border-green-600 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30"
+                                    @onclick="() => AddRule(currentGroup, GetAllowDirective())">
+                                <i class="ti ti-plus mr-0.5"></i> Allow
+                            </button>
+                            <button type="button"
+                                    class="px-2 py-1 text-xs rounded border border-red-400 dark:border-red-600 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
+                                    @onclick="() => AddRule(currentGroup, GetDisallowDirective())">
+                                <i class="ti ti-plus mr-0.5"></i> Disallow
+                            </button>
+                            <button type="button"
+                                    class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    @onclick="() => AddCommonPaths(currentGroup)">
+                                <i class="ti ti-list mr-0.5"></i> Common Paths
+                            </button>
+                        </div>
+                    </div>
+                }
+
+                @* Add group button *@
+                <button type="button"
+                        class="w-full px-3 py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded text-sm text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors"
+                        @onclick="AddGroup">
+                    <i class="ti ti-plus mr-1"></i> Add User-agent Group
+                </button>
+
+                @* ── Sitemap URLs ── *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                    <div class="flex items-center gap-2">
+                        <i class="ti ti-sitemap text-indigo-500"></i>
+                        <span class="text-sm font-semibold text-gray-500">Sitemaps</span>
+                    </div>
+
+                    @for (int sitemapIdx = 0; sitemapIdx < _sitemapUrls.Count; sitemapIdx++)
+                    {
+                        int capturedSitemapIdx = sitemapIdx;
+                        <div class="flex items-center gap-2">
+                            <input type="url"
+                                   class="flex-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                                   placeholder="https://example.com/sitemap.xml"
+                                   value="@_sitemapUrls[capturedSitemapIdx]"
+                                   @oninput="(ChangeEventArgs e) => _sitemapUrls[capturedSitemapIdx] = e.Value?.ToString() ?? string.Empty" />
+                            <button type="button"
+                                    class="text-red-400 hover:text-red-600 text-sm"
+                                    @onclick="() => RemoveSitemap(capturedSitemapIdx)">
+                                <i class="ti ti-x"></i>
+                            </button>
+                        </div>
+                    }
+
+                    <button type="button"
+                            class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700"
+                            @onclick="AddSitemap">
+                        <i class="ti ti-plus mr-0.5"></i> Add Sitemap
+                    </button>
+                </div>
+
+                @* ── Crawl-delay ── *@
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <i class="ti ti-clock text-orange-500"></i>
+                        <span class="text-sm font-semibold text-gray-500">Crawl-delay (seconds, optional)</span>
+                    </div>
+                    <input type="number"
+                           class="w-32 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                           placeholder="e.g. 10"
+                           min="0"
+                           value="@_crawlDelay"
+                           @oninput="OnCrawlDelayChanged" />
+                    <span class="text-xs text-gray-400 ml-2">Leave empty to omit. Not supported by all crawlers.</span>
+                </div>
+            </div>
+
+            @* ── Right column: live preview ── *@
+            <div class="space-y-4">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4 sticky top-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-file-text mr-1"></i> Generated robots.txt</h3>
+                        <button type="button"
+                                class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                @onclick="CopyOutput">
+                            <i class="ti ti-copy mr-1"></i> @(_copied ? "Copied!" : "Copy")
+                        </button>
+                    </div>
+                    <pre class="p-3 bg-gray-50 dark:bg-gray-900 rounded text-sm font-mono whitespace-pre-wrap break-all min-h-[200px] max-h-[70vh] overflow-y-auto border border-gray-100 dark:border-gray-800">@GenerateOutput()</pre>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ══════════════════════════════════════════════════════════════════════
+       VALIDATE TAB
+       ══════════════════════════════════════════════════════════════════════ *@
+    @if (_mode == "validate")
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            @* ── Left: paste input ── *@
+            <div class="space-y-3">
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <label class="block text-sm font-medium mb-2"><i class="ti ti-file-text mr-1"></i> Paste robots.txt</label>
+                    <textarea class="w-full h-72 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="User-agent: *&#10;Disallow: /admin/&#10;Allow: /&#10;&#10;Sitemap: https://example.com/sitemap.xml"
+                              @bind="_validateInput"
+                              @bind:event="oninput"></textarea>
+                    <div class="flex gap-2 mt-2">
+                        <button type="button"
+                                class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
+                                @onclick="ValidateInput">
+                            <i class="ti ti-checklist mr-1"></i> Validate
+                        </button>
+                        <button type="button"
+                                class="px-3 py-1.5 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
+                                @onclick="ImportToBuilder">
+                            <i class="ti ti-download mr-1"></i> Import to Builder
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @* ── Right: results ── *@
+            <div class="space-y-4">
+                @if (!_hasValidated)
+                {
+                    <div class="text-center text-gray-400 text-sm py-12">
+                        <i class="ti ti-checklist text-3xl"></i>
+                        <p class="mt-2">Paste a robots.txt on the left and click Validate.</p>
+                    </div>
+                }
+                else
+                {
+                    @* ── Validation messages ── *@
+                    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-alert-triangle mr-1"></i> Validation Results</h3>
+
+                        @if (_validationMessages.Count == 0)
+                        {
+                            <div class="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm">
+                                <i class="ti ti-circle-check text-lg"></i>
+                                <span>No issues found. The robots.txt looks valid.</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="space-y-2">
+                                @foreach (ValidationMessage msg in _validationMessages)
+                                {
+                                    string iconClass = msg.Severity == MessageSeverity.Error
+                                        ? "ti-circle-x text-red-500"
+                                        : "ti-alert-triangle text-amber-500";
+                                    string bgClass = msg.Severity == MessageSeverity.Error
+                                        ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                                        : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800";
+
+                                    <div class="flex items-start gap-2 p-2 rounded border text-sm @bgClass">
+                                        <i class="ti @iconClass mt-0.5 flex-shrink-0"></i>
+                                        <div>
+                                            @if (msg.Line > 0)
+                                            {
+                                                <span class="font-mono text-xs text-gray-400">Line @msg.Line:</span>
+                                            }
+                                            <span>@msg.Text</span>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @* ── Parsed breakdown ── *@
+                    @if (_parsedGroups.Count > 0 || _parsedSitemaps.Count > 0)
+                    {
+                        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-hierarchy mr-1"></i> Parsed Breakdown</h3>
+
+                            @foreach (ParsedRuleGroup pg in _parsedGroups)
+                            {
+                                <div class="mb-3 last:mb-0">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <i class="ti ti-user-scan text-blue-500"></i>
+                                        <span class="text-sm font-mono font-semibold text-blue-600 dark:text-blue-400">@pg.UserAgent</span>
+                                    </div>
+                                    <div class="ml-6 space-y-0.5">
+                                        @foreach (PathRule rule in pg.Rules)
+                                        {
+                                            string ruleColor = rule.Directive == "Allow"
+                                                ? "text-green-600 dark:text-green-400"
+                                                : "text-red-600 dark:text-red-400";
+                                            <div class="text-xs font-mono @ruleColor">
+                                                @rule.Directive: @rule.Path
+                                            </div>
+                                        }
+                                        @if (pg.CrawlDelay is not null)
+                                        {
+                                            <div class="text-xs font-mono text-orange-500">
+                                                Crawl-delay: @pg.CrawlDelay
+                                            </div>
+                                        }
+                                        @if (pg.Rules.Count == 0 && pg.CrawlDelay is null)
+                                        {
+                                            <div class="text-xs text-gray-400 italic">No rules specified.</div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (_parsedSitemaps.Count > 0)
+                            {
+                                <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <i class="ti ti-sitemap text-indigo-500"></i>
+                                        <span class="text-sm font-semibold text-gray-500">Sitemaps</span>
+                                    </div>
+                                    <div class="ml-6 space-y-0.5">
+                                        @foreach (string url in _parsedSitemaps)
+                                        {
+                                            <div class="text-xs font-mono text-indigo-600 dark:text-indigo-400">@url</div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/robots-txt" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _mode = "build";
+    private bool _copied;
+    private string _crawlDelay = string.Empty;
+
+    @* ── Builder state ── *@
+    private readonly List<RuleGroup> _ruleGroups = [new RuleGroup { UserAgent = "*" }];
+    private readonly List<string> _sitemapUrls = [];
+
+    @* ── Validate state ── *@
+    private string _validateInput = string.Empty;
+    private bool _hasValidated;
+    private readonly List<ValidationMessage> _validationMessages = [];
+    private readonly List<ParsedRuleGroup> _parsedGroups = [];
+    private readonly List<string> _parsedSitemaps = [];
+
+    sealed record ToolState(
+        string Mode,
+        string CrawlDelay,
+        List<RuleGroup> RuleGroups,
+        List<string> SitemapUrls,
+        string ValidateInput
+    );
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/robots-txt");
+        if (state is not null)
+        {
+            _mode = state.Mode;
+            _crawlDelay = state.CrawlDelay;
+            _validateInput = state.ValidateInput;
+            _ruleGroups.Clear();
+            _ruleGroups.AddRange(state.RuleGroups);
+            _sitemapUrls.Clear();
+            _sitemapUrls.AddRange(state.SitemapUrls);
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_mode, _crawlDelay, new List<RuleGroup>(_ruleGroups), new List<string>(_sitemapUrls), _validateInput);
+        await Storage.SaveStateAsync("tools/web/robots-txt", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _mode = state.Mode;
+                _crawlDelay = state.CrawlDelay;
+                _validateInput = state.ValidateInput;
+                _ruleGroups.Clear();
+                _ruleGroups.AddRange(state.RuleGroups);
+                _sitemapUrls.Clear();
+                _sitemapUrls.AddRange(state.SitemapUrls);
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private string TabClass(bool active) =>
+        active
+            ? "px-3 py-1.5 rounded font-medium bg-blue-600 text-white"
+            : "px-3 py-1.5 rounded font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+
+    @* ══════════════════════════════════════════════════════════════════════
+       BUILDER LOGIC
+       ══════════════════════════════════════════════════════════════════════ *@
+
+    private void AddGroup()
+    {
+        _ruleGroups.Add(new RuleGroup { UserAgent = "*" });
+    }
+
+    private void RemoveGroup(int index)
+    {
+        if (_ruleGroups.Count > 1)
+        {
+            _ruleGroups.RemoveAt(index);
+        }
+    }
+
+    private void AddRule(RuleGroup ruleGroup, string directive)
+    {
+        ruleGroup.Rules.Add(new PathRule { Directive = directive, Path = "/" });
+    }
+
+    private void RemoveRule(RuleGroup ruleGroup, int ruleIndex)
+    {
+        ruleGroup.Rules.RemoveAt(ruleIndex);
+    }
+
+    private void AddCommonPaths(RuleGroup ruleGroup)
+    {
+        foreach (string path in CommonPaths)
+        {
+            bool alreadyExists = false;
+            foreach (PathRule existing in ruleGroup.Rules)
+            {
+                if (string.Equals(existing.Path, path, StringComparison.Ordinal))
+                {
+                    alreadyExists = true;
+                    break;
+                }
+            }
+
+            if (!alreadyExists)
+            {
+                ruleGroup.Rules.Add(new PathRule { Directive = "Disallow", Path = path });
+            }
+        }
+    }
+
+    private void ApplyAgentSuggestion(RuleGroup ruleGroup, ChangeEventArgs e)
+    {
+        string? value = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(value))
+        {
+            ruleGroup.UserAgent = value;
+        }
+    }
+
+    private void AddSitemap()
+    {
+        _sitemapUrls.Add(string.Empty);
+    }
+
+    private void RemoveSitemap(int index)
+    {
+        _sitemapUrls.RemoveAt(index);
+    }
+
+    private void OnCrawlDelayChanged(ChangeEventArgs e)
+    {
+        _crawlDelay = e.Value?.ToString() ?? string.Empty;
+    }
+
+    @* ── Presets ── *@
+
+    private void ApplyPresetAllowAll()
+    {
+        _ruleGroups.Clear();
+        RuleGroup group = new RuleGroup { UserAgent = "*" };
+        group.Rules.Add(new PathRule { Directive = "Allow", Path = "/" });
+        _ruleGroups.Add(group);
+        _sitemapUrls.Clear();
+        _crawlDelay = string.Empty;
+    }
+
+    private void ApplyPresetBlockAll()
+    {
+        _ruleGroups.Clear();
+        RuleGroup group = new RuleGroup { UserAgent = "*" };
+        group.Rules.Add(new PathRule { Directive = "Disallow", Path = "/" });
+        _ruleGroups.Add(group);
+        _sitemapUrls.Clear();
+        _crawlDelay = string.Empty;
+    }
+
+    private void ApplyPresetBlockAiBots()
+    {
+        _ruleGroups.Clear();
+
+        @* Keep a permissive default group *@
+        RuleGroup defaultGroup = new RuleGroup { UserAgent = "*" };
+        defaultGroup.Rules.Add(new PathRule { Directive = "Allow", Path = "/" });
+        _ruleGroups.Add(defaultGroup);
+
+        @* One group per AI bot agent *@
+        foreach (string agent in AiBotAgents)
+        {
+            RuleGroup aiGroup = new RuleGroup { UserAgent = agent };
+            aiGroup.Rules.Add(new PathRule { Directive = "Disallow", Path = "/" });
+            _ruleGroups.Add(aiGroup);
+        }
+
+        _crawlDelay = string.Empty;
+    }
+
+    @* ── Output generation ── *@
+
+    private string GenerateOutput()
+    {
+        return RobotsTxtBuilderCore.GenerateOutput(_ruleGroups, _sitemapUrls, _crawlDelay);
+    }
+
+    private async Task CopyOutput()
+    {
+        string output = GenerateOutput();
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", output);
+        _copied = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copied = false;
+        StateHasChanged();
+    }
+
+    @* ══════════════════════════════════════════════════════════════════════
+       VALIDATION LOGIC
+       ══════════════════════════════════════════════════════════════════════ *@
+
+    private void ValidateInput()
+    {
+        _hasValidated = true;
+        _validationMessages.Clear();
+        _parsedGroups.Clear();
+        _parsedSitemaps.Clear();
+
+        ValidationResult result = RobotsTxtBuilderCore.Validate(_validateInput);
+        _validationMessages.AddRange(result.Messages);
+        _parsedGroups.AddRange(result.ParsedGroups);
+        _parsedSitemaps.AddRange(result.ParsedSitemaps);
+    }
+
+    private void ImportToBuilder()
+    {
+        @* First validate to parse the content *@
+        ValidateInput();
+
+        if (_parsedGroups.Count == 0 && _parsedSitemaps.Count == 0)
+        {
+            return;
+        }
+
+        _ruleGroups.Clear();
+        foreach (ParsedRuleGroup pg in _parsedGroups)
+        {
+            RuleGroup imported = new RuleGroup { UserAgent = pg.UserAgent };
+            foreach (PathRule rule in pg.Rules)
+            {
+                imported.Rules.Add(new PathRule { Directive = rule.Directive, Path = rule.Path });
+            }
+            _ruleGroups.Add(imported);
+        }
+
+        if (_ruleGroups.Count == 0)
+        {
+            _ruleGroups.Add(new RuleGroup { UserAgent = "*" });
+        }
+
+        _sitemapUrls.Clear();
+        foreach (string url in _parsedSitemaps)
+        {
+            _sitemapUrls.Add(url);
+        }
+
+        _mode = "build";
+    }
+
+}

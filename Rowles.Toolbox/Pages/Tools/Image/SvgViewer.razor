@@ -1,0 +1,237 @@
+@page "/tools/image/svg-viewer"
+@using Rowles.Toolbox.Core.Image
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>SVG Viewer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="SVG Viewer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-svg mr-1"></i> Preview, inspect &amp; export SVG images</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Load SVG</h3>
+            <InputFile OnChange="OnFileSelected" accept=".svg,image/svg+xml"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 mb-3" />
+            <p class="text-xs text-gray-400 mb-2">Or paste SVG code below:</p>
+            <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; ...>&#10;  ...&#10;</svg>"
+                      @bind="_svgCode"
+                      @bind:event="oninput"
+                      @bind:after="ParseSvgInfo"></textarea>
+            <div class="mt-2 flex gap-2">
+                <button class="bg-indigo-600 text-white px-3 py-1 text-xs rounded hover:bg-indigo-700 cursor-pointer border-none"
+                        @onclick="PrettifySvg">
+                    <i class="ti ti-code mr-0.5"></i> Prettify
+                </button>
+                <button class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                        @onclick="ClearSvg">
+                    <i class="ti ti-trash mr-0.5"></i> Clear
+                </button>
+            </div>
+        </div>
+
+        @if (_svgWidth is not null || _svgHeight is not null || _svgViewBox is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> SVG Info</h3>
+                <div class="space-y-1 text-xs">
+                    @if (_svgWidth is not null)
+                    {
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Width</span>
+                            <span class="font-mono">@_svgWidth</span>
+                        </div>
+                    }
+                    @if (_svgHeight is not null)
+                    {
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Height</span>
+                            <span class="font-mono">@_svgHeight</span>
+                        </div>
+                    }
+                    @if (_svgViewBox is not null)
+                    {
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">viewBox</span>
+                            <span class="font-mono">@_svgViewBox</span>
+                        </div>
+                    }
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Elements</span>
+                        <span class="font-mono">@_elementCount</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-eye mr-1"></i> Preview</h3>
+                <div class="flex items-center gap-2">
+                    <div class="flex gap-1">
+                        @foreach (string bg in SvgViewerCore.Backgrounds)
+                        {
+                            string bgName = bg;
+                            <button class="px-2 py-0.5 text-[10px] rounded cursor-pointer border-none @(bgName == _selectedBackground ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400")"
+                                    @onclick="async () => { _selectedBackground = bgName; await SaveState(); }">
+                                @bgName
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="flex gap-1 mb-3">
+                @foreach ((string label, string value) in SvgViewerCore.ZoomLevels)
+                {
+                    string zl = value;
+                    string zlLabel = label;
+                    <button class="px-2 py-0.5 text-[10px] rounded cursor-pointer border-none @(zl == _zoom ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400")"
+                            @onclick="async () => { _zoom = zl; await SaveState(); }">
+                        @zlLabel
+                    </button>
+                }
+            </div>
+            <div class="rounded border border-gray-200 dark:border-gray-700 overflow-auto max-h-[500px] @BackgroundClass" style="min-height: 200px;">
+                @if (!string.IsNullOrWhiteSpace(_svgCode))
+                {
+                    <div style="@ZoomStyle" class="p-4">
+                        @((MarkupString)_svgCode)
+                    </div>
+                }
+                else
+                {
+                    <div class="flex items-center justify-center h-48 text-gray-400 text-xs">
+                        <i class="ti ti-photo-off mr-1"></i> No SVG loaded
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="flex gap-2">
+            <button class="flex-1 bg-green-600 text-white px-3 py-2 text-xs rounded hover:bg-green-700 cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    @onclick="DownloadAsPng" disabled="@(string.IsNullOrWhiteSpace(_svgCode))">
+                <i class="ti ti-download mr-0.5"></i> Download as PNG
+            </button>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="svg-viewer" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private IJSObjectReference? _jsModule;
+    private string _svgCode = string.Empty;
+    private string? _svgWidth;
+    private string? _svgHeight;
+    private string? _svgViewBox;
+    private int _elementCount;
+    private string _selectedBackground = "White";
+    private string _zoom = "100%";
+
+    private string BackgroundClass => SvgViewerCore.GetBackgroundClass(_selectedBackground);
+
+    private string ZoomStyle => SvgViewerCore.GetZoomStyle(_zoom);
+
+    sealed record ToolState(string SelectedBackground, string Zoom);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/Image/SvgViewer.razor.js");
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("svg-viewer");
+            if (state is not null)
+            {
+                _selectedBackground = state.SelectedBackground;
+                _zoom = state.Zoom;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        IBrowserFile file = e.File;
+        long maxSize = 10 * 1024 * 1024;
+        using System.IO.StreamReader reader = new(file.OpenReadStream(maxSize));
+        _svgCode = await reader.ReadToEndAsync();
+        ParseSvgInfo();
+    }
+
+    private void ParseSvgInfo()
+    {
+        SvgViewerCore.SvgInfo info = SvgViewerCore.ParseSvgInfo(_svgCode);
+        _svgWidth = info.Width;
+        _svgHeight = info.Height;
+        _svgViewBox = info.ViewBox;
+        _elementCount = info.ElementCount;
+    }
+
+    private void PrettifySvg()
+    {
+        _svgCode = SvgViewerCore.PrettifySvg(_svgCode);
+    }
+
+    private void ClearSvg()
+    {
+        _svgCode = string.Empty;
+        _svgWidth = null;
+        _svgHeight = null;
+        _svgViewBox = null;
+        _elementCount = 0;
+    }
+
+    private async Task DownloadAsPng()
+    {
+        if (_jsModule is null || string.IsNullOrWhiteSpace(_svgCode)) return;
+
+        (int renderWidth, int renderHeight) = SvgViewerCore.GetRenderDimensions(_svgWidth, _svgHeight, _svgViewBox);
+
+        string dataUrl = await _jsModule.InvokeAsync<string>("renderSvgToPng", _svgCode, renderWidth, renderHeight);
+        await _jsModule.InvokeVoidAsync("downloadDataUrl", dataUrl, "svg-export.png");
+
+        string label = $"SVG exported ({renderWidth}×{renderHeight})";
+        await Storage.AddRecentAsync("svg-viewer", label);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_selectedBackground, _zoom);
+        await Storage.SaveStateAsync("svg-viewer", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _selectedBackground = state.SelectedBackground;
+                _zoom = state.Zoom;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+}

@@ -1,0 +1,512 @@
+@page "/tools/dev/dotnet-regex"
+@using System.Text.RegularExpressions
+@using Rowles.Toolbox.Core.Developer
+@inject LocalStorageService Storage
+
+<PageTitle>.NET Regex Tester - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title=".NET Regex Tester" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-regex mr-1"></i> Test, debug &amp; replace with .NET regular expressions</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @* ----─ Left: Pattern, Options & Test String ----─ *@
+    <div class="space-y-4">
+        @* Pattern *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-regex mr-1"></i> Pattern</h3>
+            <input type="text"
+                   class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Enter regex pattern…"
+                   @bind="_pattern"
+                   @bind:event="oninput"
+                   @bind:after="SaveState" />
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="mt-2 p-2 text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded font-mono">
+                    <i class="ti ti-alert-triangle mr-1"></i> @_errorMessage
+                </div>
+            }
+        </div>
+
+        @* Options *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Options</h3>
+            <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_ignoreCase" @bind:after="SaveState" />
+                    IgnoreCase
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_multiline" @bind:after="SaveState" />
+                    Multiline
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_singleline" @bind:after="SaveState" />
+                    Singleline
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_explicitCapture" @bind:after="SaveState" />
+                    ExplicitCapture
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_ignorePatternWhitespace" @bind:after="SaveState" />
+                    IgnorePatternWhitespace
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_compiled" @bind:after="SaveState" />
+                    Compiled
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_rightToLeft" @bind:after="SaveState" />
+                    RightToLeft
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_nonBacktracking" @bind:after="SaveState" />
+                    NonBacktracking
+                </label>
+            </div>
+            <div class="mt-3 text-xs text-gray-500 dark:text-gray-400 font-mono">
+                Combined: <span class="text-blue-600 dark:text-blue-400 font-semibold">@BuildOptions()</span>
+            </div>
+            @if (_nonBacktracking)
+            {
+                <div class="mt-2 p-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded">
+                    <i class="ti ti-info-circle mr-1"></i> <strong>NonBacktracking</strong> (.NET 7+) prevents catastrophic backtracking but does not support some features (balancing groups, backreferences, lookaround).
+                    Cannot be combined with <strong>Compiled</strong> or <strong>RightToLeft</strong>.
+                </div>
+            }
+        </div>
+
+        @* Test String *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-text-wrap mr-1"></i> Test String</h3>
+            <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Type or paste test string…"
+                      @bind="_testString"
+                      @bind:event="oninput"
+                      @bind:after="SaveState"></textarea>
+        </div>
+    </div>
+
+    @* ----─ Right: Tabs (Match | Replace | Reference) ----─ *@
+    <div class="lg:col-span-2 space-y-4">
+        @* Tab bar *@
+        <div class="flex border-b border-gray-200 dark:border-gray-700">
+            <button class="tab @(_activeTab == "match" ? "tab-active" : "")" @onclick="@(() => SetTab("match"))">
+                <i class="ti ti-target mr-1"></i> Match
+            </button>
+            <button class="tab @(_activeTab == "replace" ? "tab-active" : "")" @onclick="@(() => SetTab("replace"))">
+                <i class="ti ti-replace mr-1"></i> Replace
+            </button>
+            <button class="tab @(_activeTab == "reference" ? "tab-active" : "")" @onclick="@(() => SetTab("reference"))">
+                <i class="ti ti-book mr-1"></i> Reference
+            </button>
+        </div>
+
+        @* ----─ Match tab ----─ *@
+        @if (_activeTab == "match")
+        {
+            @if (string.IsNullOrEmpty(_pattern) || string.IsNullOrEmpty(_testString))
+            {
+                <div class="flex items-center justify-center h-48 text-gray-400 dark:text-gray-600 text-sm">
+                    <span><i class="ti ti-regex text-3xl block mb-2 text-center"></i> Enter a pattern and test string to see matches</span>
+                </div>
+            }
+            else if (string.IsNullOrEmpty(_errorMessage))
+            {
+                MatchCollection? matches = GetMatches();
+                if (matches is not null)
+                {
+                    @* Highlighted preview *@
+                    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                        <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-highlight mr-1"></i> Highlighted Matches</h3>
+                        <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded text-sm font-mono whitespace-pre-wrap break-all leading-relaxed">
+                            @((MarkupString)HighlightMatches(matches))
+                        </div>
+                    </div>
+
+                    @* Match summary *@
+                    <div class="mt-4 text-sm text-gray-600 dark:text-gray-400">
+                        <i class="ti ti-info-circle mr-1"></i>
+                        <strong class="text-blue-600 dark:text-blue-400">@matches.Count</strong> match@(matches.Count != 1 ? "es" : "") found
+                    </div>
+
+                    @* Match details *@
+                    @foreach (Match match in matches)
+                    {
+                        <div class="mt-3 border border-gray-200 dark:border-gray-700 rounded p-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="text-sm font-semibold text-gray-500">
+                                    <i class="ti ti-target mr-1"></i> Match @(match.Index)
+                                </h4>
+                                <span class="text-xs text-gray-400">Position @match.Index – @(match.Index + match.Length - 1) (length @match.Length)</span>
+                            </div>
+                            <div class="p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-sm font-mono mb-3 text-blue-800 dark:text-blue-300 break-all">
+                                @match.Value
+                            </div>
+
+                            @* Groups *@
+                            @if (match.Groups.Count > 1)
+                            {
+                                <h5 class="text-xs font-semibold text-gray-500 mb-2 mt-2"><i class="ti ti-stack-2 mr-1"></i> Groups</h5>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm">
+                                        <thead>
+                                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                                <th class="text-left p-2 text-gray-500 font-medium">#</th>
+                                                <th class="text-left p-2 text-gray-500 font-medium">Name</th>
+                                                <th class="text-left p-2 text-gray-500 font-medium">Value</th>
+                                                <th class="text-left p-2 text-gray-500 font-medium">Position</th>
+                                                <th class="text-left p-2 text-gray-500 font-medium">Success</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @for (int g = 0; g < match.Groups.Count; g++)
+                                            {
+                                                Group group = match.Groups[g];
+                                                string groupName = match.Groups.Keys.ElementAtOrDefault(g) ?? g.ToString();
+                                                bool isNamedGroup = groupName != g.ToString();
+                                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                                    <td class="p-2 font-mono text-blue-600 dark:text-blue-400 font-bold">@g</td>
+                                                    <td class="p-2 font-mono text-xs">
+                                                        @if (isNamedGroup)
+                                                        {
+                                                            <span class="text-purple-600 dark:text-purple-400">@groupName</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-gray-400">—</span>
+                                                        }
+                                                    </td>
+                                                    <td class="p-2 font-mono break-all">
+                                                        @if (group.Success)
+                                                        {
+                                                            @group.Value
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-gray-400 italic">no match</span>
+                                                        }
+                                                    </td>
+                                                    <td class="p-2 text-xs text-gray-500">
+                                                        @if (group.Success)
+                                                        {
+                                                            <span>@group.Index (len @group.Length)</span>
+                                                        }
+                                                    </td>
+                                                    <td class="p-2">
+                                                        @if (group.Success)
+                                                        {
+                                                            <span class="text-green-600 dark:text-green-400 text-xs font-semibold">✓</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-red-500 text-xs">✗</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+
+                                                @* Captures for each group *@
+                                                @if (group.Success && group.Captures.Count > 1)
+                                                {
+                                                    <tr class="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+                                                        <td class="p-2"></td>
+                                                        <td colspan="4" class="p-2">
+                                                            <span class="text-xs font-semibold text-gray-500 block mb-1">Captures (@group.Captures.Count)</span>
+                                                            <div class="space-y-1">
+                                                                @for (int c = 0; c < group.Captures.Count; c++)
+                                                                {
+                                                                    Capture capture = group.Captures[c];
+                                                                    <div class="text-xs font-mono">
+                                                                        <span class="text-gray-400">[@c]</span>
+                                                                        <span class="text-blue-600 dark:text-blue-400 ml-1">@capture.Value</span>
+                                                                        <span class="text-gray-400 ml-2">(pos @capture.Index, len @capture.Length)</span>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            }
+        }
+
+        @* ----─ Replace tab ----─ *@
+        else if (_activeTab == "replace")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-replace mr-1"></i> Replacement String</h3>
+                <input type="text"
+                       class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="e.g. $1, ${name}, $$"
+                       @bind="_replacementString"
+                       @bind:event="oninput"
+                       @bind:after="SaveState" />
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    Use <code class="text-blue-600 dark:text-blue-400">$1</code> <code class="text-blue-600 dark:text-blue-400">$2</code> for numbered groups,
+                    <code class="text-blue-600 dark:text-blue-400">${name}</code> for named groups,
+                    <code class="text-blue-600 dark:text-blue-400">$&amp;</code> for entire match,
+                    <code class="text-blue-600 dark:text-blue-400">$$</code> for literal <code>$</code>.
+                </p>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_pattern) && !string.IsNullOrEmpty(_testString) && string.IsNullOrEmpty(_errorMessage))
+            {
+                string? replaceResult = GetReplaceResult();
+                @if (replaceResult is not null)
+                {
+                    <div class="mt-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+                        <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-file-text mr-1"></i> Result</h3>
+                        <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded text-sm font-mono whitespace-pre-wrap break-all leading-relaxed">
+                            @replaceResult
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="mt-4 flex items-center justify-center h-32 text-gray-400 dark:text-gray-600 text-sm">
+                    <span>Enter a pattern and test string to see replacement results</span>
+                </div>
+            }
+        }
+
+        @* ----─ Reference tab ----─ *@
+        else if (_activeTab == "reference")
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-book mr-1"></i> Common .NET Regex Patterns</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500 font-medium">Name</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Pattern</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ((string name, string pattern, string description) in DotNetRegexCore.CommonPatterns)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2 font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">@name</td>
+                                    <td class="p-2">
+                                        <button class="text-left font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer bg-transparent border-none"
+                                                title="Click to use this pattern"
+                                                @onclick="() => UsePattern(pattern)">
+                                            @pattern
+                                        </button>
+                                    </td>
+                                    <td class="p-2 text-xs text-gray-600 dark:text-gray-400">@description</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mt-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-code mr-1"></i> Regex Syntax Quick Reference</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500 font-medium">Syntax</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Meaning</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ((string syntax, string meaning) in DotNetRegexCore.SyntaxReference)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2 font-mono text-blue-600 dark:text-blue-400 font-bold whitespace-nowrap">@syntax</td>
+                                    <td class="p-2 text-gray-600 dark:text-gray-400">@meaning</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(
+        string Pattern,
+        string TestString,
+        string ReplacementString,
+        bool IgnoreCase,
+        bool Multiline,
+        bool Singleline,
+        bool ExplicitCapture,
+        bool IgnorePatternWhitespace,
+        bool Compiled,
+        bool RightToLeft,
+        bool NonBacktracking
+    );
+
+    private string _pattern = string.Empty;
+    private string _testString = string.Empty;
+    private string _replacementString = string.Empty;
+    private string _activeTab = "match";
+    private string _errorMessage = string.Empty;
+
+    private void SetTab(string tab) => _activeTab = tab;
+
+    private bool _ignoreCase;
+    private bool _multiline;
+    private bool _singleline;
+    private bool _explicitCapture;
+    private bool _ignorePatternWhitespace;
+    private bool _compiled;
+    private bool _rightToLeft;
+    private bool _nonBacktracking;
+
+    private RegexOptions BuildOptions()
+        => DotNetRegexCore.BuildOptions(
+            _ignoreCase, _multiline, _singleline, _explicitCapture,
+            _ignorePatternWhitespace, _compiled, _rightToLeft, _nonBacktracking);
+
+    private Regex? TryCreateRegex()
+    {
+        if (string.IsNullOrEmpty(_pattern))
+        {
+            _errorMessage = string.Empty;
+            return null;
+        }
+
+        try
+        {
+            Regex regex = new Regex(_pattern, BuildOptions(), TimeSpan.FromSeconds(2));
+            _errorMessage = string.Empty;
+            return regex;
+        }
+        catch (ArgumentException ex)
+        {
+            _errorMessage = ex.Message;
+            return null;
+        }
+    }
+
+    private MatchCollection? GetMatches()
+    {
+        Regex? regex = TryCreateRegex();
+        if (regex is null || string.IsNullOrEmpty(_testString))
+        {
+            return null;
+        }
+
+        try
+        {
+            return regex.Matches(_testString);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            _errorMessage = "Regex matching timed out after 2 seconds. Consider simplifying the pattern or using NonBacktracking.";
+            return null;
+        }
+    }
+
+    private string? GetReplaceResult()
+    {
+        Regex? regex = TryCreateRegex();
+        if (regex is null || string.IsNullOrEmpty(_testString))
+        {
+            return null;
+        }
+
+        try
+        {
+            return regex.Replace(_testString, _replacementString);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            _errorMessage = "Regex replacement timed out after 2 seconds.";
+            return null;
+        }
+    }
+
+    private string HighlightMatches(MatchCollection matches)
+        => DotNetRegexCore.HighlightMatches(_testString, matches);
+
+    private void UsePattern(string pattern)
+    {
+        _pattern = pattern;
+        _activeTab = "match";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/dotnet-regex");
+            if (state is not null)
+            {
+                _pattern = state.Pattern;
+                _testString = state.TestString;
+                _replacementString = state.ReplacementString;
+                _ignoreCase = state.IgnoreCase;
+                _multiline = state.Multiline;
+                _singleline = state.Singleline;
+                _explicitCapture = state.ExplicitCapture;
+                _ignorePatternWhitespace = state.IgnorePatternWhitespace;
+                _compiled = state.Compiled;
+                _rightToLeft = state.RightToLeft;
+                _nonBacktracking = state.NonBacktracking;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/dotnet-regex", new ToolState(
+            _pattern,
+            _testString,
+            _replacementString,
+            _ignoreCase,
+            _multiline,
+            _singleline,
+            _explicitCapture,
+            _ignorePatternWhitespace,
+            _compiled,
+            _rightToLeft,
+            _nonBacktracking
+        ));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _pattern = state.Pattern;
+            _testString = state.TestString;
+            _replacementString = state.ReplacementString;
+            _ignoreCase = state.IgnoreCase;
+            _multiline = state.Multiline;
+            _singleline = state.Singleline;
+            _explicitCapture = state.ExplicitCapture;
+            _ignorePatternWhitespace = state.IgnorePatternWhitespace;
+            _compiled = state.Compiled;
+            _rightToLeft = state.RightToLeft;
+            _nonBacktracking = state.NonBacktracking;
+            StateHasChanged();
+        }
+    }
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/dotnet-regex" OnRestore="RestoreState" />

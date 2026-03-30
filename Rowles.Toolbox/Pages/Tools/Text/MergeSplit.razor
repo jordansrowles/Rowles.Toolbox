@@ -1,0 +1,308 @@
+@page "/tools/text/merge-split"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Merge &amp; Split Text - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Merge & Split Text" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-arrows-split-2 mr-1"></i> Merge multiple texts or split text by delimiter</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex mb-4">
+    <button class="@(_mode == Mode.Merge ? "bg-blue-600 text-white px-4 py-2 text-sm rounded-t cursor-pointer border-none" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-4 py-2 text-sm rounded-t hover:bg-gray-200 cursor-pointer border-none")"
+            @onclick="@(() => SetMode(Mode.Merge))">
+        <i class="ti ti-arrows-join mr-1"></i> Merge
+    </button>
+    <button class="@(_mode == Mode.Split ? "bg-blue-600 text-white px-4 py-2 text-sm rounded-t cursor-pointer border-none" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-4 py-2 text-sm rounded-t hover:bg-gray-200 cursor-pointer border-none")"
+            @onclick="@(() => SetMode(Mode.Split))">
+        <i class="ti ti-arrows-split-2 mr-1"></i> Split
+    </button>
+</div>
+
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+        <label class="text-xs font-medium text-gray-500">Delimiter:</label>
+        <select class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                @bind="_selectedDelimiter"
+                @bind:after="SaveState">
+            <option value="Newline">Newline</option>
+            <option value="Comma">Comma</option>
+            <option value="Tab">Tab</option>
+            <option value="Space">Space</option>
+            <option value="Custom">Custom</option>
+        </select>
+
+        @if (_selectedDelimiter == "Custom")
+        {
+            <input type="text"
+                   class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 w-32 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                   placeholder="Custom delimiter…"
+                   @bind="_customDelimiter"
+                   @bind:event="oninput"
+                   @bind:after="SaveState" />
+        }
+    </div>
+
+    @if (_mode == Mode.Merge)
+    {
+        <div class="space-y-3 mb-4">
+            @for (int i = 0; i < _mergeInputs.Count; i++)
+            {
+                int index = i;
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Input @(index + 1)</label>
+                    <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Enter text…"
+                              value="@_mergeInputs[index]"
+                              @oninput="@(e => UpdateMergeInput(index, e))"></textarea>
+                </div>
+            }
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 mb-4">
+            <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                    @onclick="AddInput">
+                <i class="ti ti-plus"></i> Add Input
+            </button>
+            @if (_mergeInputs.Count > 2)
+            {
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                        @onclick="RemoveInput">
+                    <i class="ti ti-minus"></i> Remove Last
+                </button>
+            }
+            <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                    @onclick="MergeText">
+                <i class="ti ti-arrows-join"></i> Merge
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="mb-4">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Input</label>
+            <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Paste or type text to split…"
+                      @bind="_splitInput"
+                      @bind:event="oninput"
+                      @bind:after="SaveState"></textarea>
+        </div>
+
+        <div class="mb-4">
+            <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                    @onclick="SplitText">
+                <i class="ti ti-arrows-split-2"></i> Split
+            </button>
+        </div>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@if (_mode == Mode.Merge && !string.IsNullOrEmpty(_mergeOutput))
+{
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium">Merged Output</label>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400">@_mergeOutput.Length.ToString("N0") chars</span>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                        @onclick="CopyOutput">
+                    <i class="ti ti-copy"></i> @(_copied ? "Copied!" : "Copy")
+                </button>
+            </div>
+        </div>
+        <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  readonly
+                  @bind="_mergeOutput"></textarea>
+    </div>
+}
+
+@if (_mode == Mode.Split && _splitOutputs.Count > 0)
+{
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium">Split Output — @_splitOutputs.Count pieces</label>
+            <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1 cursor-pointer border-none"
+                    @onclick="CopyOutput">
+                <i class="ti ti-copy"></i> @(_copied ? "Copied!" : "Copy")
+            </button>
+        </div>
+        <div class="space-y-2">
+            @for (int i = 0; i < _splitOutputs.Count; i++)
+            {
+                <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-medium text-gray-500">Piece @(i + 1)</span>
+                        <span class="text-xs text-gray-400">@_splitOutputs[i].Length.ToString("N0") chars</span>
+                    </div>
+                    <pre class="text-sm font-mono whitespace-pre-wrap break-all m-0">@_splitOutputs[i]</pre>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/merge-split" OnRestore="RestoreState" />
+
+@code {
+    private enum Mode { Merge, Split }
+
+    private Mode _mode = Mode.Merge;
+    private string _selectedDelimiter = "Newline";
+    private string _customDelimiter = string.Empty;
+    private string? _error;
+    private bool _copied;
+    private RecentEntryPanel? _recentPanel;
+
+    private List<string> _mergeInputs = [string.Empty, string.Empty];
+    private string _mergeOutput = string.Empty;
+
+    private string _splitInput = string.Empty;
+    private List<string> _splitOutputs = [];
+
+    sealed record ToolState(string ModeStr, string SelectedDelimiter, string CustomDelimiter, List<string> MergeInputs, string SplitInput);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/merge-split");
+            if (state is not null)
+            {
+                _mode = Enum.TryParse<Mode>(state.ModeStr, out Mode m) ? m : Mode.Merge;
+                _selectedDelimiter = state.SelectedDelimiter;
+                _customDelimiter = state.CustomDelimiter;
+                _mergeInputs = state.MergeInputs.Count >= 2 ? state.MergeInputs : [string.Empty, string.Empty];
+                _splitInput = state.SplitInput;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/merge-split", new ToolState(_mode.ToString(), _selectedDelimiter, _customDelimiter, _mergeInputs, _splitInput));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _mode = Enum.TryParse<Mode>(state.ModeStr, out Mode m) ? m : Mode.Merge;
+            _selectedDelimiter = state.SelectedDelimiter;
+            _customDelimiter = state.CustomDelimiter;
+            _mergeInputs = state.MergeInputs.Count >= 2 ? state.MergeInputs : [string.Empty, string.Empty];
+            _splitInput = state.SplitInput;
+            _mergeOutput = string.Empty;
+            _splitOutputs = [];
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetMode(Mode mode)
+    {
+        _mode = mode;
+        _error = null;
+        _copied = false;
+        await SaveState();
+    }
+
+    private async Task UpdateMergeInput(int index, ChangeEventArgs e)
+    {
+        _mergeInputs[index] = e.Value?.ToString() ?? string.Empty;
+        await SaveState();
+    }
+
+    private async Task AddInput()
+    {
+        _mergeInputs.Add(string.Empty);
+        await SaveState();
+    }
+
+    private async Task RemoveInput()
+    {
+        if (_mergeInputs.Count > 2)
+        {
+            _mergeInputs.RemoveAt(_mergeInputs.Count - 1);
+            await SaveState();
+        }
+    }
+
+    private async Task MergeText()
+    {
+        _error = null;
+        _copied = false;
+
+        string delimiter = Core.Text.MergeSplitCore.GetDelimiterValue(_selectedDelimiter, _customDelimiter);
+
+        if (_selectedDelimiter == "Custom" && string.IsNullOrEmpty(_customDelimiter))
+        {
+            _error = "Please enter a custom delimiter.";
+            return;
+        }
+
+        string result = Core.Text.MergeSplitCore.Merge(_mergeInputs, delimiter);
+        if (string.IsNullOrEmpty(result))
+        {
+            _error = "All inputs are empty.";
+            return;
+        }
+
+        _mergeOutput = result;
+
+        string label = $"Merge {_mergeInputs.Count} inputs ({_selectedDelimiter})";
+        await Storage.AddRecentAsync("tools/text/merge-split", label, new ToolState(_mode.ToString(), _selectedDelimiter, _customDelimiter, _mergeInputs, _splitInput));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SplitText()
+    {
+        _error = null;
+        _copied = false;
+
+        if (string.IsNullOrEmpty(_splitInput))
+        {
+            _error = "Input is empty.";
+            return;
+        }
+
+        if (_selectedDelimiter == "Custom" && string.IsNullOrEmpty(_customDelimiter))
+        {
+            _error = "Please enter a custom delimiter.";
+            return;
+        }
+
+        string delimiter = Core.Text.MergeSplitCore.GetDelimiterValue(_selectedDelimiter, _customDelimiter);
+        _splitOutputs = Core.Text.MergeSplitCore.Split(_splitInput, delimiter);
+
+        string label = _splitInput.Length > 50 ? _splitInput[..50] + "..." : _splitInput;
+        await Storage.AddRecentAsync("tools/text/merge-split", label, new ToolState(_mode.ToString(), _selectedDelimiter, _customDelimiter, _mergeInputs, _splitInput));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task CopyOutput()
+    {
+        string textToCopy = _mode == Mode.Merge
+            ? _mergeOutput
+            : string.Join("\n---\n", _splitOutputs);
+
+        if (!string.IsNullOrEmpty(textToCopy))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", textToCopy);
+            _copied = true;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copied = false;
+            StateHasChanged();
+        }
+    }
+}

@@ -1,0 +1,251 @@
+@page "/tools/file/csv"
+@using Rowles.Toolbox.Core.File
+@using System.Text.Json
+@inject LocalStorageService Storage
+
+<PageTitle>CSV Viewer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="CSV Viewer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-table mr-1"></i> View &amp; filter CSV, TSV, and delimited files</span>
+    </Actions>
+</PageHeader>
+
+@if (_headers.Count == 0)
+{
+    <div class="space-y-4">
+        @* -- File Upload -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-6">
+            <label class="block text-sm font-medium mb-2">Upload File</label>
+            <InputFile OnChange="HandleFileUpload" accept=".csv,.tsv,.log,.txt"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+
+            <div class="mt-3 flex items-center gap-3">
+                <label class="block text-xs text-gray-500">Custom delimiter:</label>
+                <input type="text" maxlength="1"
+                       class="w-12 p-1 border border-gray-300 dark:border-gray-600 rounded text-center text-sm bg-white dark:bg-gray-800 font-mono"
+                       placeholder=","
+                       @bind="_customDelimiter" />
+            </div>
+        </div>
+
+        @* -- Paste Text -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-6">
+            <label class="block text-sm font-medium mb-2">Or Paste CSV Text</label>
+            <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500"
+                      placeholder="col1,col2,col3&#10;value1,value2,value3&#10;..."
+                      @bind="_pastedText"></textarea>
+            <div class="mt-2 flex items-center gap-3">
+                <button class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                        @onclick="ParsePastedText">
+                    <i class="ti ti-table-import mr-1"></i> Parse
+                </button>
+                <label class="block text-xs text-gray-500">Custom delimiter:</label>
+                <input type="text" maxlength="1"
+                       class="w-12 p-1 border border-gray-300 dark:border-gray-600 rounded text-center text-sm bg-white dark:bg-gray-800 font-mono"
+                       placeholder=","
+                       @bind="_customDelimiter" @bind:after="SaveState" />
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <p class="text-red-500 text-xs"><i class="ti ti-alert-circle mr-1"></i>@_errorMessage</p>
+        }
+    </div>
+}
+else
+{
+    <div class="space-y-4">
+        @* -- Info Bar -- *@
+        <div class="flex flex-wrap items-center gap-4 text-sm">
+            <span class="text-gray-500"><i class="ti ti-list-numbers mr-1"></i> <strong>@_totalRowCount.ToString("N0")</strong> row@(_totalRowCount == 1 ? "" : "s")</span>
+            <span class="text-gray-500"><i class="ti ti-columns mr-1"></i> <strong>@_headers.Count</strong> column@(_headers.Count == 1 ? "" : "s")</span>
+            <span class="text-gray-500"><i class="ti ti-separator mr-1"></i> Delimiter: <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">@CsvViewerCore.DelimiterLabel(_detectedDelimiter)</code></span>
+            @if (_totalRowCount > CsvViewerCore.MaxDisplayRows)
+            {
+                <span class="text-amber-600 dark:text-amber-400 text-xs"><i class="ti ti-alert-triangle mr-1"></i> Showing first @CsvViewerCore.MaxDisplayRows of @_totalRowCount.ToString("N0") rows</span>
+            }
+            <button class="ml-auto px-3 py-1 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded hover:bg-red-200 dark:hover:bg-red-900/50"
+                    @onclick="Reset">
+                <i class="ti ti-trash mr-1"></i> New File
+            </button>
+        </div>
+
+        @* -- Search -- *@
+        <div>
+            <input type="text" placeholder="Search across all columns…"
+                   class="w-full p-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500"
+                   @bind="_searchQuery" @bind:event="oninput" />
+        </div>
+
+        @* -- Table -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+            <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                        <tr>
+                            <th class="p-2 text-left text-xs font-medium text-gray-400 w-12">#</th>
+                            @for (int i = 0; i < _headers.Count; i++)
+                            {
+                                int colIndex = i;
+                                <th class="p-2 text-left text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
+                                    @onclick="() => SortBy(colIndex)">
+                                    @_headers[colIndex]
+                                    @if (_sortColumnIndex == colIndex)
+                                    {
+                                        <i class="ti @(_sortAscending ? "ti-arrow-up" : "ti-arrow-down") text-xs ml-1"></i>
+                                    }
+                                </th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ int rowNumber = 0; }
+                        @foreach (List<string> row in DisplayedRows)
+                        {
+                            rowNumber++;
+                            <tr class="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                <td class="p-2 text-xs text-gray-400">@rowNumber</td>
+                                @foreach (string cell in row)
+                                {
+                                    <td class="p-2 text-xs font-mono whitespace-nowrap max-w-xs truncate" title="@cell">@cell</td>
+                                }
+                                @* Pad if row has fewer columns *@
+                                @for (int pad = row.Count; pad < _headers.Count; pad++)
+                                {
+                                    <td class="p-2"></td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (DisplayedRows.Count == 0)
+            {
+                <div class="p-4 text-center text-sm text-gray-400">No rows match the search query.</div>
+            }
+        </div>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="csv-viewer" OnRestore="RestoreState" />
+
+@code {
+    private List<string> _headers = [];
+    private List<List<string>> _rows = [];
+    private int _totalRowCount;
+    private char _detectedDelimiter;
+    private string _customDelimiter = string.Empty;
+    private string _searchQuery = string.Empty;
+    private string _pastedText = string.Empty;
+    private string _errorMessage = string.Empty;
+    private int _sortColumnIndex = -1;
+    private bool _sortAscending = true;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string CustomDelimiter);
+
+    private List<List<string>> DisplayedRows => CsvViewerCore.GetDisplayedRows(_rows, _headers, _searchQuery, _sortColumnIndex, _sortAscending);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("csv-viewer");
+            if (state is not null)
+            {
+                _customDelimiter = state.CustomDelimiter;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        _errorMessage = string.Empty;
+        try
+        {
+            IBrowserFile file = e.File;
+            using Stream stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            using StreamReader reader = new(stream);
+            string content = await reader.ReadToEndAsync();
+            ParseCsv(content);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to read file: {ex.Message}";
+        }
+    }
+
+    private async Task ParsePastedText()
+    {
+        _errorMessage = string.Empty;
+        if (string.IsNullOrWhiteSpace(_pastedText))
+        {
+            _errorMessage = "Please paste some CSV text first.";
+            return;
+        }
+        ParseCsv(_pastedText);
+        if (_headers.Count > 0)
+            await Storage.AddRecentAsync("csv-viewer", $"Paste: {_totalRowCount:N0} rows", new ToolState(_customDelimiter));
+    }
+
+    private void ParseCsv(string content)
+    {
+        _sortColumnIndex = -1;
+        (List<string> headers, List<List<string>> rows, int totalRowCount, char detectedDelimiter, string? error) =
+            CsvViewerCore.ParseCsv(content, _customDelimiter);
+        _headers = headers;
+        _rows = rows;
+        _totalRowCount = totalRowCount;
+        _detectedDelimiter = detectedDelimiter;
+        if (error is not null) _errorMessage = error;
+    }
+
+    private void SortBy(int columnIndex)
+    {
+        if (_sortColumnIndex == columnIndex)
+        {
+            _sortAscending = !_sortAscending;
+        }
+        else
+        {
+            _sortColumnIndex = columnIndex;
+            _sortAscending = true;
+        }
+    }
+
+    private void Reset()
+    {
+        _headers.Clear();
+        _rows.Clear();
+        _totalRowCount = 0;
+        _searchQuery = string.Empty;
+        _pastedText = string.Empty;
+        _errorMessage = string.Empty;
+        _sortColumnIndex = -1;
+        _customDelimiter = string.Empty;
+        _ = SaveState(); // Fire and forget
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("csv-viewer", new ToolState(_customDelimiter));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _customDelimiter = state.CustomDelimiter;
+                StateHasChanged();
+                await _recentPanel?.RefreshAsync()!;
+            }
+        }
+        catch { /* ignore invalid state */ }
+    }
+}

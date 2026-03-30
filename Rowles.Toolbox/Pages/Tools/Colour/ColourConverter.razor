@@ -1,0 +1,363 @@
+@page "/tools/colour/converter"
+@using Rowles.Toolbox.Core.Colour
+@using System.Text.Json
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Colour Converter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Colour Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-palette mr-1"></i> Convert between HEX, RGB, HSL, HSV &amp; CMYK</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-4">
+
+        @* HEX *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-hash mr-1"></i> HEX</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyHex">
+                    <i class="ti ti-copy mr-1"></i> Copy
+                </button>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-mono text-gray-400">#</span>
+                <input type="text" maxlength="6" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="3b82f6"
+                       value="@_hex"
+                       @oninput="OnHexInput" />
+            </div>
+        </div>
+
+        @* RGB *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-color-swatch mr-1"></i> RGB</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyRgb">
+                    <i class="ti ti-copy mr-1"></i> Copy
+                </button>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">R</label>
+                    <input type="number" min="0" max="255" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_r" @oninput="e => OnRgbInput(e, 0)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">G</label>
+                    <input type="number" min="0" max="255" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_g" @oninput="e => OnRgbInput(e, 1)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">B</label>
+                    <input type="number" min="0" max="255" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_b" @oninput="e => OnRgbInput(e, 2)" />
+                </div>
+            </div>
+        </div>
+
+        @* HSL *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-adjustments mr-1"></i> HSL</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyHsl">
+                    <i class="ti ti-copy mr-1"></i> Copy
+                </button>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">H (0–360°)</label>
+                    <input type="number" min="0" max="360" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_hslH" @oninput="e => OnHslInput(e, 0)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">S (0–100%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_hslS" @oninput="e => OnHslInput(e, 1)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">L (0–100%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_hslL" @oninput="e => OnHslInput(e, 2)" />
+                </div>
+            </div>
+        </div>
+
+        @* HSV *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-droplet mr-1"></i> HSV</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyHsv">
+                    <i class="ti ti-copy mr-1"></i> Copy
+                </button>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">H (0–360°)</label>
+                    <input type="number" min="0" max="360" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_hsvH" @oninput="e => OnHsvInput(e, 0)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">S (0–100%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_hsvS" @oninput="e => OnHsvInput(e, 1)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">V (0–100%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_hsvV" @oninput="e => OnHsvInput(e, 2)" />
+                </div>
+            </div>
+        </div>
+
+        @* CMYK *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-printer mr-1"></i> CMYK</h3>
+                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyCmyk">
+                    <i class="ti ti-copy mr-1"></i> Copy
+                </button>
+            </div>
+            <div class="grid grid-cols-4 gap-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">C (%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_cmykC" @oninput="e => OnCmykInput(e, 0)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">M (%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_cmykM" @oninput="e => OnCmykInput(e, 1)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Y (%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_cmykY" @oninput="e => OnCmykInput(e, 2)" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">K (%)</label>
+                    <input type="number" min="0" max="100" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                           value="@_cmykK" @oninput="e => OnCmykInput(e, 3)" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Sidebar *@
+    <div class="space-y-4">
+        @* Colour Preview *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-eye mr-1"></i> Preview</h3>
+            <div class="w-full h-40 rounded border border-gray-300 dark:border-gray-600"
+                 style="background-color: #@_hex;">
+            </div>
+        </div>
+
+        @* CSS Values *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-code mr-1"></i> CSS Values</h3>
+            <div class="space-y-2">
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-500 dark:text-gray-400 font-mono text-xs">HEX</span>
+                    <button class="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyHex">@HexCss</button>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-500 dark:text-gray-400 font-mono text-xs">RGB</span>
+                    <button class="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyRgb">@RgbCss</button>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-500 dark:text-gray-400 font-mono text-xs">HSL</span>
+                    <button class="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline" @onclick="CopyHsl">@HslCss</button>
+                </div>
+            </div>
+        </div>
+
+        @* Copy Status *@
+        @if (!string.IsNullOrEmpty(_copyMessage))
+        {
+            <div class="text-xs text-green-600 dark:text-green-400 text-center">
+                <i class="ti ti-check mr-1"></i> @_copyMessage
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/colour/converter" OnRestore="RestoreState" />
+
+@code {
+    private string _hex = "3b82f6";
+    private int _r = 59, _g = 130, _b = 246;
+    private int _hslH = 217, _hslS = 91, _hslL = 60;
+    private int _hsvH = 217, _hsvS = 76, _hsvV = 96;
+    private int _cmykC = 76, _cmykM = 47, _cmykY = 0, _cmykK = 4;
+    private string _copyMessage = string.Empty;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Hex, int R, int G, int B, int HslH, int HslS, int HslL, int HsvH, int HsvS, int HsvV, int CmykC, int CmykM, int CmykY, int CmykK);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/colour/converter");
+            if (state is not null)
+            {
+                _hex = state.Hex;
+                _r = state.R; _g = state.G; _b = state.B;
+                _hslH = state.HslH; _hslS = state.HslS; _hslL = state.HslL;
+                _hsvH = state.HsvH; _hsvS = state.HsvS; _hsvV = state.HsvV;
+                _cmykC = state.CmykC; _cmykM = state.CmykM; _cmykY = state.CmykY; _cmykK = state.CmykK;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/colour/converter", new ToolState(_hex, _r, _g, _b, _hslH, _hslS, _hslL, _hsvH, _hsvS, _hsvV, _cmykC, _cmykM, _cmykY, _cmykK));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _hex = state.Hex;
+            _r = state.R; _g = state.G; _b = state.B;
+            _hslH = state.HslH; _hslS = state.HslS; _hslL = state.HslL;
+            _hsvH = state.HsvH; _hsvS = state.HsvS; _hsvV = state.HsvV;
+            _cmykC = state.CmykC; _cmykM = state.CmykM; _cmykY = state.CmykY; _cmykK = state.CmykK;
+            StateHasChanged();
+        }
+    }
+
+    private string HexCss => $"#{_hex}";
+    private string RgbCss => $"rgb({_r}, {_g}, {_b})";
+    private string HslCss => $"hsl({_hslH}, {_hslS}%, {_hslL}%)";
+    private string HsvCss => $"hsv({_hsvH}, {_hsvS}%, {_hsvV}%)";
+    private string CmykCss => $"cmyk({_cmykC}%, {_cmykM}%, {_cmykY}%, {_cmykK}%)";
+
+    private Task CopyHex() => CopyToClipboard(HexCss);
+    private Task CopyRgb() => CopyToClipboard(RgbCss);
+    private Task CopyHsl() => CopyToClipboard(HslCss);
+    private Task CopyHsv() => CopyToClipboard(HsvCss);
+    private Task CopyCmyk() => CopyToClipboard(CmykCss);
+
+    private async Task OnHexInput(ChangeEventArgs e)
+    {
+        string raw = (e.Value?.ToString() ?? string.Empty).TrimStart('#').Trim();
+        if (raw.Length == 6 && ColourConverterCore.IsValidHex(raw))
+        {
+            _hex = raw.ToLowerInvariant();
+            (_r, _g, _b) = ColourConverterCore.HexToRgb(_hex);
+            UpdateFromRgb();
+        }
+        else if (raw.Length == 3 && ColourConverterCore.IsValidHex(raw))
+        {
+            _hex = $"{raw[0]}{raw[0]}{raw[1]}{raw[1]}{raw[2]}{raw[2]}".ToLowerInvariant();
+            (_r, _g, _b) = ColourConverterCore.HexToRgb(_hex);
+            UpdateFromRgb();
+        }
+        await SaveState();
+    }
+
+    private async Task OnRgbInput(ChangeEventArgs e, int channel)
+    {
+        int value = ColourConverterCore.ParseInt(e.Value, channel switch { 0 => _r, 1 => _g, _ => _b });
+        value = Math.Clamp(value, 0, 255);
+        switch (channel)
+        {
+            case 0: _r = value; break;
+            case 1: _g = value; break;
+            default: _b = value; break;
+        }
+        _hex = ColourConverterCore.RgbToHex(_r, _g, _b);
+        UpdateFromRgb();
+        await SaveState();
+    }
+
+    private async Task OnHslInput(ChangeEventArgs e, int channel)
+    {
+        int maxVal = channel == 0 ? 360 : 100;
+        int fallback = channel switch { 0 => _hslH, 1 => _hslS, _ => _hslL };
+        int value = Math.Clamp(ColourConverterCore.ParseInt(e.Value, fallback), 0, maxVal);
+        switch (channel)
+        {
+            case 0: _hslH = value; break;
+            case 1: _hslS = value; break;
+            default: _hslL = value; break;
+        }
+        (_r, _g, _b) = ColourConverterCore.HslToRgb(_hslH, _hslS, _hslL);
+        _hex = ColourConverterCore.RgbToHex(_r, _g, _b);
+        UpdateHsvFromRgb();
+        UpdateCmykFromRgb();
+        await SaveState();
+    }
+
+    private async Task OnHsvInput(ChangeEventArgs e, int channel)
+    {
+        int maxVal = channel == 0 ? 360 : 100;
+        int fallback = channel switch { 0 => _hsvH, 1 => _hsvS, _ => _hsvV };
+        int value = Math.Clamp(ColourConverterCore.ParseInt(e.Value, fallback), 0, maxVal);
+        switch (channel)
+        {
+            case 0: _hsvH = value; break;
+            case 1: _hsvS = value; break;
+            default: _hsvV = value; break;
+        }
+        (_r, _g, _b) = ColourConverterCore.HsvToRgb(_hsvH, _hsvS, _hsvV);
+        _hex = ColourConverterCore.RgbToHex(_r, _g, _b);
+        UpdateHslFromRgb();
+        UpdateCmykFromRgb();
+        await SaveState();
+    }
+
+    private async Task OnCmykInput(ChangeEventArgs e, int channel)
+    {
+        int fallback = channel switch { 0 => _cmykC, 1 => _cmykM, 2 => _cmykY, _ => _cmykK };
+        int value = Math.Clamp(ColourConverterCore.ParseInt(e.Value, fallback), 0, 100);
+        switch (channel)
+        {
+            case 0: _cmykC = value; break;
+            case 1: _cmykM = value; break;
+            case 2: _cmykY = value; break;
+            default: _cmykK = value; break;
+        }
+        (_r, _g, _b) = ColourConverterCore.CmykToRgb(_cmykC, _cmykM, _cmykY, _cmykK);
+        _hex = ColourConverterCore.RgbToHex(_r, _g, _b);
+        UpdateHslFromRgb();
+        UpdateHsvFromRgb();
+        await SaveState();
+    }
+
+    private void UpdateFromRgb()
+    {
+        UpdateHslFromRgb();
+        UpdateHsvFromRgb();
+        UpdateCmykFromRgb();
+    }
+
+    private void UpdateHslFromRgb() =>
+        (_hslH, _hslS, _hslL) = ColourConverterCore.RgbToHsl(_r, _g, _b);
+
+    private void UpdateHsvFromRgb() =>
+        (_hsvH, _hsvS, _hsvV) = ColourConverterCore.RgbToHsv(_r, _g, _b);
+
+    private void UpdateCmykFromRgb() =>
+        (_cmykC, _cmykM, _cmykY, _cmykK) = ColourConverterCore.RgbToCmyk(_r, _g, _b);
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        await Storage.AddRecentAsync("tools/colour/converter", $"Copied {text}", new ToolState(_hex, _r, _g, _b, _hslH, _hslS, _hslL, _hsvH, _hsvS, _hsvV, _cmykC, _cmykM, _cmykY, _cmykK));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        _copyMessage = $"Copied: {text}";
+        StateHasChanged();
+        await Task.Delay(2000);
+        _copyMessage = string.Empty;
+        StateHasChanged();
+    }
+}

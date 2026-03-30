@@ -1,0 +1,666 @@
+@page "/tools/generators/css-keyframes"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+@using System.Text.Json
+
+<PageTitle>CSS Keyframe Animator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="CSS Keyframe Animator" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-movie mr-1"></i> Visual @@keyframes animation builder with timeline</span>
+    </Actions>
+</PageHeader>
+
+@* Inject live keyframes into the page so the preview element can animate *@
+@((MarkupString)$"<style>{GeneratePreviewKeyframes()}</style>")
+
+@* -- Live Preview -- *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-eye mr-1"></i> Preview</h3>
+        <div class="flex gap-2">
+            <button class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="async () => await TogglePreview()">
+                <i class="ti @(_previewPlaying ? "ti-player-pause" : "ti-player-play") mr-0.5"></i> @(_previewPlaying ? "Pause" : "Play")
+            </button>
+            <select class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                    value="@_previewShape" @onchange="async (e) => await OnShapeChanged(e)">
+                <option value="box">Box</option>
+                <option value="circle">Circle</option>
+                <option value="text">Text</option>
+            </select>
+        </div>
+    </div>
+    <div class="flex items-center justify-center rounded bg-gray-50 dark:bg-gray-900 overflow-hidden" style="height: 200px; position: relative;">
+        <div style="@GetPreviewStyle()">
+            @if (_previewShape == "text")
+            {
+                <span class="font-bold text-lg">Animate</span>
+            }
+        </div>
+    </div>
+</div>
+
+@* -- Animation Settings -- *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Animation Settings</h3>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
+        <div>
+            <label class="text-gray-500 block mb-1">Name</label>
+            <input type="text" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                   @bind="_animName" @bind:after="SaveState" />
+        </div>
+        <div>
+            <label class="text-gray-500 block mb-1">Duration (s)</label>
+            <input type="number" step="0.1" min="0.1" max="30" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                   @bind="_duration" @bind:after="SaveState" />
+        </div>
+        <div>
+            <label class="text-gray-500 block mb-1">Delay (s)</label>
+            <input type="number" step="0.1" min="0" max="10" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                   @bind="_delay" @bind:after="SaveState" />
+        </div>
+        <div>
+            <label class="text-gray-500 block mb-1">Iterations</label>
+            <div class="flex items-center gap-1">
+                <input type="number" min="1" max="100" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                       disabled="@_infiniteLoop" @bind="_iterations" @bind:after="SaveState" />
+                <label class="flex items-center gap-0.5 whitespace-nowrap" title="Infinite">
+                    <input type="checkbox" class="accent-blue-600" @bind="_infiniteLoop" @bind:after="SaveState" /> <i class="ti ti-infinity text-sm"></i>
+                </label>
+            </div>
+        </div>
+        <div>
+            <label class="text-gray-500 block mb-1">Direction</label>
+            <select class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                    @bind="_direction" @bind:after="SaveState">
+                <option value="normal">Normal</option>
+                <option value="reverse">Reverse</option>
+                <option value="alternate">Alternate</option>
+                <option value="alternate-reverse">Alternate Reverse</option>
+            </select>
+        </div>
+        <div>
+            <label class="text-gray-500 block mb-1">Fill Mode</label>
+            <select class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                    @bind="_fillMode" @bind:after="SaveState">
+                <option value="none">None</option>
+                <option value="forwards">Forwards</option>
+                <option value="backwards">Backwards</option>
+                <option value="both">Both</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+@* -- Presets -- *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+    <div class="flex flex-wrap gap-2">
+        @foreach (CssKeyframeAnimatorCore.AnimPreset preset in _presets)
+        {
+            <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-700 dark:text-gray-300"
+                    @onclick="async () => await ApplyPreset(preset)">
+                <i class="ti @preset.Icon mr-0.5"></i> @preset.Name
+            </button>
+        }
+    </div>
+</div>
+
+@* -- Timeline / Keyframes -- *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-timeline mr-1"></i> Keyframes</h3>
+        <button class="text-xs px-2 py-1 rounded cursor-pointer border border-green-400 dark:border-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400"
+                @onclick="async () => await AddKeyframe()">
+            <i class="ti ti-plus mr-0.5"></i> Add Keyframe
+        </button>
+    </div>
+
+    @* Timeline bar *@
+    <div class="relative mb-4 select-none">
+        <div class="h-8 rounded bg-gray-100 dark:bg-gray-800 relative border border-gray-200 dark:border-gray-700">
+            @* Percentage markers *@
+            @for (int m = 0; m <= 100; m += 25)
+            {
+                int markerVal = m;
+                <span class="absolute top-0 text-[9px] text-gray-400 -translate-x-1/2" style="left: @(markerVal)%;">@(markerVal)%</span>
+            }
+            @* Keyframe dots *@
+            @foreach (CssKeyframeAnimatorCore.Keyframe kf in _keyframes)
+            {
+                CssKeyframeAnimatorCore.Keyframe capturedKf = kf;
+                string dotColor = capturedKf == _selectedKeyframe ? "bg-blue-500" : "bg-gray-400 dark:bg-gray-500";
+                <button class="absolute bottom-1 w-4 h-4 rounded-full @dotColor border-2 border-white dark:border-gray-900 cursor-pointer -translate-x-1/2 hover:scale-125 transition-transform"
+                        style="left: @(capturedKf.Percent)%;"
+                        title="@(capturedKf.Percent)%"
+                        @onclick="async () => await SelectKeyframe(capturedKf)">
+                </button>
+            }
+        </div>
+    </div>
+
+    @* Keyframe list *@
+    <div class="space-y-2 max-h-64 overflow-y-auto">
+        @foreach (CssKeyframeAnimatorCore.Keyframe kf in _keyframes)
+        {
+            CssKeyframeAnimatorCore.Keyframe capturedKf = kf;
+            bool isSelected = capturedKf == _selectedKeyframe;
+            string borderCls = isSelected ? "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-900/20" : "border-gray-200 dark:border-gray-700";
+            <div class="border @borderCls rounded p-2 text-xs cursor-pointer" @onclick="async () => await SelectKeyframe(capturedKf)">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono font-bold text-blue-600 dark:text-blue-400 w-10">@(capturedKf.Percent)%</span>
+                        <input type="range" min="0" max="100" class="w-24 h-3 accent-blue-600" value="@capturedKf.Percent"
+                               @oninput="async (e) => await OnKeyframePercentChanged(capturedKf, e)" />
+                        <span class="text-gray-400">@SummarizeKeyframe(capturedKf)</span>
+                    </div>
+                    <div class="flex gap-1">
+                        <button class="px-1.5 py-0.5 rounded text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/40 cursor-pointer"
+                                title="Duplicate" @onclick="async () => await DuplicateKeyframe(capturedKf)" @onclick:stopPropagation="true">
+                            <i class="ti ti-copy"></i>
+                        </button>
+                        @if (_keyframes.Count > 2)
+                        {
+                            <button class="px-1.5 py-0.5 rounded text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40 cursor-pointer"
+                                    title="Remove" @onclick="async () => await RemoveKeyframe(capturedKf)" @onclick:stopPropagation="true">
+                                <i class="ti ti-trash"></i>
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@* -- Property Editor -- *@
+@if (_selectedKeyframe is not null)
+{
+    <div class="border border-blue-300 dark:border-blue-600 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3">
+            <i class="ti ti-adjustments mr-1"></i> Properties at <span class="text-blue-600 dark:text-blue-400 font-mono">@(_selectedKeyframe.Percent)%</span>
+        </h3>
+
+        @* Easing for this keyframe *@
+        <div class="mb-4">
+            <label class="text-xs text-gray-500 block mb-1">Easing (timing function)</label>
+            <div class="flex gap-2 flex-wrap">
+                @foreach (string easing in _easingOptions)
+                {
+                    string capturedEasing = easing;
+                    string activeCls = _selectedKeyframe.Easing == capturedEasing ? "bg-blue-100 dark:bg-blue-900/40 border-blue-400" : "border-gray-300 dark:border-gray-600";
+                    <button class="px-2 py-0.5 text-xs rounded cursor-pointer border @activeCls text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                            @onclick="async () => await SetEasing(capturedEasing)">
+                        @capturedEasing
+                    </button>
+                }
+            </div>
+            @if (_selectedKeyframe.Easing == "cubic-bezier")
+            {
+                <div class="flex gap-2 mt-2 text-xs">
+                    <input type="number" step="0.05" min="-1" max="2" class="w-16 px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Bx1" @bind:after="SaveState" />
+                    <input type="number" step="0.05" min="-1" max="2" class="w-16 px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.By1" @bind:after="SaveState" />
+                    <input type="number" step="0.05" min="-1" max="2" class="w-16 px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Bx2" @bind:after="SaveState" />
+                    <input type="number" step="0.05" min="-1" max="2" class="w-16 px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.By2" @bind:after="SaveState" />
+                </div>
+            }
+        </div>
+
+        @* Transform *@
+        <div class="mb-3">
+            <p class="text-xs font-semibold text-gray-500 mb-2"><i class="ti ti-3d-cube-sphere mr-1"></i> Transform</p>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 text-xs">
+                <div>
+                    <label class="text-gray-400">translateX (px)</label>
+                    <input type="number" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.TranslateX" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">translateY (px)</label>
+                    <input type="number" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.TranslateY" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">rotate (deg)</label>
+                    <input type="number" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Rotate" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">scale</label>
+                    <input type="number" step="0.05" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Scale" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">skewX (deg)</label>
+                    <input type="number" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.SkewX" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">skewY (deg)</label>
+                    <input type="number" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.SkewY" @bind:after="SaveState" />
+                </div>
+            </div>
+        </div>
+
+        @* Appearance *@
+        <div class="mb-3">
+            <p class="text-xs font-semibold text-gray-500 mb-2"><i class="ti ti-palette mr-1"></i> Appearance</p>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 text-xs">
+                <div>
+                    <label class="text-gray-400">opacity</label>
+                    <input type="range" min="0" max="1" step="0.01" class="w-full accent-blue-600"
+                           @bind="_selectedKeyframe.Opacity" @bind:after="SaveState" />
+                    <span class="text-gray-400 text-[10px]">@_selectedKeyframe.Opacity.ToString("F2")</span>
+                </div>
+                <div>
+                    <label class="text-gray-400">background</label>
+                    <input type="color" class="w-full h-7 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
+                           @bind="_selectedKeyframe.Background" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">color</label>
+                    <input type="color" class="w-full h-7 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
+                           @bind="_selectedKeyframe.Color" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">border-radius (px)</label>
+                    <input type="number" min="0" max="200" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.BorderRadius" @bind:after="SaveState" />
+                </div>
+            </div>
+        </div>
+
+        @* Sizing *@
+        <div class="mb-3">
+            <p class="text-xs font-semibold text-gray-500 mb-2"><i class="ti ti-dimensions mr-1"></i> Sizing</p>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                    <label class="text-gray-400">width (px)</label>
+                    <input type="number" min="0" max="500" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Width" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">height (px)</label>
+                    <input type="number" min="0" max="500" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Height" @bind:after="SaveState" />
+                </div>
+            </div>
+        </div>
+
+        @* Filters *@
+        <div>
+            <p class="text-xs font-semibold text-gray-500 mb-2"><i class="ti ti-photo-edit mr-1"></i> Filters</p>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                    <label class="text-gray-400">blur (px)</label>
+                    <input type="number" min="0" max="50" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Blur" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">brightness (%)</label>
+                    <input type="number" min="0" max="300" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.Brightness" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-gray-400">hue-rotate (deg)</label>
+                    <input type="number" min="0" max="360" class="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                           @bind="_selectedKeyframe.HueRotate" @bind:after="SaveState" />
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* -- CSS Output -- *@
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> Generated CSS</h3>
+        <button class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                @onclick="CopyToClipboard">
+            <i class="ti ti-clipboard mr-0.5"></i> Copy
+        </button>
+    </div>
+    <pre class="text-xs font-mono bg-gray-50 dark:bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap text-gray-700 dark:text-gray-300 max-h-96">@GenerateCss()</pre>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/css-keyframes" OnRestore="RestoreState" />
+
+@code {
+    string _animName = "my-animation";
+    double _duration = 1.0;
+    double _delay = 0;
+    int _iterations = 1;
+    bool _infiniteLoop = true;
+    string _direction = "normal";
+    string _fillMode = "both";
+    bool _previewPlaying = true;
+    string _previewShape = "box";
+    int _previewVersion;
+
+    CssKeyframeAnimatorCore.Keyframe? _selectedKeyframe;
+    List<CssKeyframeAnimatorCore.Keyframe> _keyframes = new();
+
+    readonly string[] _easingOptions = new[]
+    {
+        "ease", "ease-in", "ease-out", "ease-in-out", "linear",
+        "step-start", "step-end", "cubic-bezier"
+    };
+
+    // ── localStorage persistence ──
+    const string TOOL_KEY = "tools/generators/css-keyframes";
+    RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(
+        string AnimName, double Duration, double Delay, int Iterations, bool InfiniteLoop,
+        string Direction, string FillMode, bool PreviewPlaying, string PreviewShape,
+        List<CssKeyframeAnimatorCore.Keyframe> Keyframes
+    );
+
+    protected override void OnInitialized()
+    {
+        _keyframes = new List<CssKeyframeAnimatorCore.Keyframe>
+        {
+            new() { Percent = 0 },
+            new() { Percent = 100 }
+        };
+        _selectedKeyframe = _keyframes[0];
+    }
+
+    async Task TogglePreview() { _previewPlaying = !_previewPlaying; await SaveState(); }
+
+    async Task OnShapeChanged(ChangeEventArgs e)
+    {
+        _previewShape = e.Value?.ToString() ?? "box";
+        await SaveState();
+    }
+
+    string GetPreviewStyle()
+    {
+        System.Text.StringBuilder sb = new();
+
+        string shapeSize = _previewShape == "circle" ? "width:60px;height:60px;border-radius:50%;" : "width:80px;height:60px;border-radius:8px;";
+        if (_previewShape == "text")
+        {
+            shapeSize = "padding:8px 16px;border-radius:8px;";
+        }
+        sb.Append(shapeSize);
+        sb.Append("background:#3b82f6;color:white;display:flex;align-items:center;justify-content:center;");
+
+        if (_previewPlaying)
+        {
+            string previewName = $"{_animName}-pv{_previewVersion}";
+            sb.Append($"animation:{previewName} {_duration}s");
+            sb.Append($" {_delay}s");
+            sb.Append($" {(_infiniteLoop ? "infinite" : _iterations.ToString())}");
+            sb.Append($" {_direction}");
+            sb.Append($" {_fillMode};");
+        }
+
+        return sb.ToString();
+    }
+
+    async Task SelectKeyframe(CssKeyframeAnimatorCore.Keyframe kf) { _selectedKeyframe = kf; await SaveState(); }
+
+    async Task AddKeyframe()
+    {
+        int newPercent = 50;
+        List<int> usedPercents = _keyframes.Select(k => k.Percent).OrderBy(p => p).ToList();
+        int bestGap = 0;
+        int bestMid = 50;
+        for (int i = 0; i < usedPercents.Count - 1; i++)
+        {
+            int gap = usedPercents[i + 1] - usedPercents[i];
+            if (gap > bestGap)
+            {
+                bestGap = gap;
+                bestMid = usedPercents[i] + gap / 2;
+            }
+        }
+        if (bestGap > 1) newPercent = bestMid;
+
+        CssKeyframeAnimatorCore.Keyframe kf = new() { Percent = newPercent };
+        _keyframes.Add(kf);
+        SortKeyframes();
+        _selectedKeyframe = kf;
+        await SaveState();
+    }
+
+    async Task DuplicateKeyframe(CssKeyframeAnimatorCore.Keyframe source)
+    {
+        int newPct = Math.Min(source.Percent + 5, 100);
+        CssKeyframeAnimatorCore.Keyframe copy = new()
+        {
+            Percent = newPct,
+            TranslateX = source.TranslateX,
+            TranslateY = source.TranslateY,
+            Rotate = source.Rotate,
+            Scale = source.Scale,
+            SkewX = source.SkewX,
+            SkewY = source.SkewY,
+            Opacity = source.Opacity,
+            Background = source.Background,
+            Color = source.Color,
+            BorderRadius = source.BorderRadius,
+            Width = source.Width,
+            Height = source.Height,
+            Blur = source.Blur,
+            Brightness = source.Brightness,
+            HueRotate = source.HueRotate,
+            Easing = source.Easing,
+            Bx1 = source.Bx1,
+            By1 = source.By1,
+            Bx2 = source.Bx2,
+            By2 = source.By2
+        };
+        _keyframes.Add(copy);
+        SortKeyframes();
+        _selectedKeyframe = copy;
+        await SaveState();
+    }
+
+    async Task RemoveKeyframe(CssKeyframeAnimatorCore.Keyframe kf)
+    {
+        _keyframes.Remove(kf);
+        if (_selectedKeyframe == kf)
+            _selectedKeyframe = _keyframes.FirstOrDefault();
+        await SaveState();
+    }
+
+    async Task OnKeyframePercentChanged(CssKeyframeAnimatorCore.Keyframe kf, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int val))
+        {
+            kf.Percent = Math.Clamp(val, 0, 100);
+            SortKeyframes();
+            await SaveState();
+        }
+    }
+
+    void SortKeyframes() => _keyframes = _keyframes.OrderBy(k => k.Percent).ToList();
+
+    async Task SetEasing(string easing)
+    {
+        if (_selectedKeyframe is not null)
+            _selectedKeyframe.Easing = easing;
+        await SaveState();
+    }
+
+    string SummarizeKeyframe(CssKeyframeAnimatorCore.Keyframe kf) =>
+        CssKeyframeAnimatorCore.SummarizeKeyframe(kf);
+
+    async Task ApplyPreset(CssKeyframeAnimatorCore.AnimPreset preset)
+    {
+        _animName = preset.Name.ToLowerInvariant().Replace(" ", "-");
+        _duration = preset.Duration;
+        _infiniteLoop = preset.Infinite;
+        _iterations = preset.Infinite ? 1 : preset.Iterations;
+        _direction = preset.Direction;
+        _fillMode = preset.FillMode;
+        _keyframes = preset.BuildKeyframes();
+        SortKeyframes();
+        _selectedKeyframe = _keyframes.FirstOrDefault();
+        await SaveState();
+    }
+
+    string GenerateCss() =>
+        CssKeyframeAnimatorCore.GenerateCss(_animName, _duration, _delay,
+            _infiniteLoop, _iterations, _direction, _fillMode, _keyframes);
+
+    string GeneratePreviewKeyframes()
+    {
+        _previewVersion++;
+        string previewName = $"{_animName}-pv{_previewVersion}";
+        return CssKeyframeAnimatorCore.GeneratePreviewKeyframes(previewName, _keyframes);
+    }
+
+    async Task CopyToClipboard()
+    {
+        string css = GenerateCss();
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", css);
+        
+        // Add recent entry when CSS is copied
+        string summary = $"{_animName} ({_keyframes.Count} keyframes)";
+        await Storage.AddRecentAsync(TOOL_KEY, summary, 
+            new ToolState(_animName, _duration, _delay, _iterations, _infiniteLoop,
+                _direction, _fillMode, _previewPlaying, _previewShape, _keyframes));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    readonly List<CssKeyframeAnimatorCore.AnimPreset> _presets = new()
+    {
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Fade In", Icon = "ti-eye", Duration = 0.5, Infinite = false, FillMode = "forwards",
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, Opacity = 0 },
+                new() { Percent = 100, Opacity = 1.0 }
+            }
+        },
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Bounce", Icon = "ti-arrow-bounce", Duration = 1.0, Direction = "alternate",
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, TranslateY = 0, Easing = "ease-out" },
+                new() { Percent = 50, TranslateY = -40, Easing = "ease-in" },
+                new() { Percent = 100, TranslateY = 0, Easing = "ease-out" }
+            }
+        },
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Spin", Icon = "ti-rotate-clockwise", Duration = 1.0,
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, Rotate = 0, Easing = "linear" },
+                new() { Percent = 100, Rotate = 360 }
+            }
+        },
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Pulse", Icon = "ti-heart", Duration = 1.2,
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, Scale = 1.0 },
+                new() { Percent = 50, Scale = 1.15 },
+                new() { Percent = 100, Scale = 1.0 }
+            }
+        },
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Shake", Icon = "ti-arrows-horizontal", Duration = 0.5, Infinite = false, Iterations = 3,
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, TranslateX = 0 },
+                new() { Percent = 25, TranslateX = -10 },
+                new() { Percent = 50, TranslateX = 10 },
+                new() { Percent = 75, TranslateX = -10 },
+                new() { Percent = 100, TranslateX = 0 }
+            }
+        },
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Slide In", Icon = "ti-arrow-right", Duration = 0.6, Infinite = false, FillMode = "forwards",
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, TranslateX = -200, Opacity = 0 },
+                new() { Percent = 100, TranslateX = 0, Opacity = 1.0 }
+            }
+        },
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Colour Shift", Icon = "ti-palette", Duration = 3.0,
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, Background = "#3b82f6" },
+                new() { Percent = 25, Background = "#8b5cf6" },
+                new() { Percent = 50, Background = "#ec4899" },
+                new() { Percent = 75, Background = "#f59e0b" },
+                new() { Percent = 100, Background = "#3b82f6" }
+            }
+        },
+        new CssKeyframeAnimatorCore.AnimPreset
+        {
+            Name = "Wobble", Icon = "ti-mood-crazy-happy", Duration = 1.0,
+            BuildKeyframes = () => new List<CssKeyframeAnimatorCore.Keyframe>
+            {
+                new() { Percent = 0, Rotate = 0 },
+                new() { Percent = 15, Rotate = -15 },
+                new() { Percent = 30, Rotate = 10 },
+                new() { Percent = 45, Rotate = -10 },
+                new() { Percent = 60, Rotate = 6 },
+                new() { Percent = 75, Rotate = -4 },
+                new() { Percent = 100, Rotate = 0 }
+            }
+        }
+    };
+
+    // ── localStorage persistence ──
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await RestoreState();
+        }
+    }
+
+    async Task SaveState()
+    {
+        ToolState state = new(_animName, _duration, _delay, _iterations, _infiniteLoop,
+            _direction, _fillMode, _previewPlaying, _previewShape, _keyframes);
+        await Storage.SaveStateAsync(TOOL_KEY, state);
+    }
+
+    async Task RestoreState(ToolState? state = null)
+    {
+        state ??= await Storage.LoadStateAsync<ToolState>(TOOL_KEY);
+        if (state is not null)
+        {
+            _animName = state.AnimName;
+            _duration = state.Duration;
+            _delay = state.Delay;
+            _iterations = state.Iterations;
+            _infiniteLoop = state.InfiniteLoop;
+            _direction = state.Direction;
+            _fillMode = state.FillMode;
+            _previewPlaying = state.PreviewPlaying;
+            _previewShape = state.PreviewShape;
+            _keyframes = state.Keyframes;
+            _selectedKeyframe = _keyframes.FirstOrDefault();
+            StateHasChanged();
+        }
+    }
+
+    async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        await RestoreState(state);
+    }
+}

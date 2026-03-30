@@ -1,0 +1,315 @@
+@page "/tools/dev/benchmark"
+
+@using System.Text
+@using System.Text.RegularExpressions
+@using System.Globalization
+@using Rowles.Toolbox.Core.Developer
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>BenchmarkDotNet Formatter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="BenchmarkDotNet Formatter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-chart-bar mr-1"></i> Format and analyse BenchmarkDotNet results</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <label class="block text-sm font-medium mb-1">
+            <i class="ti ti-clipboard-text mr-1"></i> Paste BenchmarkDotNet Output
+        </label>
+        <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="| Method    | Mean     | Error    | StdDev   | Allocated |&#10;|---------- |---------:|---------:|---------:|----------:|&#10;| Method1   | 1.234 us | 0.012 us | 0.010 us |      48 B |"
+                  @bind="_inputText"
+                  @bind:event="oninput"
+                  @bind:after="ParseInputAndSave"></textarea>
+
+        <div class="mt-2 flex items-center gap-3">
+            <button type="button"
+                    class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                    @onclick="ParseInput">
+                <i class="ti ti-analyze mr-1"></i> Parse
+            </button>
+            <button type="button"
+                    class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                    @onclick="LoadSample">
+                <i class="ti ti-file-text mr-1"></i> Load Sample
+            </button>
+            <button type="button"
+                    class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                    @onclick="Clear">
+                <i class="ti ti-trash mr-1"></i> Clear
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 rounded p-4 text-sm text-red-700 dark:text-red-400">
+            <i class="ti ti-alert-circle mr-1"></i> @_errorMessage
+        </div>
+    }
+
+    @if (_columns.Count > 0 && _rows.Count > 0)
+    {
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-chart-dots mr-1"></i> Analysis</h3>
+            <div class="flex flex-wrap gap-3 text-sm">
+                <div class="px-3 py-2 rounded bg-gray-100 dark:bg-gray-800">
+                    <span class="text-gray-500 dark:text-gray-400">Methods:</span>
+                    <span class="font-bold ml-1">@_rows.Count</span>
+                </div>
+                <div class="px-3 py-2 rounded bg-gray-100 dark:bg-gray-800">
+                    <span class="text-gray-500 dark:text-gray-400">Columns:</span>
+                    <span class="font-bold ml-1">@_columns.Count</span>
+                </div>
+                @if (_fastestIndex >= 0)
+                {
+                    <div class="px-3 py-2 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                        <span class="text-green-600 dark:text-green-400"><i class="ti ti-bolt mr-1"></i> Fastest:</span>
+                        <span class="font-bold ml-1 text-green-700 dark:text-green-300">@GetCellValue(_rows[_fastestIndex], _columns[0])</span>
+                    </div>
+                }
+                @if (_slowestIndex >= 0 && _rows.Count > 1)
+                {
+                    <div class="px-3 py-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                        <span class="text-red-600 dark:text-red-400"><i class="ti ti-clock-pause mr-1"></i> Slowest:</span>
+                        <span class="font-bold ml-1 text-red-700 dark:text-red-300">@GetCellValue(_rows[_slowestIndex], _columns[0])</span>
+                    </div>
+                }
+                @if (_fastestIndex >= 0 && _slowestIndex >= 0 && _rows.Count > 1 && _speedRatio > 0)
+                {
+                    <div class="px-3 py-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                        <span class="text-blue-600 dark:text-blue-400"><i class="ti ti-arrows-diff mr-1"></i> Ratio:</span>
+                        <span class="font-bold ml-1 text-blue-700 dark:text-blue-300">@_speedRatio.ToString("F2")x</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div>
+            <div class="flex items-center gap-1 mb-3 border-b border-gray-200 dark:border-gray-700">
+                @foreach (BenchmarkFormatterCore.OutputTab tab in Enum.GetValues<BenchmarkFormatterCore.OutputTab>())
+                {
+                    <button type="button"
+                            class="px-4 py-2 text-sm font-medium rounded-t transition-colors @(tab == _activeTab ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700")"
+                            @onclick="() => _activeTab = tab">
+                        @tab.ToString()
+                    </button>
+                }
+            </div>
+
+            @if (_activeTab == BenchmarkFormatterCore.OutputTab.Preview)
+            {
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm font-mono border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 dark:bg-gray-800">
+                                @for (int ci = 0; ci < _columns.Count; ci++)
+                                {
+                                    int colIndex = ci;
+                                    <th class="px-4 py-2 text-left border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 select-none whitespace-nowrap"
+                                        @onclick="() => SortByColumn(colIndex)">
+                                        @_columns[colIndex]
+                                        @if (_sortColumnIndex == colIndex)
+                                        {
+                                            <i class="ti ti-@(_sortAscending ? "sort-ascending" : "sort-descending") ml-1 text-blue-500"></i>
+                                        }
+                                    </th>
+                                }
+                                @if (_meanColumnName is not null)
+                                {
+                                    <th class="px-4 py-2 text-left border border-gray-200 dark:border-gray-700 whitespace-nowrap">Relative</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int ri = 0; ri < _sortedRows.Count; ri++)
+                            {
+                                Dictionary<string, string> row = _sortedRows[ri];
+                                int originalIndex = _rows.IndexOf(row);
+                                string rowClass = originalIndex == _fastestIndex
+                                    ? "bg-green-50 dark:bg-green-900/20"
+                                    : originalIndex == _slowestIndex && _rows.Count > 1
+                                        ? "bg-red-50 dark:bg-red-900/20"
+                                        : "";
+                                <tr class="@rowClass hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                    @foreach (string col in _columns)
+                                    {
+                                        <td class="px-4 py-2 border border-gray-200 dark:border-gray-700 whitespace-nowrap">@GetCellValue(row, col)</td>
+                                    }
+                                    @if (_meanColumnName is not null)
+                                    {
+                                        <td class="px-4 py-2 border border-gray-200 dark:border-gray-700 whitespace-nowrap text-blue-600 dark:text-blue-400">
+                                            @GetRelativePerformance(row)
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                string output = _activeTab == BenchmarkFormatterCore.OutputTab.Markdown ? GenerateMarkdown() : GenerateHtml();
+                <div class="relative">
+                    <button type="button"
+                            class="absolute top-2 right-2 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                            @onclick="() => CopyToClipboard(output)">
+                        <i class="ti ti-copy mr-1"></i> @(_copied ? "Copied!" : "Copy")
+                    </button>
+                    <pre class="bg-gray-100 dark:bg-gray-900 p-4 rounded font-mono text-sm overflow-x-auto whitespace-pre">@output</pre>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(string InputText);
+
+    private string _inputText = string.Empty;
+    private string? _errorMessage;
+    private List<string> _columns = [];
+    private List<Dictionary<string, string>> _rows = [];
+    private List<Dictionary<string, string>> _sortedRows = [];
+    private int _fastestIndex = -1;
+    private int _slowestIndex = -1;
+    private double _speedRatio;
+    private string? _meanColumnName;
+    private BenchmarkFormatterCore.OutputTab _activeTab = BenchmarkFormatterCore.OutputTab.Preview;
+    private int _sortColumnIndex = -1;
+    private bool _sortAscending = true;
+    private bool _copied;
+
+    private void ParseInput()
+    {
+        BenchmarkFormatterCore.ParseResult result = BenchmarkFormatterCore.Parse(_inputText);
+        _columns = result.Columns;
+        _rows = result.Rows;
+        _fastestIndex = result.FastestIndex;
+        _slowestIndex = result.SlowestIndex;
+        _speedRatio = result.SpeedRatio;
+        _meanColumnName = result.MeanColumnName;
+        _errorMessage = result.ErrorMessage;
+        _sortedRows = [.. _rows];
+        _sortColumnIndex = -1;
+        _sortAscending = true;
+        _copied = false;
+    }
+
+    private static string GetCellValue(Dictionary<string, string> row, string column)
+        => BenchmarkFormatterCore.GetCellValue(row, column);
+
+    private string GetRelativePerformance(Dictionary<string, string> row)
+        => BenchmarkFormatterCore.GetRelativePerformance(row, _meanColumnName, _fastestIndex, _rows);
+
+    private void SortByColumn(int columnIndex)
+    {
+        if (columnIndex < 0 || columnIndex >= _columns.Count)
+        {
+            return;
+        }
+
+        if (_sortColumnIndex == columnIndex)
+        {
+            _sortAscending = !_sortAscending;
+        }
+        else
+        {
+            _sortColumnIndex = columnIndex;
+            _sortAscending = true;
+        }
+
+        _sortedRows = BenchmarkFormatterCore.SortRows(_rows, _columns, columnIndex, _sortAscending);
+    }
+
+    private string GenerateMarkdown()
+        => BenchmarkFormatterCore.GenerateMarkdown(_columns, _sortedRows, _meanColumnName, _fastestIndex, _rows);
+
+    private string GenerateHtml()
+        => BenchmarkFormatterCore.GenerateHtml(_columns, _sortedRows, _meanColumnName, _fastestIndex, _slowestIndex, _rows);
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        _copied = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copied = false;
+        StateHasChanged();
+    }
+
+    private void LoadSample()
+    {
+        _inputText = """
+            | Method              | Mean       | Error     | StdDev    | Median     | Gen0   | Gen1   | Allocated |
+            |-------------------- |-----------:|----------:|----------:|-----------:|-------:|-------:|----------:|
+            | SerializeJson       |   2.345 us | 0.0234 us | 0.0219 us |   2.340 us | 0.3052 |      - |   1.88 KB |
+            | DeserializeJson     |   4.567 us | 0.0456 us | 0.0427 us |   4.555 us | 0.4578 | 0.0076 |   2.82 KB |
+            | SerializeUtf8       |   1.123 us | 0.0112 us | 0.0105 us |   1.120 us | 0.1678 |      - |   1.03 KB |
+            | DeserializeUtf8     |   3.789 us | 0.0378 us | 0.0354 us |   3.780 us | 0.3967 |      - |   2.44 KB |
+            | SerializeMessagePack|   0.456 us | 0.0045 us | 0.0042 us |   0.455 us | 0.0916 |      - |     576 B |
+            | DeserializeMsgPack  |   0.987 us | 0.0098 us | 0.0092 us |   0.985 us | 0.1297 |      - |     816 B |
+            """;
+        ParseInput();
+    }
+
+    private void Clear()
+    {
+        _inputText = string.Empty;
+        _columns = [];
+        _rows = [];
+        _sortedRows = [];
+        _fastestIndex = -1;
+        _slowestIndex = -1;
+        _speedRatio = 0;
+        _meanColumnName = null;
+        _errorMessage = null;
+        _sortColumnIndex = -1;
+        _copied = false;
+    }
+
+    private async Task ParseInputAndSave()
+    {
+        ParseInput();
+        await SaveState();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/benchmark");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                ParseInput();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/benchmark", new ToolState(_inputText));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            ParseInput();
+            StateHasChanged();
+        }
+    }
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/benchmark" OnRestore="RestoreState" />

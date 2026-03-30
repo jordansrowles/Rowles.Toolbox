@@ -1,0 +1,254 @@
+@page "/tools/image/svg-path"
+@using Rowles.Toolbox.Core.Image
+@inject LocalStorageService Storage
+
+<PageTitle>SVG Path Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="SVG Path Inspector" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400">
+            <i class="ti ti-vector-spline mr-1"></i> Parse &amp; visualise SVG path commands
+        </span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Left: Input -->
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-code mr-1"></i> Path Input
+            </h3>
+            <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded
+                           bg-white dark:bg-gray-800 text-xs font-mono resize-y
+                           focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Paste SVG path d attribute here…&#10;e.g. M 10 10 L 100 100 Z"
+                      @bind="_pathInput"
+                      @bind:event="oninput"></textarea>
+            <div class="flex gap-2 mt-2">
+                <button class="bg-blue-600 text-white px-3 py-1 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                        @onclick="ParsePath">
+                    <i class="ti ti-analyze mr-0.5"></i> Parse
+                </button>
+                <button class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                        @onclick="Clear">
+                    <i class="ti ti-trash mr-0.5"></i> Clear
+                </button>
+            </div>
+        </div>
+
+        <!-- Sample Paths -->
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-template mr-1"></i> Sample Paths
+            </h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (var sample in SvgPathInspectorCore.SamplePaths)
+                {
+                    <button class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                            @onclick="() => LoadSample(sample.Key)">
+                        <i class="ti ti-shape mr-0.5"></i> @sample.Key
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        @if (_commands.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-chart-bar mr-1"></i> Statistics
+                </h3>
+                <div class="space-y-1">
+                    <div class="flex justify-between text-xs py-1 border-b border-gray-100 dark:border-gray-800">
+                        <span class="text-gray-500">Total Commands</span>
+                        <span class="font-mono">@_commands.Count</span>
+                    </div>
+                    <div class="flex justify-between text-xs py-1 border-b border-gray-100 dark:border-gray-800">
+                        <span class="text-gray-500">Total Parameters</span>
+                        <span class="font-mono">@_commands.Sum(c => c.Parameters.Count)</span>
+                    </div>
+                    <div class="flex justify-between text-xs py-1 border-b border-gray-100 dark:border-gray-800">
+                        <span class="text-gray-500">Coordinate Pairs</span>
+                        <span class="font-mono">@TotalCoordinatePairs</span>
+                    </div>
+                    <div class="flex justify-between text-xs py-1 border-b border-gray-100 dark:border-gray-800">
+                        <span class="text-gray-500">Bounding Box</span>
+                        <span class="font-mono text-right">@BoundingBoxDisplay</span>
+                    </div>
+                    <div class="flex justify-between text-xs py-1">
+                        <span class="text-gray-500">Size (W × H)</span>
+                        <span class="font-mono">@SizeDisplay</span>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Command Reference -->
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <button class="w-full text-left flex items-center justify-between text-sm font-semibold text-gray-500"
+                    @onclick="() => _referenceOpen = !_referenceOpen">
+                <span><i class="ti ti-book mr-1"></i> Command Reference</span>
+                <i class="ti @(_referenceOpen ? "ti-chevron-down" : "ti-chevron-right") text-[10px] text-gray-400"></i>
+            </button>
+            @if (_referenceOpen)
+            {
+                <div class="mt-3 overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead class="bg-gray-50 dark:bg-gray-800">
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase">Cmd</th>
+                                <th class="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                                <th class="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase">Parameters</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in SvgPathInspectorCore.ReferenceData)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="py-1 px-2 font-mono font-bold">@r.Command</td>
+                                    <td class="py-1 px-2">@r.Name</td>
+                                    <td class="py-1 px-2 font-mono text-gray-500">@r.Syntax</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Right: Preview + Commands Table -->
+    <div class="lg:col-span-2 space-y-3">
+        <!-- SVG Preview -->
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-eye mr-1"></i> Preview
+            </h3>
+            <svg viewBox="@_viewBox" class="w-full h-64 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
+                <!-- Grid pattern -->
+                <defs>
+                    <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#e5e7eb" stroke-width="0.5" />
+                    </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+                @if (!string.IsNullOrWhiteSpace(_pathInput))
+                {
+                    <path d="@_pathInput" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                }
+            </svg>
+        </div>
+
+        <!-- Error -->
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 rounded p-3 text-xs text-red-700 dark:text-red-400">
+                <i class="ti ti-alert-triangle mr-1"></i> @_errorMessage
+            </div>
+        }
+
+        <!-- Commands Table -->
+        @if (_commands.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-list mr-1"></i> Parsed Commands (@_commands.Count)
+                </h3>
+                <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                    <table class="w-full text-xs">
+                        <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cmd</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Parameters</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < _commands.Count; i++)
+                            {
+                                var cmd = _commands[i];
+                                var idx = i + 1;
+                                <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                    <td class="py-1 px-3 font-mono text-gray-400">@idx</td>
+                                    <td class="py-1 px-3 font-mono font-bold text-blue-600 dark:text-blue-400">@cmd.Letter</td>
+                                    <td class="py-1 px-3">@cmd.Name</td>
+                                    <td class="py-1 px-3 font-mono text-gray-600 dark:text-gray-400">@SvgPathInspectorCore.FormatParameters(cmd.Parameters)</td>
+                                    <td class="py-1 px-3">
+                                        @if (cmd.IsAbsolute)
+                                        {
+                                            <span class="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-[10px]">Absolute</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded text-[10px]">Relative</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="svg-path-inspector" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _pathInput = string.Empty;
+    private string _errorMessage = string.Empty;
+    private string _viewBox = "0 0 200 200";
+    private bool _referenceOpen;
+    private List<SvgPathInspectorCore.PathCommand> _commands = new();
+
+    sealed record ToolState();
+
+    private int TotalCoordinatePairs => SvgPathInspectorCore.CalculateTotalCoordinatePairs(_commands);
+
+    private string BoundingBoxDisplay => SvgPathInspectorCore.FormatBoundingBox(_commands);
+
+    private string SizeDisplay => SvgPathInspectorCore.FormatSize(_commands);
+
+    private void LoadSample(string name)
+    {
+        if (SvgPathInspectorCore.SamplePaths.TryGetValue(name, out string? path))
+        {
+            _pathInput = path;
+            ParsePath();
+        }
+    }
+
+    private void Clear()
+    {
+        _pathInput = string.Empty;
+        _commands.Clear();
+        _errorMessage = string.Empty;
+        _viewBox = "0 0 200 200";
+    }
+
+    private void ParsePath()
+    {
+        (List<SvgPathInspectorCore.PathCommand> commands, string? errorMessage) = SvgPathInspectorCore.ParsePathData(_pathInput);
+        _commands = commands;
+        _errorMessage = errorMessage ?? string.Empty;
+
+        if (_commands.Count > 0)
+        {
+            _viewBox = SvgPathInspectorCore.ComputeViewBox(_commands);
+            string label = $"{_commands.Count} commands parsed";
+            _ = Storage.AddRecentAsync("svg-path-inspector", label);
+            if (_recentPanel is not null) _ = _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task RestoreState(string json)
+    {
+        await Task.CompletedTask;
+    }
+}

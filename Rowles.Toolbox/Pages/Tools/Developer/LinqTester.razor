@@ -1,0 +1,553 @@
+@page "/tools/dev/linq"
+@using System.Text.Json
+@using Rowles.Toolbox.Core.Developer
+@inject LocalStorageService Storage
+
+<PageTitle>LINQ Expression Tester - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="LINQ Expression Tester" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-filter mr-1"></i> Build &amp; test LINQ queries on sample collections</span>
+    </Actions>
+</PageHeader>
+
+@*  Preset Templates  *@
+<div class="mb-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-template mr-1"></i> Preset Templates</h3>
+    <div class="flex flex-wrap gap-2">
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors" @onclick="LoadEvenNumbers">
+            <i class="ti ti-math-symbols mr-1"></i> Even numbers
+        </button>
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors" @onclick="LoadTop5Oldest">
+            <i class="ti ti-users mr-1"></i> Top 5 oldest
+        </button>
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors" @onclick="LoadGroupByCity">
+            <i class="ti ti-building mr-1"></i> Group by city
+        </button>
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors" @onclick="LoadExpensiveProducts">
+            <i class="ti ti-shopping-cart mr-1"></i> Expensive products
+        </button>
+        <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors" @onclick="LoadCategoryTotals">
+            <i class="ti ti-chart-bar mr-1"></i> Category totals
+        </button>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @*  Left: Data Source & Pipeline  *@
+    <div class="space-y-4">
+        @* Data Source *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-database mr-1"></i> Data Source</h3>
+            <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    @bind="_selectedSource"
+                    @bind:after="SaveState">
+                <option value="Numbers">Numbers (1–20)</option>
+                <option value="Words">Words</option>
+                <option value="People">People</option>
+                <option value="Orders">Orders</option>
+            </select>
+            <div class="mt-2 text-xs text-gray-400">
+                @switch (_selectedSource)
+                {
+                    case "Numbers":
+                        <span>Enumerable.Range(1, 20) → int[]</span>
+                        break;
+                    case "Words":
+                        <span>10 fruit names → string[]</span>
+                        break;
+                    case "People":
+                        <span>12 people with Name, Age, City, Salary</span>
+                        break;
+                    case "Orders":
+                        <span>12 orders with Id, Product, Quantity, Price, Category</span>
+                        break;
+                }
+            </div>
+        </div>
+
+        @* Pipeline Builder *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-list mr-1"></i> Pipeline Steps</h3>
+                <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors" @onclick="AddStep">
+                    <i class="ti ti-plus mr-1"></i> Add Step
+                </button>
+            </div>
+
+            @if (_pipeline.Count == 0)
+            {
+                <div class="flex items-center justify-center h-24 text-gray-400 dark:text-gray-600 text-sm">
+                    <span><i class="ti ti-filter text-2xl block mb-1 text-center"></i> Add steps to build your query</span>
+                </div>
+            }
+            else
+            {
+                <div class="space-y-2">
+                    @for (int i = 0; i < _pipeline.Count; i++)
+                    {
+                        int idx = i;
+                        <div class="flex items-start gap-2 p-2 bg-gray-50 dark:bg-gray-900 rounded">
+                            <span class="text-xs text-gray-400 mt-2 font-mono w-5 shrink-0">@(idx + 1).</span>
+                            <div class="flex-1 space-y-1">
+                                <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        value="@_pipeline[idx].Method"
+                                        @onchange="@(e => UpdateStepMethod(idx, e.Value?.ToString() ?? "Where"))">
+                                    @foreach (string method in LinqTesterCore.AvailableMethods)
+                                    {
+                                        <option value="@method">@method</option>
+                                    }
+                                </select>
+                                @if (NeedsParameter(_pipeline[idx].Method))
+                                {
+                                    <input type="text"
+                                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                           placeholder="@GetPlaceholder(_pipeline[idx].Method)"
+                                           value="@_pipeline[idx].Parameter"
+                                           @onchange="@(e => UpdateStepParam(idx, e.Value?.ToString() ?? ""))" />
+                                }
+                            </div>
+                            <button class="mt-1 p-1 text-red-500 hover:text-red-700 dark:hover:text-red-400 transition-colors"
+                                    title="Remove step"
+                                    @onclick="() => RemoveStep(idx)">
+                                <i class="ti ti-x text-sm"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="mt-3 flex gap-2">
+                <button class="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors" @onclick="ExecutePipeline">
+                    <i class="ti ti-player-play mr-1"></i> Run
+                </button>
+                <button class="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors" @onclick="ClearPipeline">
+                    <i class="ti ti-trash mr-1"></i> Clear
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @*  Middle: Code Preview  *@
+    <div class="space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-code mr-1"></i> Generated C# Code</h3>
+            <pre class="p-3 bg-gray-50 dark:bg-gray-900 rounded text-sm font-mono whitespace-pre-wrap break-all leading-relaxed overflow-x-auto text-gray-800 dark:text-gray-200">@GenerateCodePreview()</pre>
+        </div>
+
+        @* Quick Reference *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-help mr-1"></i> Expression Syntax</h3>
+            <div class="text-xs text-gray-500 dark:text-gray-400 space-y-1 font-mono">
+                <p><strong>Numbers:</strong> x &gt; 5, x % 2 == 0, x * x</p>
+                <p><strong>Words:</strong> x.Length &gt; 4, x.Contains("an")</p>
+                <p><strong>People:</strong> p.Age &gt; 30, p.City == "London"</p>
+                <p><strong>Orders:</strong> o.Price &gt; 50, o.Category == "Electronics"</p>
+                <p class="mt-2 text-gray-400"><strong>Select:</strong> p.Name, o.Product, x * 2</p>
+                <p class="text-gray-400"><strong>GroupBy:</strong> p.City, o.Category</p>
+            </div>
+        </div>
+    </div>
+
+    @*  Right: Output  *@
+    <div class="space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-terminal mr-1"></i> Output</h3>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="p-3 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded font-mono">
+                    <i class="ti ti-alert-triangle mr-1"></i> @_errorMessage
+                </div>
+            }
+            else if (_scalarResult is not null)
+            {
+                <div class="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-center">
+                    <div class="text-3xl font-bold text-blue-700 dark:text-blue-300 font-mono">@_scalarResult</div>
+                    <div class="text-xs text-gray-500 mt-1">@_scalarLabel</div>
+                </div>
+            }
+            else if (_resultRows.Count > 0)
+            {
+                <div class="text-xs text-gray-400 mb-2">
+                    <i class="ti ti-info-circle mr-1"></i> <strong class="text-blue-600 dark:text-blue-400">@_resultRows.Count</strong> item@(_resultRows.Count != 1 ? "s" : "")
+                </div>
+                <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                    @if (_resultHeaders.Count > 0)
+                    {
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-200 dark:border-gray-700">
+                                    @foreach (string header in _resultHeaders)
+                                    {
+                                        <th class="text-left p-2 text-gray-500 font-medium text-xs">@header</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (List<string> row in _resultRows)
+                                {
+                                    <tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900">
+                                        @foreach (string cell in row)
+                                        {
+                                            <td class="p-2 font-mono text-xs">@cell</td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else
+                    {
+                        @foreach (List<string> row in _resultRows)
+                        {
+                            <div class="p-1.5 text-sm font-mono border-b border-gray-100 dark:border-gray-800">@string.Join(", ", row)</div>
+                        }
+                    }
+                </div>
+            }
+            else if (_hasRun)
+            {
+                <div class="flex items-center justify-center h-24 text-gray-400 dark:text-gray-600 text-sm">
+                    <span>Empty result set</span>
+                </div>
+            }
+            else
+            {
+                <div class="flex items-center justify-center h-24 text-gray-400 dark:text-gray-600 text-sm">
+                    <span><i class="ti ti-player-play text-2xl block mb-1 text-center"></i> Run your pipeline to see results</span>
+                </div>
+            }
+        </div>
+
+        @* Source Data Preview *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-eye mr-1"></i> Source Data Preview</h3>
+            <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                @switch (_selectedSource)
+                {
+                    case "Numbers":
+                        <div class="text-xs font-mono text-gray-600 dark:text-gray-400">
+                            @string.Join(", ", Enumerable.Range(1, 20))
+                        </div>
+                        break;
+                    case "Words":
+                        <div class="text-xs font-mono text-gray-600 dark:text-gray-400">
+                            @string.Join(", ", LinqTesterCore.Words.Select(w => $"\"{w}\""))
+                        </div>
+                        break;
+                    case "People":
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="border-b border-gray-200 dark:border-gray-700">
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Name</th>
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Age</th>
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">City</th>
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Salary</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (LinqTesterCore.Person p in LinqTesterCore.SamplePeople)
+                                {
+                                    <tr class="border-b border-gray-100 dark:border-gray-800">
+                                        <td class="p-1.5 font-mono">@p.Name</td>
+                                        <td class="p-1.5 font-mono">@p.Age</td>
+                                        <td class="p-1.5 font-mono">@p.City</td>
+                                        <td class="p-1.5 font-mono">@p.Salary.ToString("C0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        break;
+                    case "Orders":
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="border-b border-gray-200 dark:border-gray-700">
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Id</th>
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Product</th>
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Qty</th>
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Price</th>
+                                    <th class="text-left p-1.5 text-gray-500 font-medium">Category</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (LinqTesterCore.Order o in LinqTesterCore.SampleOrders)
+                                {
+                                    <tr class="border-b border-gray-100 dark:border-gray-800">
+                                        <td class="p-1.5 font-mono">@o.Id</td>
+                                        <td class="p-1.5 font-mono">@o.Product</td>
+                                        <td class="p-1.5 font-mono">@o.Quantity</td>
+                                        <td class="p-1.5 font-mono">@o.Price.ToString("C2")</td>
+                                        <td class="p-1.5 font-mono">@o.Category</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        break;
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/linq" OnRestore="RestoreState" />
+
+@code {
+    // -- State --
+    private string _selectedSource = "Numbers";
+    private List<LinqTesterCore.PipelineStep> _pipeline = new();
+    private string? _errorMessage;
+    private string? _scalarResult;
+    private string? _scalarLabel;
+    private List<string> _resultHeaders = new();
+    private List<List<string>> _resultRows = new();
+    private bool _hasRun;
+    private RecentEntryPanel _recentPanel = default!;
+
+    // -- ToolState for persistence --
+    sealed record ToolState(string SelectedSource);
+
+    // -- Pipeline management --
+    private void AddStep() =>
+        _pipeline.Add(new LinqTesterCore.PipelineStep("Where", ""));
+
+    private void RemoveStep(int index) =>
+        _pipeline.RemoveAt(index);
+
+    private void UpdateStepMethod(int index, string method) =>
+        _pipeline[index] = _pipeline[index] with { Method = method };
+
+    private void UpdateStepParam(int index, string param) =>
+        _pipeline[index] = _pipeline[index] with { Parameter = param };
+
+    private void ClearPipeline()
+    {
+        _pipeline.Clear();
+        _errorMessage = null;
+        _scalarResult = null;
+        _scalarLabel = null;
+        _resultHeaders.Clear();
+        _resultRows.Clear();
+        _hasRun = false;
+    }
+
+    private static bool NeedsParameter(string method) => LinqTesterCore.NeedsParameter(method);
+
+    private string GetPlaceholder(string method) => LinqTesterCore.GetPlaceholder(method, _selectedSource);
+
+    // -- Preset templates --
+    private void LoadEvenNumbers()
+    {
+        _selectedSource = "Numbers";
+        _pipeline =
+        [
+            new("Where", "x % 2 == 0"),
+            new("OrderBy", "x"),
+        ];
+        ExecutePipeline();
+    }
+
+    private void LoadTop5Oldest()
+    {
+        _selectedSource = "People";
+        _pipeline =
+        [
+            new("OrderByDescending", "p.Age"),
+            new("Take", "5"),
+            new("Select", "p.Name, p.Age"),
+        ];
+        ExecutePipeline();
+    }
+
+    private void LoadGroupByCity()
+    {
+        _selectedSource = "People";
+        _pipeline =
+        [
+            new("GroupBy", "p.City"),
+        ];
+        ExecutePipeline();
+    }
+
+    private void LoadExpensiveProducts()
+    {
+        _selectedSource = "Orders";
+        _pipeline =
+        [
+            new("Where", "o.Price > 50"),
+            new("OrderBy", "o.Price"),
+        ];
+        ExecutePipeline();
+    }
+
+    private void LoadCategoryTotals()
+    {
+        _selectedSource = "Orders";
+        _pipeline =
+        [
+            new("GroupBy", "o.Category"),
+        ];
+        ExecutePipeline();
+    }
+
+    // -- Code preview --
+    private string GenerateCodePreview()
+        => LinqTesterCore.GenerateCodePreview(_selectedSource, _pipeline);
+
+    // -- Execution engine --
+    private void ExecutePipeline()
+    {
+        _errorMessage = null;
+        _scalarResult = null;
+        _scalarLabel = null;
+        _resultHeaders.Clear();
+        _resultRows.Clear();
+        _hasRun = true;
+
+        try
+        {
+            object collection = _selectedSource switch
+            {
+                "Numbers" => Enumerable.Range(1, 20).Cast<object>().ToList(),
+                "Words"   => LinqTesterCore.Words.Cast<object>().ToList(),
+                "People"  => LinqTesterCore.SamplePeople.Cast<object>().ToList(),
+                "Orders"  => LinqTesterCore.SampleOrders.Cast<object>().ToList(),
+                _         => throw new InvalidOperationException("Unknown data source")
+            };
+
+            foreach (LinqTesterCore.PipelineStep step in _pipeline)
+            {
+                collection = LinqTesterCore.ApplyStep(collection, step);
+            }
+
+            RenderResult(collection);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    // -- Result rendering --
+    private void RenderResult(object result)
+    {
+        switch (result)
+        {
+            case int i:
+                _scalarResult = i.ToString("N0");
+                _scalarLabel = _pipeline.Last().Method;
+                break;
+            case decimal d:
+                _scalarResult = d.ToString("N2");
+                _scalarLabel = _pipeline.Last().Method;
+                break;
+            case double dbl:
+                _scalarResult = dbl.ToString("N2");
+                _scalarLabel = _pipeline.Last().Method;
+                break;
+            case bool b:
+                _scalarResult = b.ToString();
+                _scalarLabel = _pipeline.Last().Method;
+                break;
+            case string s:
+                _scalarResult = s;
+                _scalarLabel = _pipeline.Last().Method;
+                break;
+            case LinqTesterCore.Person p:
+                _scalarResult = $"{p.Name}, Age {p.Age}, {p.City}";
+                _scalarLabel = _pipeline.Last().Method;
+                break;
+            case LinqTesterCore.Order o:
+                _scalarResult = $"#{o.Id} {o.Product} - {o.Price:C2}";
+                _scalarLabel = _pipeline.Last().Method;
+                break;
+
+            case List<(string Key, List<object> Items)> groups:
+                _resultHeaders = ["Key", "Count", "Items"];
+                _resultRows = groups.Select(g => new List<string>
+                {
+                    g.Key,
+                    g.Items.Count.ToString(),
+                    string.Join(", ", g.Items.Take(5).Select(LinqTesterCore.FormatItem))
+                        + (g.Items.Count > 5 ? $" ... (+{g.Items.Count - 5} more)" : "")
+                }).ToList();
+                break;
+
+            case List<object> list:
+                RenderList(list);
+                break;
+
+            default:
+                _scalarResult = result?.ToString() ?? "(null)";
+                _scalarLabel = "Result";
+                break;
+        }
+    }
+
+    private void RenderList(List<object> list)
+    {
+        if (list.Count == 0) return;
+
+        object first = list[0];
+
+        switch (first)
+        {
+            case LinqTesterCore.Person:
+                _resultHeaders = ["Name", "Age", "City", "Salary"];
+                _resultRows = list.Cast<LinqTesterCore.Person>().Select(p => new List<string>
+                    { p.Name, p.Age.ToString(), p.City, p.Salary.ToString("C0") }).ToList();
+                break;
+
+            case LinqTesterCore.Order:
+                _resultHeaders = ["Id", "Product", "Qty", "Price", "Category"];
+                _resultRows = list.Cast<LinqTesterCore.Order>().Select(o => new List<string>
+                    { o.Id.ToString(), o.Product, o.Quantity.ToString(), o.Price.ToString("C2"), o.Category }).ToList();
+                break;
+
+            case Dictionary<string, object?> dict:
+                _resultHeaders = dict.Keys.ToList();
+                _resultRows = list.Cast<Dictionary<string, object?>>()
+                    .Select(d => d.Values.Select(v => LinqTesterCore.FormatValue(v)).ToList()).ToList();
+                break;
+
+            case LinqTesterCore.GroupSummary:
+                _resultHeaders = ["Key", "Count", "Sum"];
+                _resultRows = list.Cast<LinqTesterCore.GroupSummary>().Select(g => new List<string>
+                    { g.Key, g.Count.ToString(), g.Sum?.ToString("N2") ?? "-" }).ToList();
+                break;
+
+            default:
+                _resultHeaders.Clear();
+                _resultRows = list.Select(x => new List<string> { LinqTesterCore.FormatValue(x) }).ToList();
+                break;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/linq");
+            if (state is not null)
+            {
+                _selectedSource = state.SelectedSource;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/linq", new ToolState(_selectedSource));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _selectedSource = state.SelectedSource;
+            StateHasChanged();
+        }
+    }
+}

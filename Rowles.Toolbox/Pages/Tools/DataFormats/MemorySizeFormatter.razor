@@ -1,0 +1,229 @@
+@page "/tools/data/memory-size"
+@using System.Globalization
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Memory Size Formatter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Memory Size Formatter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-database mr-1"></i> Convert between memory/storage size units</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-3 mb-4">
+    <div class="flex-1 min-w-[200px]">
+        <label class="block text-xs text-gray-500 mb-1">Value</label>
+        <input type="text" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Enter a number..."
+               @bind="_input"
+               @bind:event="oninput"
+               @bind:after="SaveState"
+               @onkeyup="OnInputChange" />
+    </div>
+    <div>
+        <label class="block text-xs text-gray-500 mb-1">Input Unit</label>
+        <select class="p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500"
+                @bind="_inputUnit" @bind:after="OnInputChange">
+            @foreach (MemorySizeFormatterCore.SizeUnit unit in _allUnits)
+            {
+                <option value="@unit.Name">@unit.Name (@unit.Symbol)</option>
+            }
+        </select>
+    </div>
+    <div class="self-end">
+        <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-2 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+                @onclick="Clear">
+            <i class="ti ti-trash"></i> Clear
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@if (_hasResult)
+{
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        @* -- SI Decimal (powers of 1000) -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-ruler mr-1"></i> SI Decimal (base 1000)
+            </h3>
+            <div class="info-grid">
+                @foreach (MemorySizeFormatterCore.SizeUnit unit in _decimalUnits)
+                {
+                    double converted = _bytes / unit.Factor;
+                    <div class="info-row">
+                        <span class="info-label">@unit.Name (@unit.Symbol)</span>
+                        <span class="info-value font-mono cursor-pointer hover:text-blue-500" @onclick="() => CopyToClipboard(FormatNumber(converted))">
+                            @FormatNumber(converted)
+                        </span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* -- IEC Binary (powers of 1024) -- *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-binary mr-1"></i> IEC Binary (base 1024)
+            </h3>
+            <div class="info-grid">
+                @foreach (MemorySizeFormatterCore.SizeUnit unit in _binaryUnits)
+                {
+                    double converted = _bytes / unit.Factor;
+                    <div class="info-row">
+                        <span class="info-label">@unit.Name (@unit.Symbol)</span>
+                        <span class="info-value font-mono cursor-pointer hover:text-blue-500" @onclick="() => CopyToClipboard(FormatNumber(converted))">
+                            @FormatNumber(converted)
+                        </span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* -- Bits -- *@
+    <div class="mt-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3">
+            <i class="ti ti-dots mr-1"></i> Bits
+        </h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div class="border border-gray-100 dark:border-gray-700 rounded p-2">
+                <div class="text-gray-500">Bits</div>
+                <div class="font-mono font-semibold">@FormatNumber(_bytes * 8)</div>
+            </div>
+            <div class="border border-gray-100 dark:border-gray-700 rounded p-2">
+                <div class="text-gray-500">Kilobits</div>
+                <div class="font-mono font-semibold">@FormatNumber(_bytes * 8 / 1000)</div>
+            </div>
+            <div class="border border-gray-100 dark:border-gray-700 rounded p-2">
+                <div class="text-gray-500">Megabits</div>
+                <div class="font-mono font-semibold">@FormatNumber(_bytes * 8 / 1_000_000)</div>
+            </div>
+            <div class="border border-gray-100 dark:border-gray-700 rounded p-2">
+                <div class="text-gray-500">Gigabits</div>
+                <div class="font-mono font-semibold">@FormatNumber(_bytes * 8 / 1_000_000_000)</div>
+            </div>
+        </div>
+    </div>
+
+    @* -- Human Readable -- *@
+    <div class="mt-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-2">
+            <i class="ti ti-eye mr-1"></i> Human Readable
+        </h3>
+        <div class="text-sm font-mono">
+            <span class="font-semibold">SI:</span> @HumanReadable(_bytes, false)
+            <span class="mx-3 text-gray-300">|</span>
+            <span class="font-semibold">IEC:</span> @HumanReadable(_bytes, true)
+        </div>
+        <div class="text-xs text-gray-400 mt-1">
+            Exact bytes: <span class="font-mono">@_bytes.ToString("N0", CultureInfo.InvariantCulture)</span>
+        </div>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/memory-size" OnRestore="RestoreState" />
+
+@code {
+    private string _input = string.Empty;
+    private string _inputUnit = "Bytes";
+    private string? _error;
+    private bool _hasResult;
+    private double _bytes;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Input, string InputUnit);
+
+    private static readonly MemorySizeFormatterCore.SizeUnit[] _decimalUnits = MemorySizeFormatterCore.DecimalUnits;
+    private static readonly MemorySizeFormatterCore.SizeUnit[] _binaryUnits = MemorySizeFormatterCore.BinaryUnits;
+    private static readonly MemorySizeFormatterCore.SizeUnit[] _allUnits = MemorySizeFormatterCore.AllUnits;
+
+    private async Task OnInputChange()
+    {
+        _error = null;
+        _hasResult = false;
+
+        if (string.IsNullOrWhiteSpace(_input)) return;
+
+        if (!double.TryParse(_input.Trim(), CultureInfo.InvariantCulture, out double value))
+        {
+            _error = "Invalid number.";
+            return;
+        }
+
+        if (value < 0)
+        {
+            _error = "Value must be non-negative.";
+            return;
+        }
+
+        MemorySizeFormatterCore.SizeUnit? selectedUnit = _allUnits.FirstOrDefault(u => u.Name == _inputUnit);
+        if (selectedUnit is null)
+        {
+            _error = "Unknown unit.";
+            return;
+        }
+
+        _bytes = value * selectedUnit.Factor;
+        _hasResult = true;
+        await SaveState();
+        string label = $"{_input} {_inputUnit}";
+        await Storage.AddRecentAsync("tools/data/memory-size", label, new ToolState(_input, _inputUnit));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private static string FormatNumber(double value) => MemorySizeFormatterCore.FormatNumber(value);
+    private static string HumanReadable(double bytes, bool binary) => MemorySizeFormatterCore.HumanReadable(bytes, binary);
+
+    private void Clear()
+    {
+        _input = string.Empty;
+        _inputUnit = "Bytes";
+        _error = null;
+        _hasResult = false;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/memory-size");
+            if (state is not null)
+            {
+                _input = state.Input;
+                _inputUnit = state.InputUnit;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/memory-size", new ToolState(_input, _inputUnit));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _input = state.Input;
+            _inputUnit = state.InputUnit;
+            StateHasChanged();
+        }
+    }
+}

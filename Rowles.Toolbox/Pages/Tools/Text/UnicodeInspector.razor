@@ -1,0 +1,117 @@
+@page "/tools/text/unicode"
+
+@using System.Globalization
+@using System.Text
+@inject LocalStorageService Storage
+
+<PageTitle>Unicode Inspector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Unicode Inspector" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-alphabet-latin mr-1"></i> Inspect codepoints, UTF-8 bytes &amp; categories</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Input Characters</label>
+        <textarea class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  rows="3"
+                  placeholder="Paste or type characters to inspect… e.g. café 🎉 ñ"
+                  @bind="_inputText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+
+    @if (_inputText.Length > 0)
+    {
+        <div class="text-sm text-gray-500 mb-1">
+            <i class="ti ti-info-circle mr-1"></i>
+            @GetTextElements().Count text element(s) found
+        </div>
+
+        <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Character</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Codepoint</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">UTF-8 Bytes</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Category Name</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{
+                        List<string> elements = GetTextElements();
+                        int index = 0;
+                    }
+                    @foreach (string element in elements)
+                    {
+                        index++;
+                        int codepoint = GetCodepoint(element);
+                        string codepointHex = FormatCodepoint(codepoint);
+                        string utf8Hex = FormatUtf8Bytes(element);
+                        UnicodeCategory category = GetCategory(element);
+                        string categoryName = GetCategoryName(category);
+                        bool isEvenRow = index % 2 == 0;
+
+                        <tr class="@(isEvenRow ? "bg-gray-50/50 dark:bg-gray-800/50" : "")">
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-gray-400 tabular-nums">@index</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-lg font-mono">@element</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 font-mono text-blue-600 dark:text-blue-400">@codepointHex</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 font-mono text-xs">@utf8Hex</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 font-mono text-xs text-gray-500">@category</td>
+                            <td class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-sm">@categoryName</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/unicode" OnRestore="RestoreState" />
+
+@code {
+    private string _inputText = string.Empty;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string InputText);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/unicode");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/unicode", new ToolState(_inputText));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            StateHasChanged();
+        }
+    }
+
+    private List<string> GetTextElements() => Core.Text.UnicodeInspectorCore.GetTextElements(_inputText);
+    private static int GetCodepoint(string textElement) => Core.Text.UnicodeInspectorCore.GetCodepoint(textElement);
+    private static string FormatCodepoint(int codepoint) => Core.Text.UnicodeInspectorCore.FormatCodepoint(codepoint);
+    private static string FormatUtf8Bytes(string textElement) => Core.Text.UnicodeInspectorCore.FormatUtf8Bytes(textElement);
+    private static UnicodeCategory GetCategory(string textElement) => Core.Text.UnicodeInspectorCore.GetCategory(textElement);
+    private static string GetCategoryName(UnicodeCategory category) => Core.Text.UnicodeInspectorCore.GetCategoryName(category);
+}

@@ -1,0 +1,634 @@
+@page "/tools/dev/datetime"
+@implements IDisposable
+@using System.Globalization
+@using Rowles.Toolbox.Core.Developer
+@inject LocalStorageService Storage
+
+<PageTitle>DateTime Tool - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="DateTime Tool" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-clock-code mr-1"></i> DateTime &amp; DateTimeOffset playground</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-6">
+    @* ----─ Section 1: Current Time Display ----─ *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-clock mr-1"></i> Current Time</h3>
+            <div class="flex items-center gap-3">
+                <label class="flex items-center gap-1.5 text-sm">
+                    <input type="checkbox" class="rounded" @bind="_autoRefresh" @bind:event="onchange"
+                           @bind:after="OnAutoRefreshChanged" />
+                    Auto-refresh
+                </label>
+                <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                        @onclick="RefreshNow">
+                    <i class="ti ti-refresh mr-1"></i> Now
+                </button>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">DateTime.Now</span>
+                    <span class="font-mono">@_nowSnapshot.ToString("O")</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">DateTime.UtcNow</span>
+                    <span class="font-mono">@_utcNowSnapshot.ToString("O")</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">DateTimeOffset.Now</span>
+                    <span class="font-mono">@_dtoNowSnapshot.ToString("O")</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">DateTimeOffset.UtcNow</span>
+                    <span class="font-mono">@_dtoUtcNowSnapshot.ToString("O")</span>
+                </div>
+            </div>
+            <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">Unix (seconds)</span>
+                    <span class="font-mono font-bold text-blue-600 dark:text-blue-400">@_dtoUtcNowSnapshot.ToUnixTimeSeconds()</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">Unix (milliseconds)</span>
+                    <span class="font-mono font-bold text-blue-600 dark:text-blue-400">@_dtoUtcNowSnapshot.ToUnixTimeMilliseconds()</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">Ticks</span>
+                    <span class="font-mono">@_nowSnapshot.Ticks</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600 dark:text-gray-400">Day of Year</span>
+                    <span class="font-mono">@_nowSnapshot.DayOfYear</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        @* ----─ Section 2: Input & Conversion ----─ *@
+        <div class="space-y-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-transform mr-1"></i> Input &amp; Conversion</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Paste a date/time string</label>
+                        <input type="text"
+                               class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="e.g. 2025-01-15T14:30:00Z or Jan 15, 2025 2:30 PM"
+                               @bind="_rawInput"
+                               @bind:event="oninput"
+                               @bind:after="SaveStateAndParse" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Or use a date picker</label>
+                        <input type="datetime-local"
+                               class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               @bind="_pickerInput"
+                               @bind:event="onchange"
+                               @bind:after="OnPickerChanged" />
+                    </div>
+                </div>
+            </div>
+
+            @if (_parsedDateTime is not null || _parsedDateTimeOffset is not null)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-analyze mr-1"></i> Parsed Results</h3>
+                    <div class="space-y-2 text-sm">
+                        @if (_parsedDateTime is not null)
+                        {
+                            DateTime dt = _parsedDateTime.Value;
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">DateTime (parsed)</span>
+                                <span class="font-mono text-green-600 dark:text-green-400">@dt.ToString("O")</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Kind</span>
+                                <span class="font-mono">@dt.Kind</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">As Local</span>
+                                <span class="font-mono">@dt.ToLocalTime().ToString("O")</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">As UTC</span>
+                                <span class="font-mono">@dt.ToUniversalTime().ToString("O")</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Ticks</span>
+                                <span class="font-mono">@dt.Ticks</span>
+                            </div>
+                        }
+                        @if (_parsedDateTimeOffset is not null)
+                        {
+                            DateTimeOffset dto = _parsedDateTimeOffset.Value;
+                            <hr class="border-gray-200 dark:border-gray-700 my-2" />
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">DateTimeOffset (parsed)</span>
+                                <span class="font-mono text-green-600 dark:text-green-400">@dto.ToString("O")</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Offset</span>
+                                <span class="font-mono">@dto.Offset</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">UTC</span>
+                                <span class="font-mono">@dto.UtcDateTime.ToString("O")</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Unix (seconds)</span>
+                                <span class="font-mono font-bold text-blue-600 dark:text-blue-400">@dto.ToUnixTimeSeconds()</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Unix (milliseconds)</span>
+                                <span class="font-mono font-bold text-blue-600 dark:text-blue-400">@dto.ToUnixTimeMilliseconds()</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Local Timezone Info</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">ID</span>
+                            <span class="font-mono">@TimeZoneInfo.Local.Id</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Display Name</span>
+                            <span class="font-mono text-xs">@TimeZoneInfo.Local.DisplayName</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Base UTC Offset</span>
+                            <span class="font-mono">@TimeZoneInfo.Local.BaseUtcOffset</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Supports DST</span>
+                            <span class="font-mono">@TimeZoneInfo.Local.SupportsDaylightSavingTime</span>
+                        </div>
+                        @if (_parsedDateTime is not null)
+                        {
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Is DST (parsed)</span>
+                                <span class="font-mono">@TimeZoneInfo.Local.IsDaylightSavingTime(_parsedDateTime.Value)</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_rawInput))
+            {
+                <div class="border border-red-200 dark:border-red-800 rounded p-4">
+                    <p class="text-sm text-red-600 dark:text-red-400">
+                        <i class="ti ti-alert-triangle mr-1"></i> Could not parse "<span class="font-mono">@_rawInput</span>"
+                    </p>
+                </div>
+            }
+        </div>
+
+        @* ----─ Section 3: Timezone Converter ----─ *@
+        <div class="space-y-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-world mr-1"></i> Timezone Converter</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Source Timezone</label>
+                        <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                @bind="_sourceTzId"
+                                @bind:event="onchange"
+                                @bind:after="SaveState">
+                            @foreach (TimeZoneInfo tz in _systemTimeZones)
+                            {
+                                <option value="@tz.Id">@tz.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Target Timezone</label>
+                        <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                @bind="_targetTzId"
+                                @bind:event="onchange"
+                                @bind:after="SaveState">
+                            @foreach (TimeZoneInfo tz in _systemTimeZones)
+                            {
+                                <option value="@tz.Id">@tz.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                @if (_parsedDateTime is not null)
+                {
+                    <div class="mt-4 space-y-2 text-sm">
+                        <hr class="border-gray-200 dark:border-gray-700" />
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Source Time</span>
+                            <span class="font-mono">@_parsedDateTime.Value.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Source UTC Offset</span>
+                            <span class="font-mono">@GetSourceTz().GetUtcOffset(_parsedDateTime.Value)</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Converted Time</span>
+                            <span class="font-mono font-bold text-green-600 dark:text-green-400">@GetConvertedTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Target UTC Offset</span>
+                            <span class="font-mono">@GetTargetTz().GetUtcOffset(GetSourceAsUtc())</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">Offset Difference</span>
+                            <span class="font-mono font-bold text-blue-600 dark:text-blue-400">@DateTimeToolCore.FormatOffsetDifference(GetOffsetDifference())</span>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="mt-3 text-xs text-gray-400 italic">Parse a date above to convert between timezones.</p>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* ----─ Section 4: Format Strings Reference ----─ *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Format Strings Reference</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+                <h4 class="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Standard Format Specifiers</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500 font-medium">Spec</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Name</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Example Output</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ((string specifier, string name) in DateTimeToolCore.StandardFormats)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2 font-mono text-blue-600 dark:text-blue-400 font-bold">@specifier</td>
+                                    <td class="p-2 text-gray-600 dark:text-gray-400">@name</td>
+                                    <td class="p-2 font-mono text-xs">@FormatExample(specifier)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div>
+                <h4 class="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Custom Format Strings</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500 font-medium">Format</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Description</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Example Output</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ((string format, string description) in DateTimeToolCore.CustomFormats)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2 font-mono text-blue-600 dark:text-blue-400 font-bold">@format</td>
+                                    <td class="p-2 text-gray-600 dark:text-gray-400">@description</td>
+                                    <td class="p-2 font-mono text-xs">@FormatExample(format)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ----─ Section 5: Parse Tester ----─ *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-test-pipe mr-1"></i> Parse Tester</h3>
+        <div class="space-y-3">
+            <div>
+                <label class="block text-sm font-medium mb-1">Date string to test</label>
+                <input type="text"
+                       class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="e.g. 15/01/2025, 2025-01-15, Jan 15 2025 14:30"
+                       @bind="_parseTestInput"
+                       @bind:event="oninput"
+                       @bind:after="SaveStateAndTestParse" />
+            </div>
+
+            <div class="flex items-center gap-3 text-sm">
+                <span class="text-gray-600 dark:text-gray-400">Culture:</span>
+                <select class="p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        @bind="_parseTesterCulture"
+                        @bind:event="onchange"
+                        @bind:after="SaveStateAndTestParse">
+                    @foreach (string cultureCode in DateTimeToolCore.CultureCodes)
+                    {
+                        CultureInfo ci = CultureInfo.GetCultureInfo(cultureCode);
+                        <option value="@cultureCode">@cultureCode — @ci.DisplayName</option>
+                    }
+                </select>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_parseTestInput) && _parseTestResults.Count > 0)
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="text-left p-2 text-gray-500 font-medium">Format</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Status</th>
+                                <th class="text-left p-2 text-gray-500 font-medium">Parsed Result</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (DateTimeToolCore.ParseTestResult result in _parseTestResults)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="p-2 font-mono text-blue-600 dark:text-blue-400 font-bold">@result.Format</td>
+                                    @if (result.Success)
+                                    {
+                                        <td class="p-2 text-green-600 dark:text-green-400">
+                                            <i class="ti ti-check mr-1"></i> Parsed
+                                        </td>
+                                        <td class="p-2 font-mono text-xs">@result.ParsedValue</td>
+                                    }
+                                    else
+                                    {
+                                        <td class="p-2 text-red-600 dark:text-red-400">
+                                            <i class="ti ti-x mr-1"></i> Failed
+                                        </td>
+                                        <td class="p-2 text-gray-400 italic">—</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-xs text-gray-400">
+                    Using CultureInfo: <span class="font-mono font-medium">@_parseTesterCulture</span>
+                    (@CultureInfo.GetCultureInfo(_parseTesterCulture).DisplayName)
+                </p>
+            }
+            else if (!string.IsNullOrEmpty(_parseTestInput))
+            {
+                <p class="text-sm text-gray-400 italic">No results yet.</p>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    sealed record ToolState(
+        string RawInput,
+        DateTime PickerInput,
+        string SourceTzId,
+        string TargetTzId,
+        string ParseTestInput,
+        string ParseTesterCulture
+    );
+
+    // -- Current time --
+    private DateTime _nowSnapshot = DateTime.Now;
+    private DateTime _utcNowSnapshot = DateTime.UtcNow;
+    private DateTimeOffset _dtoNowSnapshot = DateTimeOffset.Now;
+    private DateTimeOffset _dtoUtcNowSnapshot = DateTimeOffset.UtcNow;
+    private bool _autoRefresh;
+    private System.Threading.Timer? _timer;
+
+    // -- Input & conversion --
+    private string _rawInput = string.Empty;
+    private DateTime _pickerInput = DateTime.Now;
+    private DateTime? _parsedDateTime;
+    private DateTimeOffset? _parsedDateTimeOffset;
+
+    // -- Timezone converter --
+    private static readonly IReadOnlyList<TimeZoneInfo> _systemTimeZones = TimeZoneInfo.GetSystemTimeZones();
+    private string _sourceTzId = TimeZoneInfo.Local.Id;
+    private string _targetTzId = "UTC";
+
+    // -- Parse tester --
+    private string _parseTestInput = string.Empty;
+    private string _parseTesterCulture = "en-GB";
+    private List<DateTimeToolCore.ParseTestResult> _parseTestResults = new();
+
+    protected override void OnInitialized()
+    {
+        RefreshNow();
+    }
+
+    private void RefreshNow()
+    {
+        _nowSnapshot = DateTime.Now;
+        _utcNowSnapshot = DateTime.UtcNow;
+        _dtoNowSnapshot = DateTimeOffset.Now;
+        _dtoUtcNowSnapshot = DateTimeOffset.UtcNow;
+    }
+
+    private void OnAutoRefreshChanged()
+    {
+        if (_autoRefresh)
+        {
+            _timer = new System.Threading.Timer(
+                _ => InvokeAsync(() =>
+                {
+                    RefreshNow();
+                    StateHasChanged();
+                }),
+                null,
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(1));
+        }
+        else
+        {
+            _timer?.Dispose();
+            _timer = null;
+        }
+    }
+
+    private void ParseInput()
+    {
+        _parsedDateTime = null;
+        _parsedDateTimeOffset = null;
+
+        if (string.IsNullOrWhiteSpace(_rawInput))
+        {
+            return;
+        }
+
+        // Try parsing as Unix timestamp (seconds)
+        if (long.TryParse(_rawInput, out long unixSeconds) && _rawInput.Length >= 9 && _rawInput.Length <= 10)
+        {
+            _parsedDateTimeOffset = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+            _parsedDateTime = _parsedDateTimeOffset.Value.LocalDateTime;
+            return;
+        }
+
+        // Try parsing as Unix timestamp (milliseconds)
+        if (long.TryParse(_rawInput, out long unixMs) && _rawInput.Length >= 12 && _rawInput.Length <= 13)
+        {
+            _parsedDateTimeOffset = DateTimeOffset.FromUnixTimeMilliseconds(unixMs);
+            _parsedDateTime = _parsedDateTimeOffset.Value.LocalDateTime;
+            return;
+        }
+
+        if (DateTime.TryParse(_rawInput, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime dt))
+        {
+            _parsedDateTime = dt;
+        }
+
+        if (DateTimeOffset.TryParse(_rawInput, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset dto))
+        {
+            _parsedDateTimeOffset = dto;
+        }
+    }
+
+    private void OnPickerChanged()
+    {
+        _rawInput = _pickerInput.ToString("yyyy-MM-ddTHH:mm:ss");
+        ParseInput();
+    }
+
+    private async Task OnPickerChangedAndSave()
+    {
+        OnPickerChanged();
+        await SaveState();
+    }
+
+    private async Task SaveStateAndParse()
+    {
+        await SaveState();
+        ParseInput();
+    }
+
+    private async Task SaveStateAndTestParse()
+    {
+        await SaveState();
+        RunParseTester();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/datetime");
+            if (state is not null)
+            {
+                _rawInput = state.RawInput;
+                _pickerInput = state.PickerInput;
+                _sourceTzId = state.SourceTzId;
+                _targetTzId = state.TargetTzId;
+                _parseTestInput = state.ParseTestInput;
+                _parseTesterCulture = state.ParseTesterCulture;
+                ParseInput();
+                RunParseTester();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/dev/datetime", new ToolState(
+            _rawInput,
+            _pickerInput,
+            _sourceTzId,
+            _targetTzId,
+            _parseTestInput,
+            _parseTesterCulture
+        ));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _rawInput = state.RawInput;
+            _pickerInput = state.PickerInput;
+            _sourceTzId = state.SourceTzId;
+            _targetTzId = state.TargetTzId;
+            _parseTestInput = state.ParseTestInput;
+            _parseTesterCulture = state.ParseTesterCulture;
+            ParseInput();
+            RunParseTester();
+            StateHasChanged();
+        }
+    }
+
+    private string FormatExample(string format)
+        => DateTimeToolCore.FormatExample(_parsedDateTime ?? _nowSnapshot, format);
+
+    private TimeZoneInfo GetSourceTz() => TimeZoneInfo.FindSystemTimeZoneById(_sourceTzId);
+
+    private TimeZoneInfo GetTargetTz() => TimeZoneInfo.FindSystemTimeZoneById(_targetTzId);
+
+    private DateTime GetSourceAsUtc()
+    {
+        TimeZoneInfo sourceTz = GetSourceTz();
+        return TimeZoneInfo.ConvertTimeToUtc(
+            DateTime.SpecifyKind(_parsedDateTime!.Value, DateTimeKind.Unspecified), sourceTz);
+    }
+
+    private DateTime GetConvertedTime()
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(GetSourceAsUtc(), GetTargetTz());
+    }
+
+    private TimeSpan GetOffsetDifference()
+    {
+        DateTime sourceAsUtc = GetSourceAsUtc();
+        return GetTargetTz().GetUtcOffset(sourceAsUtc) - GetSourceTz().GetUtcOffset(_parsedDateTime!.Value);
+    }
+
+    private void RunParseTester()
+    {
+        _parseTestResults.Clear();
+
+        if (string.IsNullOrWhiteSpace(_parseTestInput))
+        {
+            return;
+        }
+
+        CultureInfo culture = CultureInfo.GetCultureInfo(_parseTesterCulture);
+
+        bool generalSuccess = DateTime.TryParse(_parseTestInput, culture, DateTimeStyles.None, out DateTime generalResult);
+        _parseTestResults.Add(new DateTimeToolCore.ParseTestResult(
+            "DateTime.TryParse",
+            generalSuccess,
+            generalSuccess ? generalResult.ToString("O") : null));
+
+        bool dtoGeneralSuccess = DateTimeOffset.TryParse(_parseTestInput, culture, DateTimeStyles.None, out DateTimeOffset dtoGeneralResult);
+        _parseTestResults.Add(new DateTimeToolCore.ParseTestResult(
+            "DateTimeOffset.TryParse",
+            dtoGeneralSuccess,
+            dtoGeneralSuccess ? dtoGeneralResult.ToString("O") : null));
+
+        foreach (string format in DateTimeToolCore.ParseTestFormats)
+        {
+            bool exactSuccess = DateTime.TryParseExact(
+                _parseTestInput, format, culture, DateTimeStyles.None, out DateTime exactResult);
+            _parseTestResults.Add(new DateTimeToolCore.ParseTestResult(
+                format,
+                exactSuccess,
+                exactSuccess ? exactResult.ToString("O") : null));
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/datetime" OnRestore="RestoreState" />

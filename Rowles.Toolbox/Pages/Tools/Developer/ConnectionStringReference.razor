@@ -1,0 +1,353 @@
+@page "/tools/dev/connection-string"
+@using Rowles.Toolbox.Core.Developer
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Connection String Reference - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Connection String Reference" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-500 dark:text-gray-400">
+            <i class="ti ti-database mr-1"></i> Reference &amp; builder for common connection strings
+        </span>
+    </Actions>
+</PageHeader>
+
+<div class="flex gap-2 mb-4">
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == Tab.Reference ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick="async () => { _activeTab = Tab.Reference; await SaveState(); }">
+        <i class="ti ti-book mr-1"></i> Reference
+    </button>
+    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_activeTab == Tab.Builder ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")"
+            @onclick="async () => { _activeTab = Tab.Builder; await SaveState(); }">
+        <i class="ti ti-hammer mr-1"></i> Builder
+    </button>
+</div>
+
+@if (_activeTab == Tab.Reference)
+{
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 lg:col-span-1 max-h-[80vh] overflow-y-auto">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Database Types</h3>
+            <div class="space-y-1">
+                @foreach (ConnectionStringReferenceCore.DbType db in ConnectionStringReferenceCore.DbTypes)
+                {
+                    <button class="w-full text-left px-3 py-1.5 text-xs rounded cursor-pointer border-none @(_selectedRef == db.Name ? "bg-blue-600 text-white" : "bg-transparent text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700")"
+                            @onclick="async () => { _selectedRef = db.Name; await SaveState(); }">
+                        <i class="ti ti-@db.Icon mr-1"></i> @db.Name
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="lg:col-span-3 space-y-4">
+            @{
+                ConnectionStringReferenceCore.DbType? refDb = ConnectionStringReferenceCore.DbTypes.Find(d => d.Name == _selectedRef);
+            }
+            @if (refDb is not null)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-lg font-semibold">
+                            <i class="ti ti-@refDb.Icon mr-1 text-blue-600 dark:text-blue-400"></i> @refDb.Name
+                        </h2>
+                        @if (refDb.DefaultPort > 0)
+                        {
+                            <span class="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono">
+                                Default port: @refDb.DefaultPort
+                            </span>
+                        }
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="block text-sm font-medium">Template</span>
+                            <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                    @onclick="() => CopyAndSaveTemplate(refDb)">
+                                <i class="ti ti-copy mr-0.5"></i> Copy
+                            </button>
+                        </div>
+                        <div class="bg-gray-100 dark:bg-gray-900 p-3 rounded font-mono text-sm break-all select-all">
+                            @refDb.Template
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="block text-sm font-medium">Example</span>
+                            <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                    @onclick="() => CopyToClipboard(refDb.Example)">
+                                <i class="ti ti-copy mr-0.5"></i> Copy
+                            </button>
+                        </div>
+                        <div class="bg-gray-100 dark:bg-gray-900 p-3 rounded font-mono text-sm break-all select-all">
+                            @refDb.Example
+                        </div>
+                    </div>
+
+                    <div>
+                        <span class="block text-sm font-medium mb-2">Parameters</span>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-200 dark:border-gray-700 text-left">
+                                        <th class="py-1.5 pr-3 text-xs font-semibold text-gray-500">Parameter</th>
+                                        <th class="py-1.5 pr-3 text-xs font-semibold text-gray-500">Description</th>
+                                        <th class="py-1.5 pr-3 text-xs font-semibold text-gray-500">Default</th>
+                                        <th class="py-1.5 text-xs font-semibold text-gray-500">Required</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (ConnectionStringReferenceCore.DbParam param in refDb.Parameters)
+                                    {
+                                        <tr class="border-b border-gray-100 dark:border-gray-800">
+                                            <td class="py-1.5 pr-3 font-mono text-xs text-blue-600 dark:text-blue-400">@param.Name</td>
+                                            <td class="py-1.5 pr-3 text-xs text-gray-600 dark:text-gray-400">@param.Description</td>
+                                            <td class="py-1.5 pr-3 font-mono text-xs">@(string.IsNullOrEmpty(param.DefaultValue) ? "—" : param.DefaultValue)</td>
+                                            <td class="py-1.5 text-xs">
+                                                @if (param.Required)
+                                                {
+                                                    <span class="text-red-500"><i class="ti ti-check"></i></span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@if (_activeTab == Tab.Builder)
+{
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-1 space-y-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-settings mr-1"></i> Configuration</h3>
+
+                <div class="mb-3">
+                    <label class="block text-sm font-medium mb-1">Database Type</label>
+                    <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            @bind="_builderDbName"
+                            @bind:event="onchange"
+                            @bind:after="OnBuilderDbChanged">
+                        @foreach (ConnectionStringReferenceCore.DbType db in ConnectionStringReferenceCore.DbTypes)
+                        {
+                            <option value="@db.Name">@db.Name</option>
+                        }
+                    </select>
+                </div>
+
+                @{
+                    ConnectionStringReferenceCore.DbType? builderDb = ConnectionStringReferenceCore.DbTypes.Find(d => d.Name == _builderDbName);
+                }
+                @if (builderDb is not null)
+                {
+                    @foreach (ConnectionStringReferenceCore.DbParam param in builderDb.Parameters)
+                    {
+                        <div class="mb-3">
+                            <label class="block text-sm font-medium mb-1">
+                                @param.Name
+                                @if (param.Required)
+                                {
+                                    <span class="text-red-500 ml-0.5">*</span>
+                                }
+                            </label>
+                            <input type="@(param.Name.Contains("Password", StringComparison.OrdinalIgnoreCase) || param.Name.Contains("Secret", StringComparison.OrdinalIgnoreCase) ? "password" : "text")"
+                                   class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="@param.DefaultValue"
+                                   value="@GetBuilderValue(param.Name)"
+                                   @onchange="(ChangeEventArgs e) => SetBuilderValue(param.Name, e.Value?.ToString() ?? string.Empty)" />
+                            <span class="text-xs text-gray-400 mt-0.5">@param.Description</span>
+                        </div>
+                    }
+                }
+
+                <div class="mt-4">
+                    <button class="w-full bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                            @onclick="ClearBuilder">
+                        <i class="ti ti-trash mr-1"></i> Clear All Fields
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2 space-y-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-terminal mr-1"></i> Generated Connection String</h3>
+                    <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                            @onclick="() => CopyToClipboard(BuildConnectionString())">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+                <textarea readonly
+                          class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-900 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                          rows="4"
+                          @onfocus="SelectAll">@BuildConnectionString()</textarea>
+            </div>
+
+            @if (builderDb is not null)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-info-circle mr-1"></i> Template Reference</h3>
+                    <div class="bg-gray-100 dark:bg-gray-900 p-3 rounded font-mono text-sm break-all">
+                        @builderDb.Template
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-code mr-1"></i> Code Snippets</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs font-medium text-gray-500">appsettings.json</span>
+                                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                        @onclick="() => CopyToClipboard(GetAppSettingsSnippet())">
+                                    <i class="ti ti-copy mr-0.5"></i> Copy
+                                </button>
+                            </div>
+                            <div class="bg-gray-100 dark:bg-gray-900 p-3 rounded font-mono text-xs break-all whitespace-pre select-all">@GetAppSettingsSnippet()</div>
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs font-medium text-gray-500">C# / .NET</span>
+                                <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                        @onclick="() => CopyToClipboard(GetCSharpSnippet())">
+                                    <i class="ti ti-copy mr-0.5"></i> Copy
+                                </button>
+                            </div>
+                            <div class="bg-gray-100 dark:bg-gray-900 p-3 rounded font-mono text-xs break-all whitespace-pre select-all">@GetCSharpSnippet()</div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/connection-string" OnRestore="RestoreState" />
+
+@code {
+    private enum Tab { Reference, Builder }
+
+    sealed record ToolState(Tab ActiveTab, string SelectedRef, string BuilderDbName, Dictionary<string, string> BuilderValues);
+
+    private Tab _activeTab = Tab.Reference;
+    private string _selectedRef = "SQL Server";
+    private string _builderDbName = "SQL Server";
+    private string? _statusMessage;
+    private Dictionary<string, string> _builderValues = new();
+    private RecentEntryPanel? _recentPanel;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/connection-string");
+            if (state is not null)
+            {
+                _activeTab = state.ActiveTab;
+                _selectedRef = state.SelectedRef;
+                _builderDbName = state.BuilderDbName;
+                _builderValues = state.BuilderValues;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_activeTab, _selectedRef, _builderDbName, _builderValues);
+        await Storage.SaveStateAsync("tools/dev/connection-string", state);
+    }
+
+    private void RestoreState(string json)
+    {
+        ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _activeTab = state.ActiveTab;
+            _selectedRef = state.SelectedRef;
+            _builderDbName = state.BuilderDbName;
+            _builderValues = state.BuilderValues;
+        }
+    }
+
+    private string GetBuilderValue(string paramName)
+    {
+        return _builderValues.TryGetValue(paramName, out string? val) ? val : string.Empty;
+    }
+
+    private async Task SetBuilderValue(string paramName, string value)
+    {
+        _builderValues[paramName] = value;
+        await SaveState();
+    }
+
+    private async Task OnBuilderDbChanged()
+    {
+        _builderValues.Clear();
+        await SaveState();
+    }
+
+    private async Task ClearBuilder()
+    {
+        _builderValues.Clear();
+        await SaveState();
+    }
+
+    private string BuildConnectionString()
+    {
+        return ConnectionStringReferenceCore.BuildConnectionString(ConnectionStringReferenceCore.DbTypes, _builderDbName, _builderValues);
+    }
+
+    private string GetAppSettingsSnippet()
+    {
+        return ConnectionStringReferenceCore.GetAppSettingsSnippet(BuildConnectionString());
+    }
+
+    private string GetCSharpSnippet()
+    {
+        return ConnectionStringReferenceCore.GetCSharpSnippet(BuildConnectionString(), _builderDbName);
+    }
+
+    private async Task SelectAll()
+    {
+        await JS.InvokeVoidAsync("eval", "document.activeElement?.select()");
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        _statusMessage = "Copied to clipboard";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+        StateHasChanged();
+    }
+
+    private async Task AddRecentCopy(string label)
+    {
+        ToolState state = new(_activeTab, _selectedRef, _builderDbName, _builderValues);
+        await Storage.AddRecentAsync("tools/dev/connection-string", label, state);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task CopyAndSaveTemplate(ConnectionStringReferenceCore.DbType db)
+    {
+        await CopyToClipboard(db.Template);
+        await AddRecentCopy($"{db.Name} Template");
+    }
+}

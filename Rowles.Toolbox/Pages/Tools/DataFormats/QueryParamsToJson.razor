@@ -1,0 +1,306 @@
+@page "/tools/data/query-params"
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Query Params ↔ JSON - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Query Params ↔ JSON" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-link mr-1"></i> Convert between URL query strings and JSON</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="ParseToJson">
+        <i class="ti ti-arrow-right"></i> Query → JSON
+    </button>
+    <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+            @onclick="JsonToQuery">
+        <i class="ti ti-arrow-left"></i> JSON → Query
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="Clear">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="LoadSample">
+        <i class="ti ti-file-text"></i> Sample
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Query String / URL</label>
+            <button class="text-xs text-gray-400 hover:text-blue-500 transition-colors" @onclick="() => CopyToClipboard(_queryInput)">
+                <i class="ti ti-copy mr-0.5"></i> Copy
+            </button>
+        </div>
+        <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="?foo=bar&baz=1&arr=a&arr=b  or  https://example.com/path?key=value"
+                  @bind="_queryInput"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">JSON</label>
+            <button class="text-xs text-gray-400 hover:text-blue-500 transition-colors" @onclick="() => CopyToClipboard(_jsonOutput)">
+                <i class="ti ti-copy mr-0.5"></i> Copy
+            </button>
+        </div>
+        <textarea class="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder='{"foo": "bar", "baz": "1"}'
+                  @bind="_jsonOutput"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+</div>
+
+@if (_parsedParams.Count > 0)
+{
+    <div class="mt-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3">
+            <i class="ti ti-list mr-1"></i> Parsed Parameters (@_parsedParams.Count)
+        </h3>
+        <div class="info-grid">
+            @foreach (KeyValuePair<string, List<string>> param in _parsedParams)
+            {
+                <div class="info-row">
+                    <span class="info-label">@param.Key</span>
+                    <span class="info-value font-mono">
+                        @if (param.Value.Count == 1)
+                        {
+                            @param.Value[0]
+                        }
+                        else
+                        {
+                            <span class="badge badge-blue mr-1">array</span>
+                            @string.Join(", ", param.Value)
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/query-params" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string QueryInput, string JsonOutput);
+
+    private string _queryInput = string.Empty;
+    private string _jsonOutput = string.Empty;
+    private string? _error;
+    private Dictionary<string, List<string>> _parsedParams = new();
+
+    private async Task ParseToJson()
+    {
+        _error = null;
+        _parsedParams = new();
+        if (string.IsNullOrWhiteSpace(_queryInput))
+        {
+            _error = "Query input is empty.";
+            return;
+        }
+
+        try
+        {
+            string queryString = _queryInput.Trim();
+
+            // Extract query string from full URL if needed
+            int qIndex = queryString.IndexOf('?');
+            if (qIndex >= 0)
+                queryString = queryString[(qIndex + 1)..];
+
+            // Remove fragment
+            int hashIndex = queryString.IndexOf('#');
+            if (hashIndex >= 0)
+                queryString = queryString[..hashIndex];
+
+            Dictionary<string, List<string>> paramMap = new();
+
+            if (!string.IsNullOrEmpty(queryString))
+            {
+                string[] pairs = queryString.Split('&', StringSplitOptions.RemoveEmptyEntries);
+                foreach (string pair in pairs)
+                {
+                    int eqIndex = pair.IndexOf('=');
+                    string key;
+                    string value;
+                    if (eqIndex >= 0)
+                    {
+                        key = Uri.UnescapeDataString(pair[..eqIndex]);
+                        value = Uri.UnescapeDataString(pair[(eqIndex + 1)..]);
+                    }
+                    else
+                    {
+                        key = Uri.UnescapeDataString(pair);
+                        value = string.Empty;
+                    }
+
+                    if (!paramMap.TryGetValue(key, out List<string>? values))
+                    {
+                        values = [];
+                        paramMap[key] = values;
+                    }
+                    values.Add(value);
+                }
+            }
+
+            _parsedParams = paramMap;
+
+            // Build JSON
+            JsonObject jsonObj = new();
+            foreach (KeyValuePair<string, List<string>> kvp in paramMap)
+            {
+                if (kvp.Value.Count == 1)
+                {
+                    jsonObj[kvp.Key] = JsonValue.Create(kvp.Value[0]);
+                }
+                else
+                {
+                    JsonArray arr = new();
+                    foreach (string v in kvp.Value)
+                        arr.Add(JsonValue.Create(v));
+                    jsonObj[kvp.Key] = arr;
+                }
+            }
+
+            JsonSerializerOptions opts = new() { WriteIndented = true };
+            _jsonOutput = jsonObj.ToJsonString(opts);
+            await SaveState();
+            string label = _queryInput.Length > 50 ? _queryInput[..50] + "..." : _queryInput;
+            await Storage.AddRecentAsync("tools/data/query-params", $"Query to JSON: {label}", new ToolState(_queryInput, _jsonOutput));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Parse error: {ex.Message}";
+        }
+    }
+
+    private async Task JsonToQuery()
+    {
+        _error = null;
+        _parsedParams = new();
+        if (string.IsNullOrWhiteSpace(_jsonOutput))
+        {
+            _error = "JSON input is empty.";
+            return;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(_jsonOutput);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                _error = "JSON must be an object to convert to query parameters.";
+                return;
+            }
+
+            List<string> parts = [];
+            Dictionary<string, List<string>> paramMap = new();
+
+            foreach (JsonProperty prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Array)
+                {
+                    List<string> values = [];
+                    foreach (JsonElement item in prop.Value.EnumerateArray())
+                    {
+                        string val = GetJsonScalarString(item);
+                        parts.Add($"{Uri.EscapeDataString(prop.Name)}={Uri.EscapeDataString(val)}");
+                        values.Add(val);
+                    }
+                    paramMap[prop.Name] = values;
+                }
+                else
+                {
+                    string val = GetJsonScalarString(prop.Value);
+                    parts.Add($"{Uri.EscapeDataString(prop.Name)}={Uri.EscapeDataString(val)}");
+                    paramMap[prop.Name] = [val];
+                }
+            }
+
+            _queryInput = "?" + string.Join("&", parts);
+            _parsedParams = paramMap;
+            await SaveState();
+            string label = _jsonOutput.Length > 50 ? _jsonOutput[..50] + "..." : _jsonOutput;
+            await Storage.AddRecentAsync("tools/data/query-params", $"JSON to Query: {label}", new ToolState(_queryInput, _jsonOutput));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (JsonException ex)
+        {
+            _error = $"Invalid JSON: {ex.Message}";
+        }
+    }
+
+    private static string GetJsonScalarString(JsonElement el) => QueryParamsToJsonCore.GetJsonScalarString(el);
+
+    private void LoadSample()
+    {
+        _queryInput = "?name=John+Doe&age=30&tags=admin&tags=editor&search=hello%20world&active=true";
+        _error = null;
+        _jsonOutput = string.Empty;
+        _parsedParams = new();
+    }
+
+    private void Clear()
+    {
+        _queryInput = string.Empty;
+        _jsonOutput = string.Empty;
+        _error = null;
+        _parsedParams = new();
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/query-params");
+            if (state is not null)
+            {
+                _queryInput = state.QueryInput;
+                _jsonOutput = state.JsonOutput;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/query-params", new ToolState(_queryInput, _jsonOutput));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _queryInput = state.QueryInput;
+            _jsonOutput = state.JsonOutput;
+            StateHasChanged();
+        }
+    }
+}

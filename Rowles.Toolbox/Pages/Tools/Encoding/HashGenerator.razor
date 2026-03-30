@@ -1,0 +1,194 @@
+@page "/tools/encoding/hash"
+@using Rowles.Toolbox.Core.Encoding
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Hash Generator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Hash Generator" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-hash mr-1"></i> Generate hashes for text or files</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-1">
+        <label class="block text-sm font-medium mb-1">Input Text</label>
+        <textarea class="w-full h-40 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_inputText" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="Enter text to hash…"></textarea>
+
+        <div class="flex flex-wrap items-center gap-2 mt-2">
+            <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                    @onclick="HashText">
+                <i class="ti ti-hash mr-0.5"></i> Hash Text
+            </button>
+            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input type="checkbox" class="rounded" @bind="_uppercase" @bind:after="SaveState" />
+                Uppercase
+            </label>
+        </div>
+
+        <div class="mt-4">
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-file-upload mr-0.5"></i> Or Hash a File</label>
+            <InputFile OnChange="OnFileSelected" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 cursor-pointer" />
+        </div>
+
+        @if (!string.IsNullOrEmpty(_inputSource))
+        {
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                <i class="ti ti-info-circle mr-0.5"></i> @_inputSource
+            </p>
+        }
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="mt-3 p-2 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+                <i class="ti ti-alert-triangle mr-0.5"></i> @_error
+            </div>
+        }
+    </div>
+
+    <div class="lg:col-span-2">
+        @if (_hasResults)
+        {
+            <h3 class="text-sm font-semibold mb-2"><i class="ti ti-list mr-1"></i> Results</h3>
+            <div class="space-y-2">
+                @foreach ((string label, string value, string field) in GetHashRows())
+                {
+                    <div class="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded px-3 py-2">
+                        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 w-16 shrink-0">@label</span>
+                        <code class="flex-1 text-xs font-mono break-all text-gray-700 dark:text-gray-300">@value</code>
+                        <button type="button" class="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer"
+                                @onclick="@(() => CopyHash(value, field))">
+                            <i class="ti @(_copiedField == field ? "ti-check text-green-500" : "ti-copy") text-sm"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="flex items-center justify-center h-40 text-sm text-gray-400 dark:text-gray-500">
+                <p>Enter text or upload a file to generate hashes.</p>
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/hash" OnRestore="RestoreState" />
+
+@code {
+    private string _inputText = string.Empty;
+    private string? _inputSource;
+    private string? _error;
+    private bool _uppercase;
+    private string? _copiedField;
+    private RecentEntryPanel? _recentPanel;
+
+    private string _crc32 = string.Empty;
+    private string _md5 = string.Empty;
+    private string _sha1 = string.Empty;
+    private string _sha256 = string.Empty;
+    private string _sha384 = string.Empty;
+    private string _sha512 = string.Empty;
+
+    private bool _hasResults;
+
+    sealed record ToolState(string InputText, bool Uppercase);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/hash");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                _uppercase = state.Uppercase;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/hash", new ToolState(_inputText, _uppercase));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            _uppercase = state.Uppercase;
+            StateHasChanged();
+        }
+    }
+
+    private void ComputeAllHashes(byte[] data)
+    {
+        (string crc32, string md5, string sha1, string sha256, string sha384, string sha512) = HashGeneratorCore.ComputeAllHashes(data, _uppercase);
+        _crc32 = crc32;
+        _md5 = md5;
+        _sha1 = sha1;
+        _sha256 = sha256;
+        _sha384 = sha384;
+        _sha512 = sha512;
+        _hasResults = true;
+    }
+
+    private async Task HashText()
+    {
+        _error = null;
+        byte[] data = System.Text.Encoding.UTF8.GetBytes(_inputText);
+        ComputeAllHashes(data);
+        _inputSource = $"Text \u00b7 {data.Length:N0} bytes (UTF-8)";
+        string label = _inputText.Length > 40 ? _inputText[..40] + "..." : _inputText;
+        await Storage.AddRecentAsync("tools/encoding/hash", $"Hash: {label}", new ToolState(_inputText, _uppercase));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        try
+        {
+            IBrowserFile file = e.File;
+            using MemoryStream ms = new();
+            await file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024).CopyToAsync(ms);
+            byte[] data = ms.ToArray();
+            ComputeAllHashes(data);
+            _inputSource = $"File: {file.Name} \u00b7 {HashGeneratorCore.FormatSize(file.Size)}";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to read file: {ex.Message}";
+        }
+    }
+
+    private async Task CopyHash(string hash, string field)
+    {
+        if (string.IsNullOrEmpty(hash)) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", hash);
+        _copiedField = field;
+        StateHasChanged();
+        await Task.Delay(1500);
+        if (_copiedField == field)
+        {
+            _copiedField = null;
+            StateHasChanged();
+        }
+    }
+
+    private (string Label, string Value, string Field)[] GetHashRows() =>
+    [
+        ("CRC32", _crc32, "crc32"),
+        ("MD5", _md5, "md5"),
+        ("SHA-1", _sha1, "sha1"),
+        ("SHA-256", _sha256, "sha256"),
+        ("SHA-384", _sha384, "sha384"),
+        ("SHA-512", _sha512, "sha512")
+    ];
+}

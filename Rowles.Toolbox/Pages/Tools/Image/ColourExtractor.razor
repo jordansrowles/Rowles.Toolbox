@@ -1,0 +1,242 @@
+@page "/tools/image/colour-extract"
+@using System.Text.Json
+@using Rowles.Toolbox.Core.Image
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>Colour Extractor - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Colour Extractor" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-palette mr-1"></i> Extract dominant colours from any image</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Upload Image</h3>
+            <InputFile OnChange="OnFileSelected" accept="image/*"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+        </div>
+
+        @if (_imageDataUrl is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-photo mr-1"></i> Image Preview</h3>
+                <img src="@_imageDataUrl" alt="Uploaded image" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+            </div>
+        }
+
+        @if (_colours.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-color-swatch mr-1"></i> Extracted Palette</h3>
+                    <div class="flex gap-1">
+                        @foreach ((string label, string value) in ColourExtractorCore.SortOptions)
+                        {
+                            string sv = value;
+                            string sl = label;
+                            <button class="px-2 py-0.5 text-[10px] rounded cursor-pointer border-none @(sv == _sortBy ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400")"
+                                    @onclick="() => SortColours(sv)">
+                                @sl
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div class="flex gap-1 mb-4 rounded overflow-hidden h-12">
+                    @foreach (ColourExtractorCore.ExtractedColour colour in SortedColours)
+                    {
+                        <div style="background-color: @colour.Hex; flex: @colour.Percentage;" class="h-full" title="@colour.Hex (@colour.Percentage%)"></div>
+                    }
+                </div>
+
+                <div class="space-y-2">
+                    @foreach (ColourExtractorCore.ExtractedColour colour in SortedColours)
+                    {
+                        <div class="flex items-center gap-3 p-2 rounded border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <div class="w-10 h-10 rounded shrink-0 border border-gray-200 dark:border-gray-600" style="background-color: @colour.Hex;"></div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-mono font-semibold">@colour.Hex</span>
+                                    <button class="text-[10px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                            @onclick="() => CopyValue(colour.Hex)">
+                                        <i class="ti ti-copy"></i>
+                                    </button>
+                                </div>
+                                <div class="flex items-center gap-3 text-[10px] text-gray-400">
+                                    <span>RGB(@colour.R, @colour.G, @colour.B)</span>
+                                    <button class="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                            @onclick="() => CopyValue(ColourExtractorCore.FormatRgb(colour))">
+                                        <i class="ti ti-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <span class="text-xs font-semibold">@colour.Percentage%</span>
+                                <div class="w-20 bg-gray-200 dark:bg-gray-700 rounded h-1.5 mt-0.5">
+                                    <div class="bg-blue-500 h-1.5 rounded" style="width: @colour.Percentage%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-adjustments mr-1"></i> Settings</h3>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-xs font-medium">Number of colours</label>
+                    <input type="number" min="3" max="20"
+                           class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_maxColours" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Bucket size: @_bucketSize</label>
+                    <input type="range" min="8" max="64" step="8" class="w-full" @bind="_bucketSize" @bind:event="oninput" @bind:after="SaveState" />
+                    <p class="text-[10px] text-gray-400">Smaller = more precise, larger = broader grouping</p>
+                </div>
+            </div>
+        </div>
+
+        <button class="w-full bg-blue-600 text-white px-3 py-2 text-xs rounded hover:bg-blue-700 cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                @onclick="ExtractColours" disabled="@(_imageDataUrl is null || _isProcessing)">
+            <i class="ti ti-palette mr-0.5"></i> @(_isProcessing ? "Extracting…" : "Extract Colours")
+        </button>
+
+        @if (_copiedMessage is not null)
+        {
+            <div class="bg-green-600 text-white text-xs px-3 py-1.5 rounded text-center">
+                <i class="ti ti-check mr-1"></i> @_copiedMessage
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="colour-extractor" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private IJSObjectReference? _jsModule;
+    private string? _imageDataUrl;
+    private List<ColourExtractorCore.ExtractedColour> _colours = [];
+    private int _maxColours = 10;
+    private int _bucketSize = 24;
+    private string _sortBy = "frequency";
+    private bool _isProcessing;
+    private string? _copiedMessage;
+
+    private IReadOnlyList<ColourExtractorCore.ExtractedColour> SortedColours => ColourExtractorCore.GetSortedColours(_colours, _sortBy);
+
+    sealed record ToolState(int MaxColours, int BucketSize, string SortBy);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/Image/ColourExtractor.razor.js");
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("colour-extractor");
+            if (state is not null)
+            {
+                _maxColours = state.MaxColours;
+                _bucketSize = state.BucketSize;
+                _sortBy = state.SortBy;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        IBrowserFile file = e.File;
+        long maxSize = 50 * 1024 * 1024;
+        using System.IO.Stream stream = file.OpenReadStream(maxSize);
+        byte[] buffer = new byte[file.Size];
+        int bytesRead = await stream.ReadAsync(buffer);
+        string base64 = Convert.ToBase64String(buffer, 0, bytesRead);
+        _imageDataUrl = $"data:{file.ContentType};base64,{base64}";
+        _colours.Clear();
+    }
+
+    private async Task ExtractColours()
+    {
+        if (_jsModule is null || _imageDataUrl is null) return;
+        _isProcessing = true;
+        StateHasChanged();
+
+        JsonElement[] results = await _jsModule.InvokeAsync<JsonElement[]>("extractColours", _imageDataUrl, _bucketSize, _maxColours);
+
+        _colours = results.Select(e => new ColourExtractorCore.ExtractedColour
+        {
+            R = e.GetProperty("r").GetInt32(),
+            G = e.GetProperty("g").GetInt32(),
+            B = e.GetProperty("b").GetInt32(),
+            Hex = e.GetProperty("hex").GetString() ?? "#000000",
+            Percentage = e.GetProperty("percentage").GetDouble()
+        }).ToList();
+
+        _isProcessing = false;
+
+        string label = $"{_colours.Count} colours extracted (bucket {_bucketSize})";
+        ToolState state = new(_maxColours, _bucketSize, _sortBy);
+        await Storage.AddRecentAsync("colour-extractor", label, state);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SortColours(string sortBy)
+    {
+        _sortBy = sortBy;
+        await SaveState();
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_maxColours, _bucketSize, _sortBy);
+        await Storage.SaveStateAsync("colour-extractor", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _maxColours = state.MaxColours;
+                _bucketSize = state.BucketSize;
+                _sortBy = state.SortBy;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task CopyValue(string value)
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.InvokeVoidAsync("copyText", value);
+            _copiedMessage = $"Copied {value}";
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copiedMessage = null;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+}

@@ -1,0 +1,319 @@
+@page "/tools/data/timestamp"
+@using System.Globalization
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Timestamp Converter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Timestamp Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-clock mr-1"></i> Convert between Unix timestamps and human-readable dates</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    @* -- Timestamp → Date -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3">
+            <i class="ti ti-arrow-right mr-1"></i> Timestamp → Date
+        </h3>
+
+        <div class="flex items-center gap-2 mb-3">
+            <input type="text" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="Enter Unix timestamp (e.g. 1700000000)"
+                   @bind="_timestampInput"
+                   @bind:event="oninput"
+                   @bind:after="SaveState"
+                   @onkeyup="OnTimestampInputChange" />
+            <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1 whitespace-nowrap"
+                    @onclick="SetNow">
+                <i class="ti ti-clock"></i> Now
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_tsError))
+        {
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mb-3">
+                <i class="ti ti-alert-circle mr-1"></i> @_tsError
+            </div>
+        }
+
+        @if (_convertedDate is not null)
+        {
+            <div class="text-xs text-gray-400 mb-2">
+                Auto-detected: <span class="font-semibold">@(_isMilliseconds ? "Milliseconds" : "Seconds")</span>
+            </div>
+
+            <div class="info-grid">
+                <div class="info-row">
+                    <span class="info-label">UTC</span>
+                    <span class="info-value">@_convertedDate.Value.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Local Time</span>
+                    <span class="info-value">@_convertedDate.Value.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss zzz")</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">ISO 8601</span>
+                    <span class="info-value">@_convertedDate.Value.ToString("o")</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">RFC 2822</span>
+                    <span class="info-value">@_convertedDate.Value.ToString("ddd, dd MMM yyyy HH:mm:ss zzz")</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Timestamp (s)</span>
+                    <span class="info-value">@_convertedDate.Value.ToUnixTimeSeconds()</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Timestamp (ms)</span>
+                    <span class="info-value">@_convertedDate.Value.ToUnixTimeMilliseconds()</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Relative</span>
+                    <span class="info-value">@GetRelativeTime(_convertedDate.Value)</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Day of Year</span>
+                    <span class="info-value">@_convertedDate.Value.DayOfYear / @(DateTime.IsLeapYear(_convertedDate.Value.Year) ? 366 : 365)</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Week of Year</span>
+                    <span class="info-value">@CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(_convertedDate.Value.UtcDateTime, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday)</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Day of Week</span>
+                    <span class="info-value">@_convertedDate.Value.DayOfWeek</span>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* -- Date → Timestamp -- *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3">
+            <i class="ti ti-arrow-left mr-1"></i> Date → Timestamp
+        </h3>
+
+        <div class="space-y-2 mb-3">
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-0.5">Date</label>
+                    <input type="date" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500"
+                           @bind="_dateInput" @bind:after="OnDateTimeChangeAndSave" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-0.5">Time</label>
+                    <input type="time" step="1" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500"
+                           @bind="_timeInput" @bind:after="OnDateTimeChangeAndSave" />
+                </div>
+            </div>
+
+            <button class="bg-blue-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+                    @onclick="SetDateNow">
+                <i class="ti ti-clock"></i> Now
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_dateError))
+        {
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mb-3">
+                <i class="ti ti-alert-circle mr-1"></i> @_dateError
+            </div>
+        }
+
+        @if (_dateTimestamp is not null)
+        {
+            <div class="info-grid">
+                <div class="info-row">
+                    <span class="info-label">Unix (seconds)</span>
+                    <span class="info-value font-mono cursor-pointer hover:text-blue-500" @onclick="() => CopyToClipboard(_dateTimestamp.Value.ToUnixTimeSeconds().ToString())">
+                        @_dateTimestamp.Value.ToUnixTimeSeconds()
+                        <i class="ti ti-copy ml-1 text-gray-400 text-[10px]"></i>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Unix (milliseconds)</span>
+                    <span class="info-value font-mono cursor-pointer hover:text-blue-500" @onclick="() => CopyToClipboard(_dateTimestamp.Value.ToUnixTimeMilliseconds().ToString())">
+                        @_dateTimestamp.Value.ToUnixTimeMilliseconds()
+                        <i class="ti ti-copy ml-1 text-gray-400 text-[10px]"></i>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">ISO 8601</span>
+                    <span class="info-value font-mono">@_dateTimestamp.Value.ToString("o")</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Relative</span>
+                    <span class="info-value">@GetRelativeTime(_dateTimestamp.Value)</span>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@* -- Common Timestamps Reference -- *@
+<div class="mt-4 border border-gray-200 dark:border-gray-700 rounded p-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+        <i class="ti ti-bookmark mr-1"></i> Reference Timestamps
+    </h3>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        @foreach ((string Label, long Ts) item in GetReferenceTimestamps())
+        {
+            <div class="border border-gray-100 dark:border-gray-700 rounded p-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                 @onclick="() => SetTimestamp(item.Ts)">
+                <div class="font-semibold text-gray-700 dark:text-gray-300">@item.Label</div>
+                <div class="font-mono text-gray-400">@item.Ts</div>
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/timestamp" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string TimestampInput, string DateInput, string TimeInput);
+
+    private string _timestampInput = string.Empty;
+    private string? _tsError;
+    private DateTimeOffset? _convertedDate;
+    private bool _isMilliseconds;
+
+    private DateOnly? _dateInput;
+    private TimeOnly? _timeInput;
+    private string? _dateError;
+    private DateTimeOffset? _dateTimestamp;
+
+    private async Task OnTimestampInputChange()
+    {
+        _tsError = null;
+        _convertedDate = null;
+
+        if (string.IsNullOrWhiteSpace(_timestampInput)) return;
+
+        if (!long.TryParse(_timestampInput.Trim(), out long ts))
+        {
+            _tsError = "Invalid timestamp. Enter a numeric value.";
+            return;
+        }
+
+        try
+        {
+            // Auto-detect seconds vs milliseconds by magnitude
+            // Timestamps > 10^12 are likely milliseconds (year ~2001 in ms, year ~33658 in s)
+            if (Math.Abs(ts) > 9_999_999_999L)
+            {
+                _isMilliseconds = true;
+                _convertedDate = DateTimeOffset.FromUnixTimeMilliseconds(ts);
+            }
+            else
+            {
+                _isMilliseconds = false;
+                _convertedDate = DateTimeOffset.FromUnixTimeSeconds(ts);
+            }
+
+            await SaveState();
+            string label = $"Timestamp: {_timestampInput}";
+            await Storage.AddRecentAsync("tools/data/timestamp", label, new ToolState(_timestampInput, _dateInput?.ToString("yyyy-MM-dd") ?? "", _timeInput?.ToString("HH:mm:ss") ?? ""));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            _tsError = "Timestamp out of valid range.";
+        }
+    }
+
+    private async Task SetNow()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        _timestampInput = now.ToUnixTimeSeconds().ToString();
+        await OnTimestampInputChange();
+    }
+
+    private async Task SetTimestamp(long ts)
+    {
+        _timestampInput = ts.ToString();
+        await OnTimestampInputChange();
+    }
+
+    private void OnDateTimeChange()
+    {
+        _dateError = null;
+        _dateTimestamp = null;
+
+        if (_dateInput is null) return;
+
+        DateOnly date = _dateInput.Value;
+        TimeOnly time = _timeInput ?? TimeOnly.MinValue;
+
+        _dateTimestamp = new DateTimeOffset(date.ToDateTime(time), TimeSpan.Zero);
+    }
+
+    private async Task OnDateTimeChangeAndSave()
+    {
+        OnDateTimeChange();
+        await SaveState();
+    }
+
+    private async Task SetDateNow()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        _dateInput = DateOnly.FromDateTime(now.UtcDateTime);
+        _timeInput = TimeOnly.FromDateTime(now.UtcDateTime);
+        OnDateTimeChange();
+        await SaveState();
+    }
+
+    private static string GetRelativeTime(DateTimeOffset date) => TimestampConverterCore.GetRelativeTime(date);
+
+    private static List<(string Label, long Ts)> GetReferenceTimestamps() => TimestampConverterCore.GetReferenceTimestamps();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/timestamp");
+            if (state is not null)
+            {
+                _timestampInput = state.TimestampInput;
+                if (DateOnly.TryParse(state.DateInput, out DateOnly d))
+                    _dateInput = d;
+                if (TimeOnly.TryParse(state.TimeInput, out TimeOnly t))
+                    _timeInput = t;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/timestamp", new ToolState(
+            _timestampInput,
+            _dateInput?.ToString("yyyy-MM-dd") ?? "",
+            _timeInput?.ToString("HH:mm:ss") ?? ""
+        ));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _timestampInput = state.TimestampInput;
+            if (DateOnly.TryParse(state.DateInput, out DateOnly d))
+                _dateInput = d;
+            if (TimeOnly.TryParse(state.TimeInput, out TimeOnly t))
+                _timeInput = t;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+}

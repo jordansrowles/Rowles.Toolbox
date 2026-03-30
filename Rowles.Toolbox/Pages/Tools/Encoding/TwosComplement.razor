@@ -1,0 +1,580 @@
+@page "/tools/encoding/twos-complement"
+
+@using Rowles.Toolbox.Core.Encoding
+
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Two's Complement - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Two's Complement" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-plus-minus mr-1"></i> Signed/unsigned integer binary conversion</span>
+    </Actions>
+</PageHeader>
+
+@* Input, bit width, and examples *@
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Decimal Value</label>
+        <input type="text"
+               class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Enter a decimal integer..."
+               @bind="_inputText"
+               @bind:event="oninput"
+               @bind:after="OnInputChanged" />
+    </div>
+
+    <div>
+        <label class="block text-sm font-medium mb-1">Bit Width</label>
+        <div class="flex gap-1">
+            @foreach (int w in _bitWidths)
+            {
+                int capturedW = w;
+                <button class="@BitWidthBtnClass(capturedW) px-3 py-1.5 text-xs font-medium rounded transition-colors"
+                        @onclick="() => SetBitWidth(capturedW)">
+                    @(capturedW)-bit
+                </button>
+            }
+        </div>
+        <p class="text-[10px] text-gray-400 mt-1.5">
+            Signed: @FormatSignedMin() to @FormatSignedMax() &middot;
+            Unsigned: 0 to @FormatUnsignedMax()
+        </p>
+    </div>
+
+    <div>
+        <label class="block text-sm font-medium mb-1">Quick Examples</label>
+        <div class="flex flex-wrap gap-1">
+            @foreach ((string Label, string Value) ex in BuildExamples())
+            {
+                string capturedVal = ex.Value;
+                string capturedLabel = ex.Label;
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 px-2 py-1 text-xs font-mono rounded transition-colors"
+                        @onclick="() => LoadExample(capturedVal)">
+                    @capturedLabel
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mb-4">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@if (_overflow)
+{
+    <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 p-2 rounded text-xs mb-4">
+        <i class="ti ti-alert-triangle mr-1"></i>
+        Value overflows @(_bitWidth)-bit range. The lower @(_bitWidth) bits are shown (truncated).
+    </div>
+}
+
+@if (_hasValue)
+{
+    @* Results grid *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div>
+            <h3 class="text-sm font-semibold mb-2"><i class="ti ti-binary mr-1"></i> Representations</h3>
+            <div class="info-grid">
+                <div class="info-row">
+                    <span class="info-label">Binary</span>
+                    <span class="info-value cursor-pointer hover:text-blue-500 group" @onclick="() => CopyToClipboard(RawBinaryString())">
+                        @RenderBinaryWithSignBit()
+                        <i class="ti ti-copy ml-1 text-gray-400 text-[10px] opacity-0 group-hover:opacity-100"></i>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Signed Decimal</span>
+                    <span class="info-value cursor-pointer hover:text-blue-500 group" @onclick="() => CopyToClipboard(ComputeSignedDecimal())">
+                        @ComputeSignedDecimal()
+                        <i class="ti ti-copy ml-1 text-gray-400 text-[10px] opacity-0 group-hover:opacity-100"></i>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Unsigned Decimal</span>
+                    <span class="info-value cursor-pointer hover:text-blue-500 group" @onclick="() => CopyToClipboard(ComputeUnsignedDecimal())">
+                        @ComputeUnsignedDecimal()
+                        <i class="ti ti-copy ml-1 text-gray-400 text-[10px] opacity-0 group-hover:opacity-100"></i>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Hexadecimal</span>
+                    <span class="info-value cursor-pointer hover:text-blue-500 group" @onclick="() => CopyToClipboard(ComputeHex())">
+                        0x@(ComputeHex())
+                        <i class="ti ti-copy ml-1 text-gray-400 text-[10px] opacity-0 group-hover:opacity-100"></i>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Octal</span>
+                    <span class="info-value cursor-pointer hover:text-blue-500 group" @onclick="() => CopyToClipboard(ComputeOctal())">
+                        0o@(ComputeOctal())
+                        <i class="ti ti-copy ml-1 text-gray-400 text-[10px] opacity-0 group-hover:opacity-100"></i>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        @* Operations panel *@
+        <div>
+            <h3 class="text-sm font-semibold mb-2"><i class="ti ti-math-function mr-1"></i> Operations</h3>
+            <div class="info-grid">
+                <div class="info-row">
+                    <span class="info-label">Negation (~x+1)</span>
+                    <span class="info-value font-mono text-[11px]">
+                        @FormatBinaryGrouped(ComputeNegationPattern()) = @ComputeNegationDecimal()
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">NOT (~x)</span>
+                    <span class="info-value font-mono text-[11px]">
+                        @FormatBinaryGrouped(ComputeNotPattern()) = @ComputeNotDecimal()
+                    </span>
+                </div>
+            </div>
+
+            @* Addition proof *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-3 mt-3">
+                <h4 class="text-[10px] font-semibold text-gray-500 mb-2">
+                    <i class="ti ti-plus mr-0.5"></i> Addition Proof: x + (~x+1) = 0
+                </h4>
+                <pre class="text-[11px] font-mono text-gray-600 dark:text-gray-400 leading-relaxed">  @PadBinary(_bitPattern)  (x)
++ @PadBinary(ComputeNegationPattern())  (-x)
+  @(new string('\u2500', _bitWidth + (_bitWidth / 4)))
+= @PadBinary(0)  (zero, carry discarded)</pre>
+            </div>
+        </div>
+    </div>
+
+    @* Interactive Bit Editor *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold"><i class="ti ti-toggle-left mr-1"></i> Interactive Bit Editor</h3>
+            <div class="flex gap-1">
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 px-2 py-1 text-[10px] font-medium rounded transition-colors"
+                        @onclick="SetAllBits">
+                    Set All
+                </button>
+                <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 px-2 py-1 text-[10px] font-medium rounded transition-colors"
+                        @onclick="ClearAllBits">
+                    Clear All
+                </button>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            @* Bit toggle buttons *@
+            <div class="inline-flex gap-px min-w-max mb-1">
+                @for (int i = 0; i < _bitWidth; i++)
+                {
+                    int bitIdx = i;
+                    bool isSign = bitIdx == 0;
+                    bool bitVal = GetBitAt(bitIdx);
+                    @if (bitIdx > 0 && bitIdx % 4 == 0)
+                    {
+                        <span class="w-2"></span>
+                    }
+                    <button class="@BitCellClass(isSign, bitVal) w-6 h-7 text-xs font-mono rounded transition-colors border"
+                            @onclick="() => ToggleBit(bitIdx)">
+                        @(bitVal ? "1" : "0")
+                    </button>
+                }
+            </div>
+
+            @* Bit position labels *@
+            <div class="inline-flex gap-px min-w-max">
+                @for (int i = 0; i < _bitWidth; i++)
+                {
+                    int bitIdx = i;
+                    @if (bitIdx > 0 && bitIdx % 4 == 0)
+                    {
+                        <span class="w-2"></span>
+                    }
+                    <span class="w-6 text-center text-[8px] @(bitIdx == 0 ? "text-red-500 font-bold" : "text-gray-400")">
+                        @(_bitWidth - 1 - bitIdx)
+                    </span>
+                }
+            </div>
+        </div>
+
+        <p class="text-[10px] text-gray-400 mt-2">
+            <i class="ti ti-info-circle mr-0.5"></i>
+            Click any bit to toggle. <span class="text-red-500 font-semibold">Red</span> = sign bit (MSB).
+        </p>
+    </div>
+
+    @* Two's complement conversion steps (negative values only) *@
+    @if (IsSignedNegative())
+    {
+        <div class="border border-amber-200 dark:border-amber-700 rounded p-4 mb-4 bg-amber-50/50 dark:bg-amber-900/10">
+            <h3 class="text-sm font-semibold mb-3">
+                <i class="ti ti-list-numbers mr-1"></i> Two's Complement Steps for @ComputeSignedDecimal()
+            </h3>
+            <div class="space-y-2">
+                <div class="flex items-start gap-3">
+                    <span class="shrink-0 w-16 text-[10px] font-semibold text-amber-700 dark:text-amber-400">Step 1</span>
+                    <div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mb-0.5">
+                            Start with absolute value +@AbsoluteValueDecimal() in binary
+                        </p>
+                        <code class="text-xs font-mono text-gray-800 dark:text-gray-200">@FormatBinaryGrouped(StepAbsolutePattern())</code>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="shrink-0 w-16 text-[10px] font-semibold text-amber-700 dark:text-amber-400">Step 2</span>
+                    <div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mb-0.5">
+                            Invert all bits (one's complement)
+                        </p>
+                        <code class="text-xs font-mono text-gray-800 dark:text-gray-200">@FormatBinaryGrouped(StepOnesComplementPattern())</code>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="shrink-0 w-16 text-[10px] font-semibold text-amber-700 dark:text-amber-400">Step 3</span>
+                    <div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mb-0.5">
+                            Add 1 to get two's complement
+                        </p>
+                        <code class="text-xs font-mono text-gray-800 dark:text-gray-200">@FormatBinaryGrouped(StepTwosComplementPattern())</code>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3 pt-2 border-t border-amber-200 dark:border-amber-700">
+                    <span class="shrink-0 w-16 text-[10px] font-semibold text-green-700 dark:text-green-400">Result</span>
+                    <div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mb-0.5">
+                            @ComputeSignedDecimal() in @(_bitWidth)-bit two's complement
+                        </p>
+                        <code class="text-xs font-mono font-bold text-gray-800 dark:text-gray-200">@FormatBinaryGrouped(_bitPattern)</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* Controls *@
+    <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                @onclick="() => CopyToClipboard(FormatBinaryGrouped(_bitPattern))">
+            <i class="ti ti-copy mr-0.5"></i> Copy Binary
+        </button>
+        <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                @onclick="() => CopyToClipboard(ComputeHex())">
+            <i class="ti ti-copy mr-0.5"></i> Copy Hex
+        </button>
+        <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                @onclick="Clear">
+            <i class="ti ti-eraser mr-0.5"></i> Clear
+        </button>
+    </div>
+}
+else if (string.IsNullOrEmpty(_error))
+{
+    <div class="text-xs text-gray-400 italic p-4 border border-dashed border-gray-300 dark:border-gray-600 rounded">
+        Enter a decimal integer to see its two's complement binary representation.
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/twos-complement" OnRestore="RestoreState" />
+
+@code {
+    private string _inputText = string.Empty;
+    private int _bitWidth = 8;
+    private ulong _bitPattern;
+    private bool _hasValue;
+    private bool _overflow;
+    private string? _error;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string InputText, int BitWidth);
+
+    private static readonly int[] _bitWidths = [8, 16, 32, 64];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/twos-complement");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                _bitWidth = state.BitWidth;
+                ParseInput();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/twos-complement", new ToolState(_inputText, _bitWidth));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            _bitWidth = state.BitWidth;
+            ParseInput();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnInputChanged()
+    {
+        ParseInput();
+        await SaveState();
+    }
+
+    private void ParseInput()
+    {
+        _error = null;
+        _hasValue = false;
+        _overflow = false;
+
+        string trimmed = _inputText.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            return;
+
+        bool parsedSigned = long.TryParse(trimmed, out long longVal);
+        bool parsedUnsigned = false;
+        ulong ulongVal = 0;
+
+        if (!parsedSigned)
+        {
+            parsedUnsigned = ulong.TryParse(trimmed, out ulongVal);
+        }
+
+        if (!parsedSigned && !parsedUnsigned)
+        {
+            _error = "Invalid decimal integer. Value may exceed 64-bit range.";
+            return;
+        }
+
+        long sMin = TwosComplementCore.SignedMinVal(_bitWidth);
+        long sMax = TwosComplementCore.SignedMaxVal(_bitWidth);
+        ulong uMax = TwosComplementCore.UnsignedMaxVal(_bitWidth);
+
+        if (parsedSigned)
+        {
+            bool fitsSigned = longVal >= sMin && longVal <= sMax;
+            bool fitsUnsigned = longVal >= 0 && (ulong)longVal <= uMax;
+            _overflow = !fitsSigned && !fitsUnsigned;
+            _bitPattern = TwosComplementCore.MaskToWidth((ulong)longVal, _bitWidth);
+        }
+        else
+        {
+            bool fitsUnsigned = ulongVal <= uMax;
+            _overflow = !fitsUnsigned;
+            _bitPattern = TwosComplementCore.MaskToWidth(ulongVal, _bitWidth);
+        }
+
+        _hasValue = true;
+    }
+
+    private async Task SetBitWidth(int width)
+    {
+        _bitWidth = width;
+        ParseInput();
+        await SaveState();
+    }
+
+    private async Task LoadExample(string value)
+    {
+        _inputText = value;
+        ParseInput();
+        await SaveState();
+        if (_hasValue)
+        {
+            await Storage.AddRecentAsync("tools/encoding/twos-complement", $"Convert: {value} ({_bitWidth}-bit)", new ToolState(_inputText, _bitWidth));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private void ToggleBit(int displayIndex)
+    {
+        int bitPosition = _bitWidth - 1 - displayIndex;
+        _bitPattern ^= 1UL << bitPosition;
+        _bitPattern = TwosComplementCore.MaskToWidth(_bitPattern, _bitWidth);
+        _inputText = ComputeSignedDecimal();
+        _hasValue = true;
+        _overflow = false;
+        _error = null;
+    }
+
+    private void SetAllBits()
+    {
+        _bitPattern = TwosComplementCore.MaskToWidth(ulong.MaxValue, _bitWidth);
+        _inputText = ComputeSignedDecimal();
+        _hasValue = true;
+        _overflow = false;
+        _error = null;
+    }
+
+    private void ClearAllBits()
+    {
+        _bitPattern = 0;
+        _inputText = "0";
+        _hasValue = true;
+        _overflow = false;
+        _error = null;
+    }
+
+    private void Clear()
+    {
+        _inputText = string.Empty;
+        _bitPattern = 0;
+        _hasValue = false;
+        _overflow = false;
+        _error = null;
+    }
+
+    private bool GetBitAt(int displayIndex)
+    {
+        int bitPosition = _bitWidth - 1 - displayIndex;
+        return ((_bitPattern >> bitPosition) & 1) == 1;
+    }
+
+    private bool IsSignedNegative()
+    {
+        ulong signBit = 1UL << (_bitWidth - 1);
+        return (_bitPattern & signBit) != 0;
+    }
+
+    private long SignedFromPattern()
+    {
+        return TwosComplementCore.SignedFromBits(_bitPattern, _bitWidth);
+    }
+
+    private string ComputeSignedDecimal()
+    {
+        return SignedFromPattern().ToString();
+    }
+
+    private string ComputeUnsignedDecimal()
+    {
+        return _bitPattern.ToString();
+    }
+
+    private string ComputeHex() => TwosComplementCore.ComputeHex(_bitPattern, _bitWidth);
+
+    private string ComputeOctal() => TwosComplementCore.ComputeOctal(_bitPattern);
+
+    private string RawBinaryString() => FormatBinaryGrouped(_bitPattern);
+
+    private RenderFragment RenderBinaryWithSignBit() => builder =>
+    {
+        string binary = PadBinary(_bitPattern);
+        for (int i = 0; i < binary.Length; i++)
+        {
+            if (i > 0 && i % 4 == 0)
+            {
+                builder.AddContent(i * 3, " ");
+            }
+            if (i == 0)
+            {
+                builder.OpenElement(i * 3 + 1, "span");
+                builder.AddAttribute(i * 3 + 2, "class", "text-red-600 dark:text-red-400 font-bold");
+                builder.AddContent(i * 3 + 3, binary[i]);
+                builder.CloseElement();
+            }
+            else
+            {
+                builder.AddContent(i * 3 + 1, binary[i].ToString());
+            }
+        }
+    };
+
+    private ulong ComputeNegationPattern() => TwosComplementCore.ComputeNegationPattern(_bitPattern, _bitWidth);
+
+    private string ComputeNegationDecimal()
+    {
+        ulong negPattern = ComputeNegationPattern();
+        long negSigned = TwosComplementCore.SignedFromBits(negPattern, _bitWidth);
+        return negSigned.ToString();
+    }
+
+    private ulong ComputeNotPattern() => TwosComplementCore.ComputeNotPattern(_bitPattern, _bitWidth);
+
+    private string ComputeNotDecimal()
+    {
+        ulong notPattern = ComputeNotPattern();
+        long notSigned = TwosComplementCore.SignedFromBits(notPattern, _bitWidth);
+        return notSigned.ToString();
+    }
+
+    private string AbsoluteValueDecimal() => TwosComplementCore.AbsoluteValueDecimal(_bitPattern, _bitWidth);
+
+    private ulong StepAbsolutePattern()
+    {
+        long signed = SignedFromPattern();
+        ulong absVal;
+        if (signed == long.MinValue)
+            absVal = (ulong)long.MaxValue + 1UL;
+        else
+            absVal = (ulong)Math.Abs(signed);
+        return TwosComplementCore.MaskToWidth(absVal, _bitWidth);
+    }
+
+    private ulong StepOnesComplementPattern() => TwosComplementCore.MaskToWidth(~StepAbsolutePattern(), _bitWidth);
+
+    private ulong StepTwosComplementPattern() => TwosComplementCore.MaskToWidth(StepOnesComplementPattern() + 1, _bitWidth);
+
+    private string PadBinary(ulong pattern) => TwosComplementCore.PadBinary(pattern, _bitWidth);
+
+    private string FormatBinaryGrouped(ulong pattern) => TwosComplementCore.FormatBinaryGrouped(pattern, _bitWidth);
+
+    private string FormatSignedMin() => TwosComplementCore.SignedMinVal(_bitWidth).ToString("N0");
+
+    private string FormatSignedMax() => TwosComplementCore.SignedMaxVal(_bitWidth).ToString("N0");
+
+    private string FormatUnsignedMax() => TwosComplementCore.UnsignedMaxVal(_bitWidth).ToString("N0");
+
+    private List<(string Label, string Value)> BuildExamples()
+    {
+        long sMin = TwosComplementCore.SignedMinVal(_bitWidth);
+        long sMax = TwosComplementCore.SignedMaxVal(_bitWidth);
+        ulong uMax = TwosComplementCore.UnsignedMaxVal(_bitWidth);
+
+        return
+        [
+            ("-1", "-1"),
+            ("0", "0"),
+            ("MIN", sMin.ToString()),
+            ("MAX", sMax.ToString()),
+            ("UMAX", uMax.ToString()),
+            ("42", "42"),
+        ];
+    }
+
+    private string BitWidthBtnClass(int width)
+    {
+        if (width == _bitWidth)
+            return "bg-blue-600 text-white";
+        return "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+    }
+
+    private static string BitCellClass(bool isSign, bool isSet)
+    {
+        if (isSign && isSet)
+            return "bg-red-600 text-white border-red-700 hover:bg-red-500";
+        if (isSign && !isSet)
+            return "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-300 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800/40";
+        if (isSet)
+            return "bg-blue-600 text-white border-blue-700 hover:bg-blue-500";
+        return "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600";
+    }
+
+    private async Task CopyToClipboard(string content)
+    {
+        if (!string.IsNullOrEmpty(content))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", content.Replace(" ", ""));
+        }
+    }
+}

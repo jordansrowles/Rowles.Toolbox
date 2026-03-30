@@ -1,0 +1,342 @@
+@page "/tools/web/favicon"
+@using Rowles.Toolbox.Core.WebNetwork
+@using System.Text.Json
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>Favicon Generator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Favicon Generator" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-favicon mr-1"></i> Generate a full favicon set from any image</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @* Upload and source preview *@
+    <div class="lg:col-span-2 space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Upload Source Image</h3>
+
+            <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                    <i class="ti ti-cloud-upload text-2xl text-gray-400 mb-1"></i>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                        <span class="font-semibold">Click to upload</span> or drag and drop
+                    </p>
+                    <p class="text-[10px] text-gray-400 mt-0.5">PNG, JPG, SVG, or WebP (max 10 MB)</p>
+                </div>
+                <InputFile OnChange="OnFileSelected" accept="image/*"
+                           class="hidden" />
+            </label>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-600 dark:text-red-400">
+                    <i class="ti ti-alert-circle mr-1"></i> @_errorMessage
+                </div>
+            }
+        </div>
+
+        @if (_sourceDataUrl is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-photo mr-1"></i> Source Image</h3>
+                <div class="flex items-start gap-4">
+                    <img src="@_sourceDataUrl" alt="Source" class="w-24 h-24 rounded border border-gray-200 dark:border-gray-700 object-cover" />
+                    <div class="text-xs text-gray-500 space-y-1">
+                        <p><span class="font-medium">File:</span> @_fileName</p>
+                        <p><span class="font-medium">Dimensions:</span> @(_sourceWidth)x@(_sourceHeight) px</p>
+                        <p><span class="font-medium">Size:</span> @FaviconGeneratorCore.FormatBytes(_sourceSize)</p>
+                        @if (_sourceWidth != _sourceHeight)
+                        {
+                            <p class="text-amber-500 dark:text-amber-400">
+                                <i class="ti ti-alert-triangle mr-0.5"></i> Image is not square. It will be stretched to fit.
+                            </p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button class="flex-1 bg-blue-600 text-white px-3 py-2 text-xs rounded hover:bg-blue-700 cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                        @onclick="GenerateAllFavicons" disabled="@_isProcessing">
+                    <i class="ti ti-wand mr-0.5"></i> @(_isProcessing ? "Generating..." : "Generate Favicons")
+                </button>
+                @if (_generatedFavicons.Count > 0)
+                {
+                    <button class="bg-green-600 text-white px-3 py-2 text-xs rounded hover:bg-green-700 cursor-pointer border-none"
+                            @onclick="DownloadAll">
+                        <i class="ti ti-download mr-0.5"></i> Download All
+                    </button>
+                }
+            </div>
+        }
+
+        @if (_generatedFavicons.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-grid-dots mr-1"></i> Generated Favicons</h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    @foreach (FaviconGeneratorCore.FaviconEntry entry in _generatedFavicons)
+                    {
+                        <div class="border border-gray-200 dark:border-gray-700 rounded p-3 flex flex-col items-center gap-2">
+                            <div class="flex items-center justify-center w-full h-20 bg-gray-50 dark:bg-gray-800 rounded"
+                                 style="background-image: url('data:image/svg+xml,@(FaviconGeneratorCore.CheckerPattern)'); background-size: 10px 10px;">
+                                <img src="@entry.DataUrl" alt="@entry.Filename"
+                                     style="width: @(Math.Min(entry.Size, 64))px; height: @(Math.Min(entry.Size, 64))px;"
+                                     class="image-rendering-pixelated" />
+                            </div>
+                            <div class="text-center w-full">
+                                <p class="text-[10px] font-mono text-gray-600 dark:text-gray-400 truncate" title="@entry.Filename">@entry.Filename</p>
+                                <p class="text-[10px] text-gray-400">@(entry.Size)x@(entry.Size) px &middot; @FaviconGeneratorCore.FormatBytes(entry.ByteSize)</p>
+                            </div>
+                            <button class="w-full text-[10px] px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer border-none transition-colors"
+                                    @onclick="() => DownloadSingle(entry)">
+                                <i class="ti ti-download mr-0.5"></i> Download
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Sidebar: sizes info + HTML snippet *@
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list mr-1"></i> Target Sizes</h3>
+            <div class="space-y-1.5">
+                @foreach (FaviconGeneratorCore.FaviconSpec spec in FaviconGeneratorCore.FaviconSpecs)
+                {
+                    <div class="flex items-center justify-between text-xs">
+                        <div class="flex items-center gap-1.5">
+                            <span class="inline-block w-2 h-2 rounded-full @FaviconGeneratorCore.SizeColorClass(spec.Size)"></span>
+                            <span class="font-mono text-gray-600 dark:text-gray-400">@(spec.Size)x@(spec.Size)</span>
+                        </div>
+                        <span class="text-gray-400 text-[10px]">@spec.Label</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (_generatedFavicons.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> HTML Snippet</h3>
+                    <button class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer border-none transition-colors"
+                            @onclick="CopyHtmlSnippet">
+                        <i class="ti ti-copy mr-0.5"></i> @(_snippetCopied ? "Copied!" : "Copy")
+                    </button>
+                </div>
+                <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-[10px] font-mono whitespace-pre-wrap break-all text-gray-700 dark:text-gray-300 leading-relaxed max-h-60 overflow-y-auto">@FaviconGeneratorCore.HtmlSnippet</pre>
+            </div>
+
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-chart-pie mr-1"></i> Summary</h3>
+                <div class="space-y-1.5 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Files generated</span>
+                        <span class="font-mono font-semibold">@_generatedFavicons.Count</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Total size</span>
+                        <span class="font-mono font-semibold">@FaviconGeneratorCore.FormatBytes(_generatedFavicons.Sum(f => f.ByteSize))</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Smallest</span>
+                        <span class="font-mono">@FaviconGeneratorCore.FormatBytes(_generatedFavicons.Min(f => f.ByteSize))</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Largest</span>
+                        <span class="font-mono">@FaviconGeneratorCore.FormatBytes(_generatedFavicons.Max(f => f.ByteSize))</span>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-info-circle mr-1"></i> Tips</h3>
+            <ul class="text-[10px] text-gray-400 space-y-1 list-disc list-inside">
+                <li>Use a square source image for best results</li>
+                <li>PNG with transparency works best</li>
+                <li>Recommended minimum source: 512x512 px</li>
+                <li>All processing happens in your browser</li>
+                <li>No images are uploaded to any server</li>
+            </ul>
+        </div>
+    </div>
+
+    <RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/favicon" OnRestore="RestoreState" />
+</div>
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private IJSObjectReference? _jsModule;
+    private string? _sourceDataUrl;
+    private string _fileName = string.Empty;
+    private string? _errorMessage;
+    private long _sourceSize;
+    private int _sourceWidth;
+    private int _sourceHeight;
+    private bool _isProcessing;
+    private bool _snippetCopied;
+    private readonly List<FaviconGeneratorCore.FaviconEntry> _generatedFavicons = [];
+
+    sealed record ToolState(string FileName);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await Js.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/WebNetwork/FaviconGenerator.razor.js");
+            await LoadState();
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _generatedFavicons.Clear();
+
+        IBrowserFile file = e.File;
+
+        if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            _errorMessage = "Please upload a valid image file (PNG, JPG, SVG, or WebP).";
+            return;
+        }
+
+        long maxSize = 10 * 1024 * 1024;
+
+        try
+        {
+            using Stream stream = file.OpenReadStream(maxSize);
+            byte[] buffer = new byte[file.Size];
+            int bytesRead = await stream.ReadAsync(buffer);
+            string base64 = Convert.ToBase64String(buffer, 0, bytesRead);
+            _sourceDataUrl = $"data:{file.ContentType};base64,{base64}";
+            _sourceSize = file.Size;
+            _fileName = file.Name;
+
+            if (_jsModule is not null)
+            {
+                JsonElement dims = await _jsModule.InvokeAsync<JsonElement>("getImageDimensions", _sourceDataUrl);
+                _sourceWidth = dims.GetProperty("width").GetInt32();
+                _sourceHeight = dims.GetProperty("height").GetInt32();
+            }
+
+            await SaveState();
+        }
+        catch (IOException)
+        {
+            _errorMessage = "File exceeds the 10 MB size limit. Please choose a smaller image.";
+            _sourceDataUrl = null;
+        }
+    }
+
+    private async Task GenerateAllFavicons()
+    {
+        if (_jsModule is null || _sourceDataUrl is null) return;
+
+        _isProcessing = true;
+        _generatedFavicons.Clear();
+        StateHasChanged();
+
+        foreach (FaviconGeneratorCore.FaviconSpec spec in FaviconGeneratorCore.FaviconSpecs)
+        {
+            JsonElement result = await _jsModule.InvokeAsync<JsonElement>(
+                "generateFavicon", _sourceDataUrl, spec.Size);
+
+            string? dataUrl = result.GetProperty("dataUrl").GetString();
+            long byteSize = result.GetProperty("size").GetInt64();
+
+            if (dataUrl is not null)
+            {
+                _generatedFavicons.Add(new FaviconGeneratorCore.FaviconEntry
+                {
+                    Size = spec.Size,
+                    Filename = spec.Filename,
+                    DataUrl = dataUrl,
+                    ByteSize = byteSize,
+                });
+            }
+
+            StateHasChanged();
+        }
+
+        _isProcessing = false;
+        await SaveState();
+        await Storage.AddRecentAsync("tools/web/favicon", $"Generated {_generatedFavicons.Count} favicons from {_fileName}", new ToolState(_fileName));
+        await _recentPanel?.RefreshAsync()!;
+    }
+
+    private async Task DownloadSingle(FaviconGeneratorCore.FaviconEntry entry)
+    {
+        if (_jsModule is null) return;
+        await _jsModule.InvokeVoidAsync("downloadDataUrl", entry.DataUrl, entry.Filename);
+    }
+
+    private async Task DownloadAll()
+    {
+        if (_jsModule is null || _generatedFavicons.Count == 0) return;
+
+        object[] favicons = _generatedFavicons
+            .Select(f => (object)new { dataUrl = f.DataUrl, filename = f.Filename })
+            .ToArray();
+
+        await _jsModule.InvokeVoidAsync("downloadAllAsZip", (object)favicons);
+    }
+
+    private async Task CopyHtmlSnippet()
+    {
+        if (_jsModule is null) return;
+        await _jsModule.InvokeVoidAsync("copyToClipboard", FaviconGeneratorCore.HtmlSnippet);
+        _snippetCopied = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _snippetCopied = false;
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/favicon");
+        if (state is not null)
+        {
+            _fileName = state.FileName;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_fileName);
+        await Storage.SaveStateAsync("tools/web/favicon", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _fileName = state.FileName;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+}

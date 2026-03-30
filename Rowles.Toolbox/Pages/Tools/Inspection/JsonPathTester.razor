@@ -1,0 +1,234 @@
+@page "/tools/inspect/jsonpath"
+
+@using System.Text.Json
+@using Rowles.Toolbox.Core.Inspection
+@inject LocalStorageService Storage
+
+<PageTitle>JSONPath Tester - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="JSONPath Tester" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-braces mr-1"></i> Query JSON data using JSONPath expressions</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+    <div class="xl:col-span-3 space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-code mr-1"></i> JSON Input</label>
+            <textarea class="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Paste your JSON here…"
+                      @bind="_jsonInput"
+                      @bind:after="SaveState"></textarea>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <label class="block text-sm font-medium mb-1"><i class="ti ti-route mr-1"></i> JSONPath Expression</label>
+            <div class="flex gap-2">
+                <input type="text"
+                       class="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="Enter JSONPath expression…"
+                       @bind="_jsonPath"
+                       @bind:after="SaveState" />
+                <button type="button"
+                        class="bg-blue-600 text-white px-4 py-2 text-sm font-medium rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+                        @onclick="Evaluate">
+                    <i class="ti ti-player-play"></i> Evaluate
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-3 rounded text-sm">
+                <i class="ti ti-alert-circle mr-1"></i> @_error
+            </div>
+        }
+
+        @if (_results.Count > 0)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-list-search mr-1"></i> Results (@_results.Count)
+                </h3>
+                <div class="space-y-2 max-h-96 overflow-y-auto">
+                    @for (int i = 0; i < _results.Count; i++)
+                    {
+                        JsonPathTesterCore.JsonPathResult result = _results[i];
+                        string typeLabel = JsonPathTesterCore.GetTypeLabel(result.ValueKind);
+                        string badgeCss = JsonPathTesterCore.GetTypeBadgeCss(result.ValueKind);
+                        <div class="border border-gray-100 dark:border-gray-600 rounded p-3 bg-gray-50 dark:bg-gray-800">
+                            <div class="flex items-center gap-3 text-sm flex-wrap">
+                                <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded text-xs font-bold">@(i + 1)</span>
+                                <code class="text-gray-500 dark:text-gray-400 text-xs">@result.Path</code>
+                                <span class="px-2 py-0.5 rounded text-xs font-medium @badgeCss">@typeLabel</span>
+                            </div>
+                            <pre class="mt-2 text-sm font-mono text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-all">@result.Value</pre>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else if (_evaluated && _error is null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 text-center text-sm text-gray-400">
+                <i class="ti ti-mood-empty mr-1"></i> No results found for the given JSONPath expression.
+            </div>
+        }
+
+        @if (_evaluated && _error is null && _highlightedJson.HasValue)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                    <i class="ti ti-code mr-1"></i> Formatted JSON
+                </h3>
+                <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm font-mono whitespace-pre-wrap break-all overflow-x-auto max-h-[32rem] overflow-y-auto">@_highlightedJson.Value</pre>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-4">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-bookmarks mr-1"></i> JSONPath Examples</h3>
+            <div class="space-y-1">
+                @foreach (JsonPathTesterCore.JsonPathExample example in JsonPathTesterCore.Examples)
+                {
+                    <button type="button"
+                            class="w-full text-left p-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 text-sm transition-colors"
+                            @onclick="() => ApplyExample(example)">
+                        <code class="text-blue-600 dark:text-blue-400 text-xs break-all">@example.Expression</code>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">@example.Description</div>
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-info-circle mr-1"></i> Operators</h3>
+            <div class="space-y-1 text-xs font-mono text-gray-600 dark:text-gray-400">
+                <div><span class="text-blue-500 font-bold">$</span> Root element</div>
+                <div><span class="text-blue-500 font-bold">.key</span> Child access</div>
+                <div><span class="text-blue-500 font-bold">['key']</span> Bracket notation</div>
+                <div><span class="text-blue-500 font-bold">..key</span> Recursive descent</div>
+                <div><span class="text-blue-500 font-bold">[n]</span> Array index</div>
+                <div><span class="text-blue-500 font-bold">[-n]</span> From end</div>
+                <div><span class="text-blue-500 font-bold">[*]</span> Wildcard</div>
+                <div><span class="text-blue-500 font-bold">[start:end]</span> Array slice</div>
+                <div><span class="text-blue-500 font-bold">[?(&#64;.key)]</span> Has property</div>
+                <div><span class="text-blue-500 font-bold">[?(&#64;.k==v)]</span> Equals filter</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/inspect/jsonpath" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _jsonInput = JsonPathTesterCore.DefaultJson;
+    private string _jsonPath = JsonPathTesterCore.DefaultPath;
+    private string? _error;
+    private List<JsonPathTesterCore.JsonPathResult> _results = [];
+    private MarkupString? _highlightedJson;
+    private bool _evaluated;
+
+    sealed record ToolState(string JsonInput, string JsonPath);
+
+    protected override void OnInitialized()
+    {
+        EvaluateCore();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/inspect/jsonpath");
+            if (state is not null)
+            {
+                _jsonInput = state.JsonInput;
+                _jsonPath = state.JsonPath;
+                EvaluateCore();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/inspect/jsonpath", new ToolState(_jsonInput, _jsonPath));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _jsonInput = state.JsonInput;
+            _jsonPath = state.JsonPath;
+            EvaluateCore();
+            StateHasChanged();
+        }
+    }
+
+    private void EvaluateCore()
+    {
+        _error = null;
+        _results.Clear();
+        _highlightedJson = null;
+        _evaluated = true;
+
+        if (string.IsNullOrWhiteSpace(_jsonInput))
+        {
+            _error = "Please enter JSON input.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_jsonPath))
+        {
+            _error = "Please enter a JSONPath expression.";
+            return;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(_jsonInput);
+
+            string formatted = JsonSerializer.Serialize(doc.RootElement, JsonPathTesterCore.IndentedOptions);
+            _highlightedJson = JsonPathTesterCore.SyntaxHighlightJson(formatted);
+
+            _results = JsonPathTesterCore.EvaluateJsonPath(doc.RootElement, _jsonPath);
+        }
+        catch (JsonException ex)
+        {
+            _error = $"Invalid JSON: {ex.Message}";
+        }
+        catch (FormatException ex)
+        {
+            _error = $"Invalid JSONPath expression: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error: {ex.Message}";
+        }
+    }
+
+    private async Task Evaluate()
+    {
+        EvaluateCore();
+
+        if (_recentPanel is not null && _error is null)
+        {
+            string label = _jsonPath.Length > 40 ? _jsonPath[..40] + "..." : _jsonPath;
+            await Storage.AddRecentAsync("tools/inspect/jsonpath", label, new ToolState(_jsonInput, _jsonPath));
+            await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task ApplyExample(JsonPathTesterCore.JsonPathExample example)
+    {
+        _jsonPath = example.Expression;
+        EvaluateCore();
+        await SaveState();
+    }
+}

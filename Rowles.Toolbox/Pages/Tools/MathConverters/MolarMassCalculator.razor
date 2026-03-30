@@ -1,0 +1,306 @@
+@page "/tools/math/molar-mass"
+@namespace Rowles.Toolbox.Pages.Tools.MathConverters
+@using System.Globalization
+@using System.Text.Json
+@using Rowles.Toolbox.Core.MathConverters
+@inject LocalStorageService Storage
+
+<PageTitle>Molar Mass Calculator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Molar Mass Calculator" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-atom mr-1"></i> Calculate molar mass from a chemical formula</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    @* ── Quick examples bar ── *@
+    <div class="flex flex-wrap gap-1.5 items-center">
+        <span class="text-xs text-gray-400 shrink-0 mr-1">Examples:</span>
+        @foreach (string example in _examples)
+        {
+            <button type="button"
+                    class="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-2.5 py-1 text-xs rounded font-mono hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    @onclick="() => SetExample(example)">
+                @example
+            </button>
+        }
+    </div>
+
+    @* ── Inputs ── *@
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="sm:col-span-2">
+            <label class="block text-sm font-medium mb-1">
+                <i class="ti ti-atom mr-1 text-blue-500"></i> Chemical Formula
+            </label>
+            <input type="text"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   placeholder="e.g. H2O, Ca(OH)2, Al2(SO4)3"
+                   @bind="_formula"
+                   @bind:event="oninput"
+                   @bind:after="SaveState" />
+        </div>
+        <div>
+            <label class="block text-sm font-medium mb-1">
+                <i class="ti ti-number mr-1 text-blue-500"></i> Number of Moles
+            </label>
+            <input type="number"
+                   step="any"
+                   min="0"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   @bind="_moles"
+                   @bind:event="oninput"
+                   @bind:after="SaveState" />
+        </div>
+    </div>
+
+    @* ── Error banner ── *@
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 flex items-start gap-2">
+            <i class="ti ti-alert-circle text-red-500 mt-0.5 shrink-0 text-base"></i>
+            <span class="text-sm text-red-700 dark:text-red-400">@_error</span>
+        </div>
+    }
+
+    @* ── Results ── *@
+    @if (_hasResult)
+    {
+        @* Summary cards *@
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10 rounded-lg p-4 text-center">
+                <div class="text-xs font-medium text-blue-500 dark:text-blue-400 uppercase tracking-wide mb-1">
+                    <i class="ti ti-weight mr-1"></i> Molar Mass
+                </div>
+                <div class="text-3xl font-bold font-mono text-blue-700 dark:text-blue-300 tabular-nums">
+                    @_molarMass.ToString("0.0000")
+                </div>
+                <div class="text-xs text-blue-400 mt-1">g · mol⁻¹</div>
+            </div>
+            <div class="border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 rounded-lg p-4 text-center">
+                <div class="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide mb-1">
+                    <i class="ti ti-flask mr-1"></i> Mass of @_moles mol
+                </div>
+                <div class="text-3xl font-bold font-mono text-green-700 dark:text-green-300 tabular-nums">
+                    @MassOfNMoles.ToString("0.0000")
+                </div>
+                <div class="text-xs text-green-400 mt-1">grams</div>
+            </div>
+        </div>
+
+        @* Element breakdown table *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <div class="px-4 py-2.5 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-gray-600 dark:text-gray-400">
+                    <i class="ti ti-table mr-1"></i> Element Breakdown
+                </h3>
+                <div class="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                    <span class="flex items-center gap-1.5">
+                        <span class="inline-block w-3 h-3 rounded-sm bg-amber-200 dark:bg-amber-800/60 border border-amber-300 dark:border-amber-700"></span>
+                        Metal
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="inline-block w-3 h-3 rounded-sm bg-emerald-200 dark:bg-emerald-800/60 border border-emerald-300 dark:border-emerald-700"></span>
+                        Nonmetal
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="inline-block w-3 h-3 rounded-sm bg-purple-200 dark:bg-purple-800/60 border border-purple-300 dark:border-purple-700"></span>
+                        Noble Gas
+                    </span>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-gray-50 dark:bg-gray-800/40 border-b border-gray-200 dark:border-gray-700 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            <th class="text-left px-4 py-2.5">Symbol</th>
+                            <th class="text-left px-4 py-2.5">Name</th>
+                            <th class="text-right px-4 py-2.5">Count</th>
+                            <th class="text-right px-4 py-2.5">Atomic Mass (g/mol)</th>
+                            <th class="text-right px-4 py-2.5">Contribution (g/mol)</th>
+                            <th class="text-right px-4 py-2.5">% by Mass</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (MolarMassCalculatorCore.ElementRow row in _elementRows)
+                        {
+                            <tr class="border-b border-gray-100 dark:border-gray-800/80 @RowBgClass(row.Category) transition-colors">
+                                <td class="px-4 py-2.5 whitespace-nowrap">
+                                    <span class="font-mono font-bold text-base text-blue-600 dark:text-blue-400">@row.Symbol</span>
+                                    <span class="ml-1.5 text-[10px] text-gray-400 tabular-nums">#@row.AtomicNumber</span>
+                                </td>
+                                <td class="px-4 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">@row.Name</td>
+                                <td class="px-4 py-2.5 text-right font-mono font-semibold tabular-nums">@row.Count</td>
+                                <td class="px-4 py-2.5 text-right font-mono text-gray-500 tabular-nums text-xs">
+                                    @row.AtomicMass.ToString("0.0000")
+                                </td>
+                                <td class="px-4 py-2.5 text-right font-mono font-semibold tabular-nums">
+                                    @row.Contribution.ToString("0.0000")
+                                </td>
+                                <td class="px-4 py-2.5 text-right">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <div class="w-14 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 hidden sm:block overflow-hidden">
+                                            <div class="h-1.5 rounded-full @ProgressBarClass(row.Category)"
+                                                 style="@BarWidthStyle(row.PercentByMass)"></div>
+                                        </div>
+                                        <span class="font-mono text-xs tabular-nums w-14 text-right">
+                                            @row.PercentByMass.ToString("0.00")%
+                                        </span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr class="bg-gray-50 dark:bg-gray-800/60 border-t-2 border-gray-300 dark:border-gray-600 font-semibold text-gray-700 dark:text-gray-300">
+                            <td class="px-4 py-2.5" colspan="2">
+                                Total
+                                <span class="font-mono font-bold text-blue-600 dark:text-blue-400 ml-1 text-xs">@_formula</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-right font-mono tabular-nums">
+                                @_elementRows.Sum(r => r.Count)
+                            </td>
+                            <td class="px-4 py-2.5"></td>
+                            <td class="px-4 py-2.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                                @_molarMass.ToString("0.0000")
+                            </td>
+                            <td class="px-4 py-2.5 text-right font-mono tabular-nums">100.00%</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    }
+    <RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/molar-mass" OnRestore="RestoreState" />
+
+</div>
+
+@code {
+    // ── State ─────────────────────────────────────────────────────────────────
+
+    private string _formula = "H2O";
+    private double _moles = 1.0;
+    private string? _error;
+    private bool _hasResult;
+    private double _molarMass;
+    private List<MolarMassCalculatorCore.ElementRow> _elementRows = [];
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Formula, double Moles);
+
+    private static readonly string[] _examples =
+    [
+        "H2O", "CO2", "NaCl", "C6H12O6", "Ca(OH)2",
+        "Al2(SO4)3", "C8H10N4O2", "NaHCO3", "H2SO4", "CH4"
+    ];
+
+    // ── Computed properties ───────────────────────────────────────────────────
+
+    private double MassOfNMoles => _molarMass * _moles;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override void OnInitialized() => Recalculate();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/math/molar-mass");
+            if (state is not null)
+            {
+                _formula = state.Formula;
+                _moles = state.Moles;
+                Recalculate();
+                StateHasChanged();
+            }
+        }
+    }
+
+    // ── Event handlers ────────────────────────────────────────────────────────
+
+    private async Task SetExample(string formula)
+    {
+        _formula = formula;
+        Recalculate();
+        await Storage.AddRecentAsync("tools/math/molar-mass", $"{formula} = {_molarMass:N2} g/mol", new ToolState(formula, _moles));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SaveState()
+    {
+        Recalculate();
+        await Storage.SaveStateAsync("tools/math/molar-mass", new ToolState(_formula, _moles));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _formula = state.Formula;
+            _moles = state.Moles;
+            Recalculate();
+            StateHasChanged();
+        }
+    }
+
+    // ── Core calculation ──────────────────────────────────────────────────────
+
+    private void Recalculate()
+    {
+        _error = null;
+        _hasResult = false;
+        _elementRows = [];
+        _molarMass = 0.0;
+
+        if (string.IsNullOrWhiteSpace(_formula))
+            return;
+
+        MolarMassCalculatorCore.ParseResult parsed = MolarMassCalculatorCore.ParseFormula(_formula.Trim());
+        if (parsed.Error is not null)
+        {
+            _error = parsed.Error;
+            return;
+        }
+
+        Dictionary<string, int> elements = parsed.Elements!;
+        List<MolarMassCalculatorCore.ElementRow> rows = [];
+        double totalMass = 0.0;
+
+        foreach (KeyValuePair<string, int> pair in elements)
+        {
+            if (!MolarMassCalculatorCore.PeriodicTable.TryGetValue(pair.Key, out MolarMassCalculatorCore.ElementData? data))
+            {
+                _error = $"Unknown element symbol \"{pair.Key}\" — not found in the periodic table. Check the formula for typos.";
+                return;
+            }
+
+            double contribution = data.AtomicMass * pair.Value;
+            totalMass += contribution;
+            rows.Add(new MolarMassCalculatorCore.ElementRow(
+                Symbol:        pair.Key,
+                Name:          data.Name,
+                Count:         pair.Value,
+                AtomicMass:    data.AtomicMass,
+                Contribution:  contribution,
+                PercentByMass: 0.0,
+                AtomicNumber:  data.AtomicNumber,
+                Category:      data.Category));
+        }
+
+        _molarMass = totalMass;
+        _elementRows = rows
+            .Select(r => r with { PercentByMass = totalMass > 0.0 ? r.Contribution / totalMass * 100.0 : 0.0 })
+            .OrderByDescending(r => r.Contribution)
+            .ToList();
+        _hasResult = true;
+    }
+
+    // ── Thin delegates to Core ────────────────────────────────────────────────
+
+    private static string RowBgClass(MolarMassCalculatorCore.ElementCategory cat) => MolarMassCalculatorCore.RowBgClass(cat);
+    private static string ProgressBarClass(MolarMassCalculatorCore.ElementCategory cat) => MolarMassCalculatorCore.ProgressBarClass(cat);
+    private static string BarWidthStyle(double pct) => MolarMassCalculatorCore.BarWidthStyle(pct);
+}

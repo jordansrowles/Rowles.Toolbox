@@ -1,0 +1,667 @@
+@page "/tools/web/dns-records"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>SPF / DKIM / DMARC Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="SPF / DKIM / DMARC Builder" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-mail-bolt mr-1"></i> Build and validate email authentication DNS records</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    @* ── Tab bar ── *@
+    <div class="flex gap-1 text-sm">
+        <button type="button" class="@TabClass(_mode == "spf")" @onclick='() => SetMode("spf")'>
+            <i class="ti ti-shield-check mr-1"></i> SPF
+        </button>
+        <button type="button" class="@TabClass(_mode == "dkim")" @onclick='() => SetMode("dkim")'>
+            <i class="ti ti-key mr-1"></i> DKIM
+        </button>
+        <button type="button" class="@TabClass(_mode == "dmarc")" @onclick='() => SetMode("dmarc")'>
+            <i class="ti ti-lock mr-1"></i> DMARC
+        </button>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════════════
+       SPF BUILDER
+       ══════════════════════════════════════════════════════════════════════ *@
+    @if (_mode == "spf")
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            @* ── Left: mechanism builder ── *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-list-check mr-1"></i> Mechanisms</h3>
+
+                @* Quick-add presets *@
+                <div>
+                    <div class="text-xs font-medium text-gray-400 mb-1">Quick Add</div>
+                    <div class="flex flex-wrap gap-1">
+                        @foreach (var preset in DnsRecordBuilderCore.SpfPresets)
+                        {
+                            <button type="button"
+                                    class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                    @onclick="() => ApplySpfPreset(preset)">
+                                <i class="ti ti-plus mr-0.5"></i> @preset.Name
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                @* Mechanism rows *@
+                @for (int i = 0; i < _spfMechanisms.Count; i++)
+                {
+                    var idx = i;
+                    var mech = _spfMechanisms[idx];
+                    <div class="flex items-center gap-2 flex-wrap">
+                        @if (!DnsRecordBuilderCore.IsSpfModifier(mech.Type))
+                        {
+                            <select class="p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs w-16"
+                                    value="@mech.Qualifier"
+                                    @onchange="(e) => UpdateSpfQualifier(idx, e)">
+                                <option value="+">+ Pass</option>
+                                <option value="-">- Fail</option>
+                                <option value="~">~ Soft</option>
+                                <option value="?">? Neutral</option>
+                            </select>
+                        }
+                        else
+                        {
+                            <span class="w-16 text-xs text-gray-400 text-center">modifier</span>
+                        }
+                        <select class="p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs w-24"
+                                value="@mech.Type"
+                                @onchange="(e) => UpdateSpfType(idx, e)">
+                            <option value="ip4">ip4</option>
+                            <option value="ip6">ip6</option>
+                            <option value="a">a</option>
+                            <option value="mx">mx</option>
+                            <option value="include">include</option>
+                            <option value="exists">exists</option>
+                            <option value="redirect">redirect</option>
+                            <option value="exp">exp</option>
+                        </select>
+                        <input type="text"
+                               class="flex-1 min-w-[120px] p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                               placeholder="@DnsRecordBuilderCore.SpfPlaceholder(mech.Type)"
+                               value="@mech.Value"
+                               @oninput="(e) => UpdateSpfValue(idx, e)" />
+                        <button type="button"
+                                class="p-1 text-red-500 hover:text-red-700 text-xs"
+                                @onclick="() => RemoveSpfMechanism(idx)">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                    </div>
+                }
+
+                <button type="button"
+                        class="px-3 py-1.5 text-xs rounded cursor-pointer border border-dashed border-gray-400 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+                        @onclick="AddSpfMechanism">
+                    <i class="ti ti-plus mr-1"></i> Add Mechanism
+                </button>
+
+                @* "all" mechanism *@
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-medium text-gray-500">Default (all):</span>
+                        <select class="p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                                value="@_spfAllQualifier"
+                                @onchange="OnSpfAllQualifierChange">
+                            <option value="~">~all (SoftFail)</option>
+                            <option value="-">-all (Fail)</option>
+                            <option value="+">+all (Pass)</option>
+                            <option value="?">?all (Neutral)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            @* ── Right: generated record ── *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> Generated TXT Record</h3>
+
+                <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded font-mono text-xs break-all select-all">
+                    @SpfRecord
+                </div>
+
+                <div class="flex items-center justify-between text-xs">
+                    <div class="flex gap-3">
+                        <span class="@(SpfRecord.Length > 255 ? "text-red-500 font-semibold" : "text-gray-400")">
+                            <i class="ti ti-ruler mr-0.5"></i> @SpfRecord.Length chars
+                            @if (SpfRecord.Length > 255) { <span>(⚠ exceeds 255)</span> }
+                        </span>
+                        <span class="@(SpfLookupCount > 10 ? "text-red-500 font-semibold" : "text-gray-400")">
+                            <i class="ti ti-search mr-0.5"></i> @SpfLookupCount / 10 DNS lookups
+                            @if (SpfLookupCount > 10) { <span>(⚠ over limit)</span> }
+                        </span>
+                    </div>
+                    <button type="button"
+                            class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="() => CopyToClipboard(SpfRecord)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @* ── SPF reference table ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-book mr-1"></i> SPF Mechanism Reference</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500">
+                            <th class="py-1 pr-3 font-medium">Mechanism</th>
+                            <th class="py-1 pr-3 font-medium">Description</th>
+                            <th class="py-1 font-medium">Example</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-600 dark:text-gray-400">
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">ip4</td><td class="py-1 pr-3">Match sender IPv4 address or CIDR range</td><td class="py-1 font-mono">ip4:203.0.113.0/24</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">ip6</td><td class="py-1 pr-3">Match sender IPv6 address or CIDR range</td><td class="py-1 font-mono">ip6:2001:db8::/32</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">a</td><td class="py-1 pr-3">Match A/AAAA records of domain (1 DNS lookup)</td><td class="py-1 font-mono">a:mail.example.com</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">mx</td><td class="py-1 pr-3">Match MX records of domain (1 DNS lookup)</td><td class="py-1 font-mono">mx</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">include</td><td class="py-1 pr-3">Include another domain's SPF policy (1 DNS lookup)</td><td class="py-1 font-mono">include:_spf.google.com</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">exists</td><td class="py-1 pr-3">Match if domain A record exists (1 DNS lookup)</td><td class="py-1 font-mono">exists:%{i}.spf.example.com</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">redirect</td><td class="py-1 pr-3">Redirect SPF evaluation to another domain (modifier, 1 DNS lookup)</td><td class="py-1 font-mono">redirect=_spf.example.com</td></tr>
+                        <tr><td class="py-1 pr-3 font-mono">exp</td><td class="py-1 pr-3">Explanation string for failures (modifier)</td><td class="py-1 font-mono">exp=explain.example.com</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    @* ══════════════════════════════════════════════════════════════════════
+       DKIM DECODER
+       ══════════════════════════════════════════════════════════════════════ *@
+    @if (_mode == "dkim")
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            @* ── Left: input ── *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-keyboard mr-1"></i> DKIM TXT Record</h3>
+
+                <textarea class="w-full h-32 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                          placeholder="v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4..."
+                          @bind="_dkimInput"
+                          @bind:after="SaveState"></textarea>
+
+                <div class="flex gap-2 flex-wrap">
+                    <button type="button"
+                            class="px-3 py-1.5 text-xs rounded font-medium bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                            @onclick="DecodeDkim">
+                        <i class="ti ti-search mr-1"></i> Decode
+                    </button>
+                    @foreach (var sample in DnsRecordBuilderCore.DkimSamples)
+                    {
+                        <button type="button"
+                                class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                @onclick="() => { _dkimInput = sample.Value; DecodeDkim(); }">
+                            <i class="ti ti-flask mr-0.5"></i> @sample.Name
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @* ── Right: decoded output ── *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-file-analytics mr-1"></i> Decoded Result</h3>
+
+                @if (_dkimResult is null)
+                {
+                    <p class="text-xs text-gray-400">Paste a DKIM TXT record and click Decode.</p>
+                }
+                else
+                {
+                    @* Validation status *@
+                    @if (_dkimResult.IsValid)
+                    {
+                        <div class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                            <i class="ti ti-circle-check"></i> Valid DKIM record
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-xs text-red-500 space-y-0.5">
+                            @foreach (var err in _dkimResult.Errors)
+                            {
+                                <div class="flex items-center gap-1"><i class="ti ti-alert-circle"></i> @err</div>
+                            }
+                        </div>
+                    }
+
+                    @* Tag table *@
+                    <table class="w-full text-xs">
+                        <tbody>
+                            @foreach (var tag in _dkimResult.Tags)
+                            {
+                                <tr class="border-b border-gray-100 dark:border-gray-800">
+                                    <td class="py-1.5 pr-3 font-mono font-medium text-gray-500 align-top w-20">@tag.Key</td>
+                                    <td class="py-1.5 pr-3 text-gray-400 align-top w-28">@tag.Label</td>
+                                    <td class="py-1.5 font-mono break-all text-gray-700 dark:text-gray-300">@tag.DisplayValue</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    @if (_dkimResult.KeySizeBits is > 0)
+                    {
+                        <div class="flex items-center gap-1 text-xs text-blue-500">
+                            <i class="ti ti-key"></i> RSA key size: @_dkimResult.KeySizeBits bits
+                        </div>
+                    }
+
+                    @if (_dkimResult.IsRevoked)
+                    {
+                        <div class="flex items-center gap-1 text-xs text-orange-500">
+                            <i class="ti ti-alert-triangle"></i> Empty p= tag — this key has been revoked.
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    @* ══════════════════════════════════════════════════════════════════════
+       DMARC BUILDER
+       ══════════════════════════════════════════════════════════════════════ *@
+    @if (_mode == "dmarc")
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            @* ── Left: builder form ── *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-settings mr-1"></i> DMARC Policy</h3>
+
+                @* v= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">v (version)</label>
+                    <input type="text" value="DMARC1" disabled
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-900 text-sm text-gray-400 cursor-not-allowed" />
+                </div>
+
+                @* p= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">p (policy) <span class="text-red-400">*</span></label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            value="@_dmarcPolicy"
+                            @onchange="OnDmarcPolicyChange">
+                        <option value="none">none — monitor only, no action</option>
+                        <option value="quarantine">quarantine — treat as suspicious (spam folder)</option>
+                        <option value="reject">reject — reject the message outright</option>
+                    </select>
+                </div>
+
+                @* sp= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">sp (subdomain policy)</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            value="@_dmarcSp"
+                            @onchange="OnDmarcSpChange">
+                        <option value="">inherit from p=</option>
+                        <option value="none">none</option>
+                        <option value="quarantine">quarantine</option>
+                        <option value="reject">reject</option>
+                    </select>
+                </div>
+
+                @* pct= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">pct (percentage)</label>
+                    <input type="number" min="0" max="100"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                           @bind="_dmarcPct"
+                           @bind:after="SaveState" />
+                </div>
+
+                @* rua= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">rua (aggregate report URI)</label>
+                    <input type="text"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                           placeholder="mailto:dmarc-reports@example.com"
+                           @bind="_dmarcRua"
+                           @bind:after="SaveState" />
+                    <span class="text-[10px] text-gray-400">Must start with mailto:</span>
+                </div>
+
+                @* ruf= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">ruf (forensic report URI)</label>
+                    <input type="text"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                           placeholder="mailto:dmarc-forensic@example.com"
+                           @bind="_dmarcRuf"
+                           @bind:after="SaveState" />
+                    <span class="text-[10px] text-gray-400">Must start with mailto:</span>
+                </div>
+
+                @* adkim= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">adkim (DKIM alignment)</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            value="@_dmarcAdkim"
+                            @onchange="OnDmarcAdkimChange">
+                        <option value="r">r — relaxed (default)</option>
+                        <option value="s">s — strict</option>
+                    </select>
+                </div>
+
+                @* aspf= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">aspf (SPF alignment)</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            value="@_dmarcAspf"
+                            @onchange="OnDmarcAspfChange">
+                        <option value="r">r — relaxed (default)</option>
+                        <option value="s">s — strict</option>
+                    </select>
+                </div>
+
+                @* ri= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">ri (report interval, seconds)</label>
+                    <input type="number" min="0"
+                           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                           @bind="_dmarcRi"
+                           @bind:after="SaveState" />
+                </div>
+
+                @* fo= *@
+                <div>
+                    <label class="text-xs font-medium text-gray-500">fo (failure reporting)</label>
+                    <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                            value="@_dmarcFo"
+                            @onchange="OnDmarcFoChange">
+                        <option value="0">0 — generate report if all checks fail (default)</option>
+                        <option value="1">1 — generate report if any check fails</option>
+                        <option value="d">d — generate report if DKIM fails</option>
+                        <option value="s">s — generate report if SPF fails</option>
+                    </select>
+                </div>
+            </div>
+
+            @* ── Right: generated record ── *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+                <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-code mr-1"></i> Generated TXT Record</h3>
+
+                <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded font-mono text-xs break-all select-all">
+                    @DmarcRecord
+                </div>
+
+                @* Validation warnings *@
+                @if (DmarcWarnings.Count > 0)
+                {
+                    <div class="space-y-1">
+                        @foreach (var warn in DmarcWarnings)
+                        {
+                            <div class="flex items-center gap-1 text-xs text-yellow-600 dark:text-yellow-400">
+                                <i class="ti ti-alert-triangle"></i> @warn
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-gray-400">
+                        <i class="ti ti-info-circle mr-0.5"></i> Publish at <span class="font-mono">_dmarc.yourdomain.com</span> as a TXT record
+                    </span>
+                    <button type="button"
+                            class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="() => CopyToClipboard(DmarcRecord)">
+                        <i class="ti ti-copy mr-0.5"></i> Copy
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @* ── DMARC reference table ── *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-book mr-1"></i> DMARC Tag Reference</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500">
+                            <th class="py-1 pr-3 font-medium">Tag</th>
+                            <th class="py-1 pr-3 font-medium">Required</th>
+                            <th class="py-1 pr-3 font-medium">Description</th>
+                            <th class="py-1 font-medium">Values</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-600 dark:text-gray-400">
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">v</td><td class="py-1 pr-3">Yes</td><td class="py-1 pr-3">Version</td><td class="py-1 font-mono">DMARC1</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">p</td><td class="py-1 pr-3">Yes</td><td class="py-1 pr-3">Policy for domain</td><td class="py-1 font-mono">none | quarantine | reject</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">sp</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">Policy for subdomains</td><td class="py-1 font-mono">none | quarantine | reject</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">pct</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">Percentage of messages subject to policy</td><td class="py-1 font-mono">0–100 (default 100)</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">rua</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">Aggregate report destination</td><td class="py-1 font-mono">mailto:addr</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">ruf</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">Forensic report destination</td><td class="py-1 font-mono">mailto:addr</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">adkim</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">DKIM identifier alignment</td><td class="py-1 font-mono">r (relaxed) | s (strict)</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">aspf</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">SPF identifier alignment</td><td class="py-1 font-mono">r (relaxed) | s (strict)</td></tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-1 pr-3 font-mono">ri</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">Report interval in seconds</td><td class="py-1 font-mono">default 86400</td></tr>
+                        <tr><td class="py-1 pr-3 font-mono">fo</td><td class="py-1 pr-3">No</td><td class="py-1 pr-3">Failure reporting options</td><td class="py-1 font-mono">0 | 1 | d | s</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/dns-records" OnRestore="RestoreState" />
+
+@code {
+    // ── Shared ──────────────────────────────────────────────────────────
+    private RecentEntryPanel? _recentPanel;
+
+    private string _mode = "spf";
+
+    sealed record ToolState(
+        string Mode, string SpfAllQualifier,
+        string DkimInput,
+        string DmarcPolicy, string DmarcSp, int DmarcPct,
+        string DmarcRua, string DmarcRuf,
+        string DmarcAdkim, string DmarcAspf, int DmarcRi, string DmarcFo);
+
+    private string TabClass(bool active) =>
+        active
+            ? "px-3 py-1.5 rounded font-medium bg-blue-600 text-white cursor-pointer"
+            : "px-3 py-1.5 rounded font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer";
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        string label = _mode switch
+        {
+            "spf" => "SPF record",
+            "dkim" => "DKIM decode",
+            "dmarc" => "DMARC record",
+            _ => _mode
+        };
+        await Storage.AddRecentAsync("tools/web/dns-records", label,
+            new ToolState(_mode, _spfAllQualifier, _dkimInput,
+                _dmarcPolicy, _dmarcSp, _dmarcPct,
+                _dmarcRua, _dmarcRuf, _dmarcAdkim, _dmarcAspf, _dmarcRi, _dmarcFo));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task OnSpfAllQualifierChange(ChangeEventArgs e)
+    {
+        _spfAllQualifier = e.Value?.ToString() ?? "~";
+        await SaveState();
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  SPF
+    // ════════════════════════════════════════════════════════════════════
+
+    private List<DnsRecordBuilderCore.SpfMechanism> _spfMechanisms = [];
+    private string _spfAllQualifier = "~";
+
+    private string SpfRecord => DnsRecordBuilderCore.BuildSpfRecord(_spfMechanisms, _spfAllQualifier);
+    private int SpfLookupCount => DnsRecordBuilderCore.CountSpfLookups(_spfMechanisms);
+
+    private void AddSpfMechanism() =>
+        _spfMechanisms.Add(new DnsRecordBuilderCore.SpfMechanism());
+
+    private void RemoveSpfMechanism(int idx)
+    {
+        if (idx >= 0 && idx < _spfMechanisms.Count)
+            _spfMechanisms.RemoveAt(idx);
+    }
+
+    private void UpdateSpfQualifier(int idx, ChangeEventArgs e) =>
+        _spfMechanisms[idx].Qualifier = e.Value?.ToString() ?? "+";
+
+    private void UpdateSpfType(int idx, ChangeEventArgs e) =>
+        _spfMechanisms[idx].Type = e.Value?.ToString() ?? "include";
+
+    private void UpdateSpfValue(int idx, ChangeEventArgs e) =>
+        _spfMechanisms[idx].Value = e.Value?.ToString() ?? "";
+
+    private void ApplySpfPreset(DnsRecordBuilderCore.SpfPreset preset)
+    {
+        foreach (string inc in preset.Includes)
+        {
+            if (!_spfMechanisms.Any(m => m.Type == "include" && m.Value == inc))
+                _spfMechanisms.Add(new DnsRecordBuilderCore.SpfMechanism { Type = "include", Value = inc });
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  DKIM
+    // ════════════════════════════════════════════════════════════════════
+
+    private string _dkimInput = "";
+    private DnsRecordBuilderCore.DkimDecodeResult? _dkimResult;
+
+    private void DecodeDkim() =>
+        _dkimResult = DnsRecordBuilderCore.DecodeDkim(_dkimInput);
+
+    // ════════════════════════════════════════════════════════════════════
+    //  DMARC
+    // ════════════════════════════════════════════════════════════════════
+
+    private string _dmarcPolicy = "none";
+    private string _dmarcSp = "";
+    private int _dmarcPct = 100;
+    private string _dmarcRua = "";
+    private string _dmarcRuf = "";
+    private string _dmarcAdkim = "r";
+    private string _dmarcAspf = "r";
+    private int _dmarcRi = 86400;
+    private string _dmarcFo = "0";
+
+    private async Task OnDmarcPolicyChange(ChangeEventArgs e)
+    {
+        _dmarcPolicy = e.Value?.ToString() ?? "none";
+        await SaveState();
+    }
+
+    private async Task OnDmarcSpChange(ChangeEventArgs e)
+    {
+        _dmarcSp = e.Value?.ToString() ?? "";
+        await SaveState();
+    }
+
+    private async Task OnDmarcAdkimChange(ChangeEventArgs e)
+    {
+        _dmarcAdkim = e.Value?.ToString() ?? "r";
+        await SaveState();
+    }
+
+    private async Task OnDmarcAspfChange(ChangeEventArgs e)
+    {
+        _dmarcAspf = e.Value?.ToString() ?? "r";
+        await SaveState();
+    }
+
+    private async Task OnDmarcFoChange(ChangeEventArgs e)
+    {
+        _dmarcFo = e.Value?.ToString() ?? "0";
+        await SaveState();
+    }
+
+    private DnsRecordBuilderCore.DmarcOptions DmarcOpts => new()
+    {
+        Policy = _dmarcPolicy,
+        Sp = _dmarcSp,
+        Pct = _dmarcPct,
+        Rua = _dmarcRua,
+        Ruf = _dmarcRuf,
+        Adkim = _dmarcAdkim,
+        Aspf = _dmarcAspf,
+        Ri = _dmarcRi,
+        Fo = _dmarcFo,
+    };
+
+    private string DmarcRecord => DnsRecordBuilderCore.BuildDmarcRecord(DmarcOpts);
+    private List<string> DmarcWarnings => DnsRecordBuilderCore.GetDmarcWarnings(DmarcOpts);
+
+    private async Task SetMode(string mode)
+    {
+        _mode = mode;
+        await SaveState();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/dns-records");
+            if (state is not null)
+            {
+                _mode = state.Mode;
+                _spfAllQualifier = state.SpfAllQualifier;
+                _dkimInput = state.DkimInput;
+                _dmarcPolicy = state.DmarcPolicy;
+                _dmarcSp = state.DmarcSp;
+                _dmarcPct = state.DmarcPct;
+                _dmarcRua = state.DmarcRua;
+                _dmarcRuf = state.DmarcRuf;
+                _dmarcAdkim = state.DmarcAdkim;
+                _dmarcAspf = state.DmarcAspf;
+                _dmarcRi = state.DmarcRi;
+                _dmarcFo = state.DmarcFo;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/web/dns-records", new ToolState(
+            _mode, _spfAllQualifier, _dkimInput,
+            _dmarcPolicy, _dmarcSp, _dmarcPct,
+            _dmarcRua, _dmarcRuf, _dmarcAdkim, _dmarcAspf, _dmarcRi, _dmarcFo));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _mode = state.Mode;
+                _spfAllQualifier = state.SpfAllQualifier;
+                _dkimInput = state.DkimInput;
+                _dmarcPolicy = state.DmarcPolicy;
+                _dmarcSp = state.DmarcSp;
+                _dmarcPct = state.DmarcPct;
+                _dmarcRua = state.DmarcRua;
+                _dmarcRuf = state.DmarcRuf;
+                _dmarcAdkim = state.DmarcAdkim;
+                _dmarcAspf = state.DmarcAspf;
+                _dmarcRi = state.DmarcRi;
+                _dmarcFo = state.DmarcFo;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+}

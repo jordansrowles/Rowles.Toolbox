@@ -1,0 +1,216 @@
+@page "/tools/text/duplicates"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Duplicate Detector - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Duplicate Detector" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-copy mr-1"></i> Find and remove duplicate lines or sentences</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Input Text</label>
+        <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Paste your text here to detect duplicates…"
+                  @bind="_inputText"
+                  @bind:event="oninput"
+                  @bind:after="SaveState"></textarea>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-4">
+        <div class="flex items-center gap-3 text-sm">
+            <span class="font-medium">Mode:</span>
+            <label class="flex items-center gap-1">
+                <input type="radio" name="mode" value="lines" checked="@(_mode == Core.Text.DuplicateDetectorCore.DetectionMode.Lines)" @onchange="@(() => SetDetectionMode(Core.Text.DuplicateDetectorCore.DetectionMode.Lines))" />
+                Duplicate Lines
+            </label>
+            <label class="flex items-center gap-1">
+                <input type="radio" name="mode" value="sentences" checked="@(_mode == Core.Text.DuplicateDetectorCore.DetectionMode.Sentences)" @onchange="@(() => SetDetectionMode(Core.Text.DuplicateDetectorCore.DetectionMode.Sentences))" />
+                Duplicate Sentences
+            </label>
+        </div>
+
+        <label class="flex items-center gap-1 text-sm">
+            <input type="checkbox" class="rounded" @bind="_caseSensitive" @bind:after="SaveState" />
+            Case sensitive
+        </label>
+
+        <label class="flex items-center gap-1 text-sm">
+            <input type="checkbox" class="rounded" @bind="_removeDuplicates" @bind:after="SaveState" />
+            Remove duplicates
+        </label>
+
+        <button class="bg-blue-600 text-white px-3 py-1.5 text-sm rounded hover:bg-blue-700 cursor-pointer border-none"
+                @onclick="Analyze">
+            <i class="ti ti-search mr-1"></i> Analyze
+        </button>
+    </div>
+
+    @if (_analyzed)
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list-numbers mr-1"></i> Summary</h3>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-list mr-1 text-gray-400"></i> Total @ModeLabel</span>
+                        <span class="font-bold">@_totalCount.ToString("N0")</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-fingerprint mr-1 text-gray-400"></i> Unique</span>
+                        <span class="font-bold">@_uniqueCount.ToString("N0")</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400"><i class="ti ti-copy mr-1 text-gray-400"></i> Duplicates</span>
+                        <span class="font-bold text-red-600 dark:text-red-400">@_duplicateCount.ToString("N0")</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-copy mr-1"></i> Duplicate Items</h3>
+                @if (_duplicates.Count == 0)
+                {
+                    <p class="text-sm text-gray-400 italic">No duplicates found.</p>
+                }
+                else
+                {
+                    <ul class="space-y-1.5 max-h-64 overflow-y-auto">
+                        @foreach (Core.Text.DuplicateDetectorCore.DuplicateEntry entry in _duplicates)
+                        {
+                            <li class="flex items-start gap-2 text-sm">
+                                <span class="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 px-2 py-0.5 rounded text-xs font-mono shrink-0">
+                                    ×@entry.Count
+                                </span>
+                                <span class="font-mono text-gray-700 dark:text-gray-300 break-all">@entry.Text</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+
+        @if (_removeDuplicates)
+        {
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="block text-sm font-medium">Deduplicated Output</label>
+                    <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                            @onclick="CopyOutput">
+                        <i class="ti ti-clipboard mr-1"></i> Copy
+                    </button>
+                </div>
+                <textarea class="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          readonly>@_outputText</textarea>
+            </div>
+        }
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/text/duplicates" OnRestore="RestoreState" />
+
+@code {
+    private string _inputText = string.Empty;
+    private Core.Text.DuplicateDetectorCore.DetectionMode _mode = Core.Text.DuplicateDetectorCore.DetectionMode.Lines;
+    private bool _caseSensitive = true;
+    private bool _removeDuplicates;
+    private bool _analyzed;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string InputText, Core.Text.DuplicateDetectorCore.DetectionMode Mode, bool CaseSensitive, bool RemoveDuplicates);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/text/duplicates");
+            if (state is not null)
+            {
+                _inputText = state.InputText;
+                _mode = state.Mode;
+                _caseSensitive = state.CaseSensitive;
+                _removeDuplicates = state.RemoveDuplicates;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/text/duplicates", new ToolState(_inputText, _mode, _caseSensitive, _removeDuplicates));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _inputText = state.InputText;
+            _mode = state.Mode;
+            _caseSensitive = state.CaseSensitive;
+            _removeDuplicates = state.RemoveDuplicates;
+            _analyzed = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetDetectionMode(Core.Text.DuplicateDetectorCore.DetectionMode mode)
+    {
+        _mode = mode;
+        await SaveState();
+    }
+
+    private int _totalCount;
+    private int _uniqueCount;
+    private int _duplicateCount;
+    private List<Core.Text.DuplicateDetectorCore.DuplicateEntry> _duplicates = [];
+    private string _outputText = string.Empty;
+    private string? _statusMessage;
+
+    private string ModeLabel => _mode == Core.Text.DuplicateDetectorCore.DetectionMode.Lines ? "Lines" : "Sentences";
+
+    private async Task Analyze()
+    {
+        if (string.IsNullOrWhiteSpace(_inputText))
+        {
+            _analyzed = false;
+            return;
+        }
+
+        Core.Text.DuplicateDetectorCore.AnalysisResult result =
+            Core.Text.DuplicateDetectorCore.Analyze(_inputText, _mode, _caseSensitive, _removeDuplicates);
+
+        _totalCount = result.TotalCount;
+        _uniqueCount = result.UniqueCount;
+        _duplicateCount = result.Duplicates.Count;
+        _duplicates = result.Duplicates;
+        _outputText = result.DeduplicatedOutput;
+        _analyzed = true;
+
+        string label = _inputText.Length > 50 ? _inputText[..50] + "..." : _inputText;
+        await Storage.AddRecentAsync("tools/text/duplicates", label, new ToolState(_inputText, _mode, _caseSensitive, _removeDuplicates));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task CopyOutput()
+    {
+        if (!string.IsNullOrEmpty(_outputText))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _outputText);
+            _statusMessage = "Copied!";
+            StateHasChanged();
+            await Task.Delay(1500);
+            _statusMessage = null;
+        }
+    }
+}

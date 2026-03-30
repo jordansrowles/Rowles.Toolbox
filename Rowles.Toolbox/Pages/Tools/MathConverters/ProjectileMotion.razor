@@ -1,0 +1,577 @@
+@page "/tools/math/projectile"
+@namespace Rowles.Toolbox.Pages.Tools.MathConverters
+@using Rowles.Toolbox.Core.MathConverters
+@inject LocalStorageService Storage
+
+<PageTitle>Projectile Motion - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Projectile Motion" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400">
+            <i class="ti ti-arrow-up-right mr-1"></i> Ballistic trajectory calculator
+        </span>
+    </Actions>
+</PageHeader>
+
+@* ── Error banner ───────────────────────────────────────────────────────────── *@
+@if (ErrorMessage is not null)
+{
+    <div class="mb-4 flex items-start gap-2 rounded border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950 p-3 text-xs text-red-700 dark:text-red-300">
+        <i class="ti ti-alert-circle mt-0.5 shrink-0 text-sm"></i>
+        <span>@ErrorMessage</span>
+    </div>
+}
+
+@* ── Inputs + Results ───────────────────────────────────────────────────────── *@
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+
+    @* Inputs *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-settings mr-1"></i> Parameters
+        </h3>
+
+        @* Initial velocity + unit toggle *@
+        <div>
+            <label class="block text-xs font-medium mb-1">Initial Velocity</label>
+            <div class="flex items-stretch gap-2">
+                <input type="number" step="any" min="0"
+                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_velocity" @bind:event="oninput" @bind:after="SaveState" />
+                <div class="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden text-xs font-medium shrink-0">
+                    <button type="button"
+                            class="@(_velocityUnit == "ms"
+                                        ? "bg-blue-500 text-white"
+                                        : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700") px-2.5 py-1 transition-colors"
+                            @onclick='async () => { _velocityUnit = "ms"; await SaveState(); }'>m/s</button>
+                    <button type="button"
+                            class="@(_velocityUnit == "kmh"
+                                        ? "bg-blue-500 text-white"
+                                        : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700") px-2.5 py-1 border-l border-gray-300 dark:border-gray-600 transition-colors"
+                            @onclick='async () => { _velocityUnit = "kmh"; await SaveState(); }'>km/h</button>
+                </div>
+            </div>
+            @if (_velocityUnit == "kmh")
+            {
+                <p class="text-xs text-gray-400 mt-1">≡ @F(V0Ms) m/s internally</p>
+            }
+        </div>
+
+        @* Launch angle *@
+        <div>
+            <div class="flex items-center justify-between mb-1">
+                <label class="text-xs font-medium">Launch Angle</label>
+                <span class="text-xs font-bold text-blue-500">@_angle°</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="range" min="0" max="90" step="0.5"
+                       class="flex-1 accent-blue-500"
+                       @bind="_angle" @bind:event="oninput" @bind:after="SaveState" />
+                <input type="number" min="0" max="90" step="0.5"
+                       class="w-20 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       @bind="_angle" @bind:event="oninput" @bind:after="SaveState" />
+            </div>
+        </div>
+
+        @* Initial height *@
+        <div>
+            <label class="block text-xs font-medium mb-1">
+                Initial Height <span class="font-normal text-gray-400">(h₀, metres above ground)</span>
+            </label>
+            <input type="number" step="any" min="0"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                   @bind="_initialHeight" @bind:event="oninput" @bind:after="SaveState" />
+        </div>
+
+        @* Gravity preset *@
+        <div>
+            <label class="block text-xs font-medium mb-1">Gravity</label>
+            <select class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    @bind="_gravityKey" @bind:after="SaveState">
+                <option value="earth">Earth — 9.81 m/s²</option>
+                <option value="moon">Moon — 1.62 m/s²</option>
+                <option value="mars">Mars — 3.72 m/s²</option>
+                <option value="custom">Custom…</option>
+            </select>
+            @if (_gravityKey == "custom")
+            {
+                <div class="mt-2 flex items-center gap-2">
+                    <input type="number" step="any" min="0.01" placeholder="e.g. 9.81"
+                           class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           @bind="_customGravity" @bind:event="oninput" @bind:after="SaveState" />
+                    <span class="text-xs text-gray-400 shrink-0">m/s²</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Results *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-500">
+            <i class="ti ti-chart-line mr-1"></i> Results
+        </h3>
+
+        @if (ShowResults)
+        {
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+                    <p class="text-xs text-gray-400 mb-0.5"><i class="ti ti-clock mr-0.5"></i> Time of Flight</p>
+                    <p class="text-xl font-bold text-blue-600 dark:text-blue-400">
+                        @F(TFlight) <span class="text-xs font-normal text-gray-500">s</span>
+                    </p>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+                    <p class="text-xs text-gray-400 mb-0.5"><i class="ti ti-arrows-horizontal mr-0.5"></i> Horizontal Range</p>
+                    <p class="text-xl font-bold text-blue-600 dark:text-blue-400">
+                        @F(Range) <span class="text-xs font-normal text-gray-500">m</span>
+                    </p>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+                    <p class="text-xs text-gray-400 mb-0.5"><i class="ti ti-arrow-up mr-0.5"></i> Maximum Height</p>
+                    <p class="text-xl font-bold text-blue-600 dark:text-blue-400">
+                        @F(MaxH) <span class="text-xs font-normal text-gray-500">m</span>
+                    </p>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded p-3">
+                    <p class="text-xs text-gray-400 mb-0.5"><i class="ti ti-arrow-down-right mr-0.5"></i> Impact Velocity</p>
+                    <p class="text-xl font-bold text-red-600 dark:text-red-400">
+                        @F(ImpactSpeed) <span class="text-xs font-normal text-gray-500">m/s</span>
+                    </p>
+                    <p class="text-xs text-gray-400 mt-0.5">@F(ImpactAngleDeg)° below horizontal</p>
+                </div>
+            </div>
+
+            <div class="border-t border-gray-100 dark:border-gray-800 pt-3 space-y-1 text-xs text-gray-500">
+                <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+                    <span><span class="font-semibold text-gray-600 dark:text-gray-300">vₓ</span> = @F(Vx) m/s</span>
+                    <span><span class="font-semibold text-gray-600 dark:text-gray-300">vy₀</span> = @F(Vy0) m/s</span>
+                    <span><span class="font-semibold text-gray-600 dark:text-gray-300">vy impact</span> = @F(VyImpact) m/s</span>
+                    <span><span class="font-semibold text-gray-600 dark:text-gray-300">t peak</span> = @(TMaxH > 0.0 ? $"{F(TMaxH)} s" : "—")</span>
+                </div>
+                <div class="flex flex-wrap gap-x-4 gap-y-0.5 text-gray-400">
+                    <span>g = @F(Gravity) m/s²</span>
+                    <span>v₀ = @F(V0Ms) m/s</span>
+                    <span>θ = @_angle°</span>
+                    <span>h₀ = @F(_initialHeight) m</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            <p class="text-xs text-gray-400 italic pt-2">Fix input errors above to see results.</p>
+        }
+    </div>
+
+</div>
+
+@* ── SVG trajectory diagram + collapsible table (only when valid) ─────────── *@
+@if (ShowResults)
+{
+    @* SVG diagram *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3">
+            <i class="ti ti-chart-dots mr-1"></i> Trajectory Diagram
+        </h3>
+
+        <svg viewBox="0 0 400 200" class="w-1/2 h-auto" xmlns="http://www.w3.org/2000/svg"
+             aria-label="Projectile trajectory diagram">
+
+            <defs>
+                @* Clip to plot area: x=[42,388], y=[14,182] *@
+                <clipPath id="pm-plot-clip">
+                    <rect x="42" y="14" width="346" height="168" />
+                </clipPath>
+            </defs>
+
+            @* ── Light horizontal grid lines ── *@
+            @foreach (double frac in new double[] { 0.25, 0.5, 0.75 })
+            {
+                <line x1="42"  y1="@(SvgY(SvgYMax * frac).ToString("F1"))"
+                      x2="388" y2="@(SvgY(SvgYMax * frac).ToString("F1"))"
+                      stroke="#e5e7eb" stroke-width="0.7" stroke-dasharray="3,3" />
+            }
+
+            @* ── Dashed vertical drop-line at peak ── *@
+            @if (TMaxH > 0.0 && TMaxH < TFlight && MaxH > _initialHeight)
+            {
+                double dropX = SvgX(Vx * TMaxH);
+                double dropY = SvgY(MaxH);
+                <line x1="@dropX.ToString("F1")" y1="@dropY.ToString("F1")"
+                      x2="@dropX.ToString("F1")" y2="182"
+                      stroke="#f59e0b" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.65" />
+            }
+
+            @* ── Trajectory polyline (clipped) ── *@
+            <polyline points="@TrajectoryPoints"
+                      fill="none" stroke="#3b82f6" stroke-width="2"
+                      stroke-linejoin="round" stroke-linecap="round"
+                      clip-path="url(#pm-plot-clip)" />
+
+            @* ── Axes ── *@
+            <line x1="42" y1="182" x2="388" y2="182" stroke="#6b7280" stroke-width="1.2" />
+            <line x1="42" y1="14"  x2="42"  y2="182" stroke="#6b7280" stroke-width="1.2" />
+
+            @* Arrow tips *@
+            <polygon points="42,11 39.5,16.5 44.5,16.5" fill="#6b7280" />
+            <polygon points="391,182 385.5,179.5 385.5,184.5" fill="#6b7280" />
+
+            @* ── Axis tick marks and numeric labels (via MarkupString) ── *@
+            @((MarkupString)SvgXTicks)
+            @((MarkupString)SvgYTicks)
+
+            @* ── Axis titles ── *@
+            <text x="384" y="177" fill="#9ca3af" font-size="8" text-anchor="end">x (m)</text>
+            <text x="46"  y="23"  fill="#9ca3af" font-size="8" text-anchor="start">y (m)</text>
+
+            @* ── Launch point (green) ── *@
+            <circle cx="@SvgX(0.0).ToString("F1")" cy="@SvgY(_initialHeight).ToString("F1")"
+                    r="4" fill="#22c55e" stroke="#ffffff" stroke-width="1.5" />
+
+            @* ── Peak point + label (amber) — only when projectile actually rises ── *@
+            @if (TMaxH > 0.0 && TMaxH < TFlight && MaxH > _initialHeight)
+            {
+                double pkSvgX  = SvgX(Vx * TMaxH);
+                double pkSvgY  = SvgY(MaxH);
+                double pkLblY  = Math.Max(pkSvgY - 7.0, 20.0);
+                bool   pkRight = pkSvgX < 295.0;
+                double pkLblX  = pkRight ? pkSvgX + 5.0 : pkSvgX - 5.0;
+                string pkAnch  = pkRight ? "start" : "end";
+                <circle cx="@pkSvgX.ToString("F1")" cy="@pkSvgY.ToString("F1")"
+                        r="3.5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.5" />
+                @((MarkupString)$"<text x=\"{pkLblX:F1}\" y=\"{pkLblY:F1}\" fill=\"#f59e0b\" font-size=\"9\" text-anchor=\"{pkAnch}\" font-weight=\"bold\">H={F(MaxH)}m</text>")
+            }
+
+            @* ── Impact point (red) ── *@
+            <circle cx="@SvgX(Range).ToString("F1")" cy="@SvgY(0.0).ToString("F1")"
+                    r="4" fill="#ef4444" stroke="#ffffff" stroke-width="1.5" />
+
+            @* ── Range annotation centred under the trajectory ── *@
+            @{
+                double midLblX = Math.Clamp(SvgX(Range / 2.0), 55.0, 365.0);
+            }
+            <text x="@midLblX.ToString("F1")" y="197"
+                  fill="#3b82f6" font-size="9" text-anchor="middle" font-weight="bold">R = @(F(Range)) m</text>
+
+            @* ── Legend (top-right, safely above the trajectory arc) ── *@
+            <circle cx="222" cy="11" r="3" fill="#22c55e" />
+            <text   x="227"  y="14.5" fill="#6b7280" font-size="8">Launch</text>
+            <circle cx="265" cy="11" r="3" fill="#f59e0b" />
+            <text   x="270"  y="14.5" fill="#6b7280" font-size="8">Peak</text>
+            <circle cx="300" cy="11" r="3" fill="#ef4444" />
+            <text   x="305"  y="14.5" fill="#6b7280" font-size="8">Impact</text>
+
+        </svg>
+    </div>
+
+    @* ── Collapsible trajectory data table ── *@
+    <div class="border border-gray-200 dark:border-gray-700 rounded mb-4">
+        <button type="button"
+                class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors rounded"
+                @onclick="() => _tableExpanded = !_tableExpanded">
+            <span>
+                <i class="ti ti-table mr-1.5"></i> Trajectory Data Table
+                <span class="text-xs font-normal text-gray-400">(10 evenly-spaced time steps)</span>
+            </span>
+            <i class="ti @(_tableExpanded ? "ti-chevron-up" : "ti-chevron-down") text-gray-400"></i>
+        </button>
+
+        @if (_tableExpanded)
+        {
+            <div class="overflow-x-auto border-t border-gray-200 dark:border-gray-700">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="bg-gray-50 dark:bg-gray-900">
+                            <th class="px-3 py-2 text-left font-semibold text-gray-500 whitespace-nowrap">t (s)</th>
+                            <th class="px-3 py-2 text-right font-semibold text-gray-500 whitespace-nowrap">x (m)</th>
+                            <th class="px-3 py-2 text-right font-semibold text-gray-500 whitespace-nowrap">y (m)</th>
+                            <th class="px-3 py-2 text-right font-semibold text-gray-500 whitespace-nowrap">vₓ (m/s)</th>
+                            <th class="px-3 py-2 text-right font-semibold text-gray-500 whitespace-nowrap">vy (m/s)</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                        @foreach (ProjectileMotionCore.TrajectoryRow row in TableRows)
+                        {
+                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors">
+                                <td class="px-3 py-1.5 font-medium text-blue-600 dark:text-blue-400">@F(row.T)</td>
+                                <td class="px-3 py-1.5 text-right text-gray-700 dark:text-gray-300">@F(row.X)</td>
+                                <td class="px-3 py-1.5 text-right text-gray-700 dark:text-gray-300">@F(row.Y)</td>
+                                <td class="px-3 py-1.5 text-right text-gray-400">@F(row.VxVal)</td>
+                                <td class="px-3 py-1.5 text-right @(row.Vy >= 0.0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400")">@F(row.Vy)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@* ── Disclaimer note ───────────────────────────────────────────────────────── *@
+<p class="text-xs text-gray-400 text-center italic mt-2">
+    <i class="ti ti-info-circle mr-1"></i> Assumes no air resistance. All physics computed in SI units (metres, seconds).
+</p>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/math/projectile" OnRestore="RestoreState" />
+
+@code {
+
+    // ── Input state ──────────────────────────────────────────────────────────
+
+    private double _velocity      = 20.0;
+    private string _velocityUnit  = "ms";      // "ms" = m/s  |  "kmh" = km/h
+    private double _angle         = 45.0;      // degrees, 0–90
+    private double _initialHeight = 0.0;       // h0, metres
+    private string _gravityKey    = "earth";
+    private double _customGravity = 9.81;
+    private bool   _tableExpanded = false;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(
+        double Velocity,
+        string VelocityUnit,
+        double Angle,
+        double InitialHeight,
+        string GravityKey,
+        double CustomGravity);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/math/projectile");
+            if (state is not null)
+            {
+                _velocity = state.Velocity;
+                _velocityUnit = state.VelocityUnit;
+                _angle = state.Angle;
+                _initialHeight = state.InitialHeight;
+                _gravityKey = state.GravityKey;
+                _customGravity = state.CustomGravity;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_velocity, _velocityUnit, _angle, _initialHeight, _gravityKey, _customGravity);
+        await Storage.SaveStateAsync("tools/math/projectile", state);
+
+        if (ShowResults)
+        {
+            string label = $"v={F(V0Ms)}m/s θ={_angle}° h₀={F(_initialHeight)}m → R={F(Range)}m";
+            await Storage.AddRecentAsync("tools/math/projectile", label, state);
+            if (_recentPanel is not null)
+                await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _velocity = state.Velocity;
+            _velocityUnit = state.VelocityUnit;
+            _angle = state.Angle;
+            _initialHeight = state.InitialHeight;
+            _gravityKey = state.GravityKey;
+            _customGravity = state.CustomGravity;
+            StateHasChanged();
+        }
+    }
+
+    // ── Physics ──────────────────────────────────────────────────────────────
+
+    /// <summary>Gravitational acceleration in m/s² for the selected body.</summary>
+    private double Gravity => _gravityKey switch
+    {
+        "moon"   => 1.62,
+        "mars"   => 3.72,
+        "custom" => _customGravity,
+        _        => 9.81,
+    };
+
+    /// <summary>Initial speed converted to m/s.</summary>
+    private double V0Ms => _velocityUnit == "kmh" ? _velocity / 3.6 : _velocity;
+
+    private double AngleRad => _angle * Math.PI / 180.0;
+
+    /// <summary>Horizontal velocity component (constant throughout flight).</summary>
+    private double Vx  => V0Ms * Math.Cos(AngleRad);
+
+    /// <summary>Initial vertical velocity component.</summary>
+    private double Vy0 => V0Ms * Math.Sin(AngleRad);
+
+    /// <summary>Discriminant of the quadratic for time of flight: vy0² + 2·g·h0.</summary>
+    private double Discriminant => Vy0 * Vy0 + 2.0 * Gravity * _initialHeight;
+
+    /// <summary>All inputs are physically meaningful and a real solution exists.</summary>
+    private bool IsValid =>
+        V0Ms > 0.0            &&
+        _angle >= 0.0         &&
+        _angle <= 90.0        &&
+        Gravity > 0.0         &&
+        Discriminant >= 0.0;
+
+    /// <summary>Total time of flight (positive root of y(t)=0 quadratic).</summary>
+    private double TFlight => IsValid ? (Vy0 + Math.Sqrt(Discriminant)) / Gravity : 0.0;
+
+    /// <summary>Time at which the projectile reaches maximum height.</summary>
+    private double TMaxH => Vy0 / Gravity;
+
+    /// <summary>
+    /// Peak height above ground.  Clamped to h0 when the launch angle produces
+    /// no rising phase (e.g. θ=0 launched horizontally from height).
+    /// </summary>
+    private double MaxH =>
+        IsValid
+            ? TMaxH > 0.0
+                ? _initialHeight + Vy0 * TMaxH - 0.5 * Gravity * TMaxH * TMaxH
+                : _initialHeight
+            : 0.0;
+
+    /// <summary>Horizontal distance travelled by the time the projectile hits the ground.</summary>
+    private double Range => IsValid && TFlight > 0.0 ? Vx * TFlight : 0.0;
+
+    /// <summary>Vertical velocity at the moment of impact (negative = downward).</summary>
+    private double VyImpact => Vy0 - Gravity * TFlight;
+
+    /// <summary>Speed magnitude at impact.</summary>
+    private double ImpactSpeed => Math.Sqrt(Vx * Vx + VyImpact * VyImpact);
+
+    /// <summary>Angle of impact velocity vector below the horizontal, in degrees.</summary>
+    private double ImpactAngleDeg => Math.Atan2(Math.Abs(VyImpact), Math.Abs(Vx)) * 180.0 / Math.PI;
+
+    /// <summary>True when all inputs are valid and the flight produces a positive duration.</summary>
+    private bool ShowResults => IsValid && TFlight > 0.0;
+
+    private string? ErrorMessage
+    {
+        get
+        {
+            if (V0Ms <= 0.0)                      return "Initial velocity must be greater than zero.";
+            if (_angle < 0.0 || _angle > 90.0)    return "Launch angle must be between 0° and 90°.";
+            if (Gravity <= 0.0)                    return "Gravity must be greater than zero.";
+            if (Discriminant < 0.0)                return "No real solution: the projectile cannot reach the ground with these parameters (check initial height).";
+            if (!ShowResults)                      return "Time of flight is zero — try a non-zero launch angle or a positive initial height.";
+            return null;
+        }
+    }
+
+    // ── SVG coordinate helpers ───────────────────────────────────────────────
+    //
+    //  viewBox : 0 0 400 200
+    //  Plot area x : [42, 388]  →  plotW = 346 px
+    //  Plot area y : [14, 182]  →  plotH = 168 px  (SVG y-axis is inverted)
+    //  Below x-axis (y 182–200): tick labels, range annotation.
+    //  Above y-axis (y 0–14):    arrow tip, legend row.
+
+    private const double SvgPadLeft   = 42.0;
+    private const double SvgPadBottom = 182.0;
+    private const double SvgPlotW     = 346.0;
+    private const double SvgPlotH     = 168.0;
+
+    /// <summary>Physical x-extent used for normalisation; never zero.</summary>
+    private double SvgXMax => Math.Max(Range, 0.001);
+
+    /// <summary>Physical y-extent used for normalisation, padded 10 % + 0.5 m; never zero.</summary>
+    private double SvgYMax => Math.Max(Math.Max(MaxH, _initialHeight) * 1.1 + 0.5, 0.001);
+
+    private double SvgX(double xPhys) => SvgPadLeft   + xPhys / SvgXMax * SvgPlotW;
+    private double SvgY(double yPhys) => SvgPadBottom - yPhys / SvgYMax * SvgPlotH;
+
+    /// <summary>
+    /// Space-separated "x,y" pairs for the SVG polyline — 60 evenly-spaced
+    /// time samples from t=0 to t=TFlight, y-clamped to ground level.
+    /// </summary>
+    private string TrajectoryPoints
+    {
+        get
+        {
+            if (!ShowResults) return string.Empty;
+
+            System.Text.StringBuilder sb = new();
+            const int Steps = 60;
+
+            for (int i = 0; i <= Steps; i++)
+            {
+                double t  = TFlight * i / Steps;
+                double xP = Vx * t;
+                double yP = Math.Max(_initialHeight + Vy0 * t - 0.5 * Gravity * t * t, 0.0);
+                double sx = SvgX(xP);
+                double sy = SvgY(yP);
+
+                if (i > 0) sb.Append(' ');
+                sb.Append($"{sx:F1},{sy:F1}");
+            }
+
+            return sb.ToString();
+        }
+    }
+
+    /// <summary>Raw SVG markup for four tick marks on the x-axis with distance labels.</summary>
+    private string SvgXTicks
+    {
+        get
+        {
+            System.Text.StringBuilder sb = new();
+            double[] fracs = new double[] { 0.25, 0.5, 0.75, 1.0 };
+
+            foreach (double f in fracs)
+            {
+                double xPhys = Range * f;
+                double sx    = SvgX(xPhys);
+                sb.Append($"<line x1=\"{sx:F1}\" y1=\"182\" x2=\"{sx:F1}\" y2=\"186\" stroke=\"#6b7280\" stroke-width=\"0.8\"/>");
+                sb.Append($"<text x=\"{sx:F1}\" y=\"195\" text-anchor=\"middle\" fill=\"#9ca3af\" font-size=\"7.5\">{xPhys:F0}</text>");
+            }
+
+            return sb.ToString();
+        }
+    }
+
+    /// <summary>Raw SVG markup for four tick marks on the y-axis with height labels.</summary>
+    private string SvgYTicks
+    {
+        get
+        {
+            System.Text.StringBuilder sb = new();
+            double[] fracs = new double[] { 0.25, 0.5, 0.75, 1.0 };
+
+            foreach (double f in fracs)
+            {
+                double yPhys = SvgYMax * f;
+                double sy    = SvgY(yPhys);
+                sb.Append($"<line x1=\"38\" y1=\"{sy:F1}\" x2=\"42\" y2=\"{sy:F1}\" stroke=\"#6b7280\" stroke-width=\"0.8\"/>");
+                sb.Append($"<text x=\"37\" y=\"{sy + 3.0:F1}\" text-anchor=\"end\" fill=\"#9ca3af\" font-size=\"7.5\">{yPhys:F0}</text>");
+            }
+
+            return sb.ToString();
+        }
+    }
+
+    // ── Trajectory table data ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Yields 11 rows (indices 0–10) evenly spanning t=0 to t=TFlight, each
+    /// capturing position and velocity components at that instant.
+    /// </summary>
+    private System.Collections.Generic.IEnumerable<ProjectileMotionCore.TrajectoryRow> TableRows
+    {
+        get
+        {
+            if (!ShowResults) yield break;
+
+            for (int i = 0; i <= 10; i++)
+            {
+                double t  = TFlight * i / 10.0;
+                double xP = Vx * t;
+                double yP = Math.Max(_initialHeight + Vy0 * t - 0.5 * Gravity * t * t, 0.0);
+                double vy = Vy0 - Gravity * t;
+                yield return new ProjectileMotionCore.TrajectoryRow(t, xP, yP, Vx, vy);
+            }
+        }
+    }
+
+    private static string F(double v) => ProjectileMotionCore.F(v);
+}

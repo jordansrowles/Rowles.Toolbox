@@ -1,0 +1,490 @@
+@page "/tools/generators/cron"
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@using Rowles.Toolbox.Core.Generators
+
+<PageTitle>Cron Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Cron Builder" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-clock-hour-3 mr-1"></i> Visual cron expression builder with next-run preview</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sparkles mr-1"></i> Presets</h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (CronBuilderCore.CronPreset preset in _presets)
+                {
+                    <button class="px-2 py-1 text-xs rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                            @onclick="() => ApplyPreset(preset)">
+                        @preset.Name
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-keyboard mr-1"></i> Parse Expression</h3>
+            <div class="flex gap-2">
+                <input type="text" placeholder="e.g. */5 * * * *"
+                       class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                       @bind="_parseInput" @bind:after="SaveState" />
+                <button class="bg-indigo-600 text-white px-3 py-1 text-xs rounded hover:bg-indigo-700 cursor-pointer border-none"
+                        @onclick="ParseExpression">
+                    <i class="ti ti-arrow-right mr-0.5"></i> Parse
+                </button>
+            </div>
+            @if (!string.IsNullOrEmpty(_parseError))
+            {
+                <p class="mt-1 text-xs text-red-500"><i class="ti ti-alert-triangle mr-0.5"></i> @_parseError</p>
+            }
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 space-y-4">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-adjustments mr-1"></i> Builder</h3>
+
+            @* Minute *@
+            <div class="border border-gray-100 dark:border-gray-800 rounded p-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <i class="ti ti-clock-hour-1 text-gray-400"></i>
+                    <span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Minute</span>
+                    <span class="text-[10px] text-gray-400">(0–59)</span>
+                </div>
+                <div class="flex flex-wrap gap-2 items-end">
+                    <select class="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_minuteMode" @bind:after="SaveState">
+                        <option value="every">Every (*)</option>
+                        <option value="specific">Specific</option>
+                        <option value="range">Range</option>
+                        <option value="step">Step (*/n)</option>
+                    </select>
+                    @if (_minuteMode == "specific")
+                    {
+                        <input type="text" placeholder="e.g. 0,15,30,45"
+                               class="w-32 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_minuteSpecific" @bind:after="SaveState" />
+                    }
+                    else if (_minuteMode == "range")
+                    {
+                        <input type="number" min="0" max="59"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_minuteRangeStart" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-400">to</span>
+                        <input type="number" min="0" max="59"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_minuteRangeEnd" @bind:after="SaveState" />
+                    }
+                    else if (_minuteMode == "step")
+                    {
+                        <span class="text-xs text-gray-400">every</span>
+                        <input type="number" min="1" max="59"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_minuteStep" @bind:after="SaveState" />
+                    }
+                </div>
+            </div>
+
+            @* Hour *@
+            <div class="border border-gray-100 dark:border-gray-800 rounded p-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <i class="ti ti-clock-hour-6 text-gray-400"></i>
+                    <span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Hour</span>
+                    <span class="text-[10px] text-gray-400">(0–23)</span>
+                </div>
+                <div class="flex flex-wrap gap-2 items-end">
+                    <select class="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_hourMode" @bind:after="SaveState">
+                        <option value="every">Every (*)</option>
+                        <option value="specific">Specific</option>
+                        <option value="range">Range</option>
+                        <option value="step">Step (*/n)</option>
+                    </select>
+                    @if (_hourMode == "specific")
+                    {
+                        <input type="text" placeholder="e.g. 0,6,12,18"
+                               class="w-32 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_hourSpecific" @bind:after="SaveState" />
+                    }
+                    else if (_hourMode == "range")
+                    {
+                        <input type="number" min="0" max="23"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_hourRangeStart" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-400">to</span>
+                        <input type="number" min="0" max="23"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_hourRangeEnd" @bind:after="SaveState" />
+                    }
+                    else if (_hourMode == "step")
+                    {
+                        <span class="text-xs text-gray-400">every</span>
+                        <input type="number" min="1" max="23"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_hourStep" @bind:after="SaveState" />
+                    }
+                </div>
+            </div>
+
+            @* Day of Month *@
+            <div class="border border-gray-100 dark:border-gray-800 rounded p-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <i class="ti ti-calendar text-gray-400"></i>
+                    <span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Day of Month</span>
+                    <span class="text-[10px] text-gray-400">(1–31)</span>
+                </div>
+                <div class="flex flex-wrap gap-2 items-end">
+                    <select class="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_domMode" @bind:after="SaveState">
+                        <option value="every">Every (*)</option>
+                        <option value="specific">Specific</option>
+                        <option value="range">Range</option>
+                        <option value="step">Step (*/n)</option>
+                    </select>
+                    @if (_domMode == "specific")
+                    {
+                        <input type="text" placeholder="e.g. 1,15"
+                               class="w-32 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_domSpecific" @bind:after="SaveState" />
+                    }
+                    else if (_domMode == "range")
+                    {
+                        <input type="number" min="1" max="31"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_domRangeStart" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-400">to</span>
+                        <input type="number" min="1" max="31"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_domRangeEnd" @bind:after="SaveState" />
+                    }
+                    else if (_domMode == "step")
+                    {
+                        <span class="text-xs text-gray-400">every</span>
+                        <input type="number" min="1" max="31"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_domStep" @bind:after="SaveState" />
+                    }
+                </div>
+            </div>
+
+            @* Month *@
+            <div class="border border-gray-100 dark:border-gray-800 rounded p-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <i class="ti ti-calendar-month text-gray-400"></i>
+                    <span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Month</span>
+                    <span class="text-[10px] text-gray-400">(1–12)</span>
+                </div>
+                <div class="flex flex-wrap gap-2 items-end">
+                    <select class="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_monthMode" @bind:after="SaveState">
+                        <option value="every">Every (*)</option>
+                        <option value="specific">Specific</option>
+                        <option value="range">Range</option>
+                        <option value="step">Step (*/n)</option>
+                    </select>
+                    @if (_monthMode == "specific")
+                    {
+                        <input type="text" placeholder="e.g. 1,6,12"
+                               class="w-32 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_monthSpecific" @bind:after="SaveState" />
+                    }
+                    else if (_monthMode == "range")
+                    {
+                        <input type="number" min="1" max="12"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_monthRangeStart" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-400">to</span>
+                        <input type="number" min="1" max="12"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_monthRangeEnd" @bind:after="SaveState" />
+                    }
+                    else if (_monthMode == "step")
+                    {
+                        <span class="text-xs text-gray-400">every</span>
+                        <input type="number" min="1" max="12"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_monthStep" @bind:after="SaveState" />
+                    }
+                </div>
+            </div>
+
+            @* Day of Week *@
+            <div class="border border-gray-100 dark:border-gray-800 rounded p-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <i class="ti ti-calendar-week text-gray-400"></i>
+                    <span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Day of Week</span>
+                    <span class="text-[10px] text-gray-400">(0–6, Sun=0)</span>
+                </div>
+                <div class="flex flex-wrap gap-2 items-end">
+                    <select class="border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_dowMode" @bind:after="SaveState">
+                        <option value="every">Every (*)</option>
+                        <option value="specific">Specific</option>
+                        <option value="range">Range</option>
+                        <option value="step">Step (*/n)</option>
+                    </select>
+                    @if (_dowMode == "specific")
+                    {
+                        <input type="text" placeholder="e.g. 1,3,5"
+                               class="w-32 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_dowSpecific" @bind:after="SaveState" />
+                    }
+                    else if (_dowMode == "range")
+                    {
+                        <input type="number" min="0" max="6"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_dowRangeStart" @bind:after="SaveState" />
+                        <span class="text-xs text-gray-400">to</span>
+                        <input type="number" min="0" max="6"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_dowRangeEnd" @bind:after="SaveState" />
+                    }
+                    else if (_dowMode == "step")
+                    {
+                        <span class="text-xs text-gray-400">every</span>
+                        <input type="number" min="1" max="6"
+                               class="w-16 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                               @bind="_dowStep" @bind:after="SaveState" />
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-code mr-1"></i> Expression</h3>
+            <div class="flex items-center gap-2">
+                <code class="flex-1 text-lg font-mono font-bold text-blue-600 dark:text-blue-400 select-all">@CronExpression</code>
+                <button class="text-gray-400 hover:text-blue-500 cursor-pointer border-none bg-transparent"
+                        @onclick="CopyExpression" title="Copy">
+                    <i class="ti ti-copy"></i>
+                </button>
+            </div>
+            <p class="mt-2 text-xs text-gray-500">@DescribeExpression()</p>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-clock mr-1"></i> Next 10 Runs</h3>
+            <div class="space-y-1">
+                @foreach (DateTimeOffset run in GetNextRuns(10))
+                {
+                    <div class="flex items-center justify-between text-xs border-b border-gray-100 dark:border-gray-800 py-1 last:border-b-0">
+                        <span class="text-gray-600 dark:text-gray-400">@run.ToString("ddd, dd MMM yyyy")</span>
+                        <span class="font-mono text-gray-900 dark:text-gray-100">@run.ToString("HH:mm")</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-info-circle mr-1"></i> Field Reference</h3>
+            <div class="space-y-1 text-[10px] text-gray-500">
+                <div class="flex justify-between"><span>Minute</span><span class="font-mono">0–59</span></div>
+                <div class="flex justify-between"><span>Hour</span><span class="font-mono">0–23</span></div>
+                <div class="flex justify-between"><span>Day of Month</span><span class="font-mono">1–31</span></div>
+                <div class="flex justify-between"><span>Month</span><span class="font-mono">1–12</span></div>
+                <div class="flex justify-between"><span>Day of Week</span><span class="font-mono">0–6 (Sun=0)</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/generators/cron" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(
+        string MinuteMode, string HourMode, string DomMode, string MonthMode, string DowMode,
+        string MinuteSpecific, string HourSpecific, string DomSpecific, string MonthSpecific, string DowSpecific,
+        string MinuteRangeStart, string MinuteRangeEnd, string HourRangeStart, string HourRangeEnd,
+        string DomRangeStart, string DomRangeEnd, string MonthRangeStart, string MonthRangeEnd,
+        string DowRangeStart, string DowRangeEnd,
+        string MinuteStep, string HourStep, string DomStep, string MonthStep, string DowStep,
+        string ParseInput);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/generators/cron");
+            if (state is not null)
+            {
+                _minuteMode = state.MinuteMode; _hourMode = state.HourMode; _domMode = state.DomMode;
+                _monthMode = state.MonthMode; _dowMode = state.DowMode;
+                _minuteSpecific = state.MinuteSpecific; _hourSpecific = state.HourSpecific;
+                _domSpecific = state.DomSpecific; _monthSpecific = state.MonthSpecific; _dowSpecific = state.DowSpecific;
+                _minuteRangeStart = state.MinuteRangeStart; _minuteRangeEnd = state.MinuteRangeEnd;
+                _hourRangeStart = state.HourRangeStart; _hourRangeEnd = state.HourRangeEnd;
+                _domRangeStart = state.DomRangeStart; _domRangeEnd = state.DomRangeEnd;
+                _monthRangeStart = state.MonthRangeStart; _monthRangeEnd = state.MonthRangeEnd;
+                _dowRangeStart = state.DowRangeStart; _dowRangeEnd = state.DowRangeEnd;
+                _minuteStep = state.MinuteStep; _hourStep = state.HourStep; _domStep = state.DomStep;
+                _monthStep = state.MonthStep; _dowStep = state.DowStep;
+                _parseInput = state.ParseInput;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState() => await Storage.SaveStateAsync("tools/generators/cron", new ToolState(
+        _minuteMode, _hourMode, _domMode, _monthMode, _dowMode,
+        _minuteSpecific, _hourSpecific, _domSpecific, _monthSpecific, _dowSpecific,
+        _minuteRangeStart, _minuteRangeEnd, _hourRangeStart, _hourRangeEnd,
+        _domRangeStart, _domRangeEnd, _monthRangeStart, _monthRangeEnd,
+        _dowRangeStart, _dowRangeEnd,
+        _minuteStep, _hourStep, _domStep, _monthStep, _dowStep,
+        _parseInput));
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _minuteMode = state.MinuteMode; _hourMode = state.HourMode; _domMode = state.DomMode;
+            _monthMode = state.MonthMode; _dowMode = state.DowMode;
+            _minuteSpecific = state.MinuteSpecific; _hourSpecific = state.HourSpecific;
+            _domSpecific = state.DomSpecific; _monthSpecific = state.MonthSpecific; _dowSpecific = state.DowSpecific;
+            _minuteRangeStart = state.MinuteRangeStart; _minuteRangeEnd = state.MinuteRangeEnd;
+            _hourRangeStart = state.HourRangeStart; _hourRangeEnd = state.HourRangeEnd;
+            _domRangeStart = state.DomRangeStart; _domRangeEnd = state.DomRangeEnd;
+            _monthRangeStart = state.MonthRangeStart; _monthRangeEnd = state.MonthRangeEnd;
+            _dowRangeStart = state.DowRangeStart; _dowRangeEnd = state.DowRangeEnd;
+            _minuteStep = state.MinuteStep; _hourStep = state.HourStep; _domStep = state.DomStep;
+            _monthStep = state.MonthStep; _dowStep = state.DowStep;
+            _parseInput = state.ParseInput;
+            StateHasChanged();
+        }
+    }
+
+    // Field modes: "every", "specific", "range", "step"
+    private string _minuteMode = "every", _hourMode = "every", _domMode = "every", _monthMode = "every", _dowMode = "every";
+    private string _minuteSpecific = "", _hourSpecific = "", _domSpecific = "", _monthSpecific = "", _dowSpecific = "";
+    private string _minuteRangeStart = "0", _minuteRangeEnd = "59";
+    private string _hourRangeStart = "0", _hourRangeEnd = "23";
+    private string _domRangeStart = "1", _domRangeEnd = "31";
+    private string _monthRangeStart = "1", _monthRangeEnd = "12";
+    private string _dowRangeStart = "0", _dowRangeEnd = "6";
+    private string _minuteStep = "5", _hourStep = "1", _domStep = "1", _monthStep = "1", _dowStep = "1";
+
+    private string _parseInput = string.Empty;
+    private string? _parseError;
+    private string? _statusMessage;
+
+    private readonly List<CronBuilderCore.CronPreset> _presets =
+    [
+        new("Every minute", "* * * * *"),
+        new("Every 5 minutes", "*/5 * * * *"),
+        new("Every 15 minutes", "*/15 * * * *"),
+        new("Every hour", "0 * * * *"),
+        new("Every 6 hours", "0 */6 * * *"),
+        new("Daily at midnight", "0 0 * * *"),
+        new("Daily at noon", "0 12 * * *"),
+        new("Weekly on Monday", "0 0 * * 1"),
+        new("Monthly on 1st", "0 0 1 * *"),
+        new("Yearly Jan 1st", "0 0 1 1 *"),
+        new("Weekdays at 9am", "0 9 * * 1-5"),
+        new("Weekends at 10am", "0 10 * * 0,6")
+    ];
+
+    private string CronExpression =>
+        $"{CronBuilderCore.BuildField(_minuteMode, _minuteSpecific, _minuteRangeStart, _minuteRangeEnd, _minuteStep)} " +
+        $"{CronBuilderCore.BuildField(_hourMode, _hourSpecific, _hourRangeStart, _hourRangeEnd, _hourStep)} " +
+        $"{CronBuilderCore.BuildField(_domMode, _domSpecific, _domRangeStart, _domRangeEnd, _domStep)} " +
+        $"{CronBuilderCore.BuildField(_monthMode, _monthSpecific, _monthRangeStart, _monthRangeEnd, _monthStep)} " +
+        $"{CronBuilderCore.BuildField(_dowMode, _dowSpecific, _dowRangeStart, _dowRangeEnd, _dowStep)}";
+
+    private void ApplyPreset(CronBuilderCore.CronPreset preset)
+    {
+        _parseInput = preset.Expression;
+        ParseExpression();
+    }
+
+    private void ParseExpression()
+    {
+        _parseError = null;
+        string input = _parseInput.Trim();
+        string[] parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 5)
+        {
+            _parseError = "Expected 5 fields: minute hour day-of-month month day-of-week";
+            return;
+        }
+
+        CronBuilderCore.ParseField(parts[0], ref _minuteMode, ref _minuteSpecific, ref _minuteRangeStart, ref _minuteRangeEnd, ref _minuteStep);
+        CronBuilderCore.ParseField(parts[1], ref _hourMode, ref _hourSpecific, ref _hourRangeStart, ref _hourRangeEnd, ref _hourStep);
+        CronBuilderCore.ParseField(parts[2], ref _domMode, ref _domSpecific, ref _domRangeStart, ref _domRangeEnd, ref _domStep);
+        CronBuilderCore.ParseField(parts[3], ref _monthMode, ref _monthSpecific, ref _monthRangeStart, ref _monthRangeEnd, ref _monthStep);
+        CronBuilderCore.ParseField(parts[4], ref _dowMode, ref _dowSpecific, ref _dowRangeStart, ref _dowRangeEnd, ref _dowStep);
+    }
+
+    private static void ParseField(string field, ref string mode, ref string specific, ref string rangeStart, ref string rangeEnd, ref string step) =>
+        CronBuilderCore.ParseField(field, ref mode, ref specific, ref rangeStart, ref rangeEnd, ref step);
+
+    private string DescribeExpression() => CronBuilderCore.DescribeExpression(CronExpression);
+
+    private List<DateTimeOffset> GetNextRuns(int count)
+    {
+        List<DateTimeOffset> runs = [];
+        DateTimeOffset current = DateTimeOffset.Now;
+        // Round up to next minute
+        current = new DateTimeOffset(current.Year, current.Month, current.Day,
+            current.Hour, current.Minute, 0, current.Offset).AddMinutes(1);
+
+        int maxIterations = 525_960; // ~1 year of minutes
+        int iterations = 0;
+
+        while (runs.Count < count && iterations < maxIterations)
+        {
+            if (MatchesCron(current))
+            {
+                runs.Add(current);
+            }
+            current = current.AddMinutes(1);
+            iterations++;
+        }
+
+        return runs;
+    }
+
+    private bool MatchesCron(DateTimeOffset dt)
+    {
+        return FieldMatches(_minuteMode, _minuteSpecific, _minuteRangeStart, _minuteRangeEnd, _minuteStep, dt.Minute)
+            && FieldMatches(_hourMode, _hourSpecific, _hourRangeStart, _hourRangeEnd, _hourStep, dt.Hour)
+            && FieldMatches(_domMode, _domSpecific, _domRangeStart, _domRangeEnd, _domStep, dt.Day)
+            && FieldMatches(_monthMode, _monthSpecific, _monthRangeStart, _monthRangeEnd, _monthStep, dt.Month)
+            && FieldMatches(_dowMode, _dowSpecific, _dowRangeStart, _dowRangeEnd, _dowStep, (int)dt.DayOfWeek);
+    }
+
+    private static bool FieldMatches(string mode, string specific, string rangeStart, string rangeEnd, string step, int value) =>
+        CronBuilderCore.FieldMatches(mode, specific, rangeStart, rangeEnd, step, value);
+
+    private async Task CopyExpression()
+    {
+        string expr = CronExpression;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", expr);
+        await Storage.AddRecentAsync("tools/generators/cron", expr, new ToolState(
+            _minuteMode, _hourMode, _domMode, _monthMode, _dowMode,
+            _minuteSpecific, _hourSpecific, _domSpecific, _monthSpecific, _dowSpecific,
+            _minuteRangeStart, _minuteRangeEnd, _hourRangeStart, _hourRangeEnd,
+            _domRangeStart, _domRangeEnd, _monthRangeStart, _monthRangeEnd,
+            _dowRangeStart, _dowRangeEnd,
+            _minuteStep, _hourStep, _domStep, _monthStep, _dowStep,
+            _parseInput));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        _statusMessage = "Cron expression copied!";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+}

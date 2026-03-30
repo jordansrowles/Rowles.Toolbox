@@ -1,0 +1,271 @@
+@page "/tools/encoding/morse"
+@using Rowles.Toolbox.Core.Encoding
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Morse Code Translator - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Morse Code Translator" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-antenna mr-1"></i> Encode/decode text and Morse code</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+        <label class="block text-sm font-medium mb-1">Plain Text</label>
+        <textarea class="w-full h-48 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_plainText" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="Enter text to encode..."></textarea>
+    </div>
+    <div>
+        <label class="block text-sm font-medium mb-1">Morse Code</label>
+        <textarea class="w-full h-48 p-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  @bind="_morseText" @bind:event="oninput" @bind:after="SaveState"
+                  placeholder="Dots (.) and dashes (-), spaces between letters, / between words"></textarea>
+    </div>
+</div>
+
+<div class="flex flex-wrap items-center gap-2 mt-3">
+    <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+            @onclick="EncodeText">
+        <i class="ti ti-arrow-right mr-0.5"></i> Encode
+    </button>
+    <button type="button" class="bg-blue-600 text-white px-3 py-1.5 text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+            @onclick="DecodeMorse">
+        <i class="ti ti-arrow-left mr-0.5"></i> Decode
+    </button>
+    <button type="button" class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+            @onclick="PlayMorse" disabled="@_isPlaying">
+        <i class="ti @(_isPlaying ? "ti-player-stop" : "ti-player-play") mr-0.5"></i> @(_isPlaying ? "Playing..." : "Play")
+    </button>
+    <button type="button" class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+            @onclick="CopyPlainText">
+        <i class="ti ti-copy mr-0.5"></i> Copy Text
+    </button>
+    <button type="button" class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+            @onclick="CopyMorseText">
+        <i class="ti ti-copy mr-0.5"></i> Copy Morse
+    </button>
+    <button type="button" class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+            @onclick="Clear">
+        <i class="ti ti-eraser mr-0.5"></i> Clear
+    </button>
+</div>
+
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4 mt-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+        <i class="ti ti-volume mr-1"></i> Playback Speed
+    </h3>
+    <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500 w-6 text-right">5</span>
+        <input type="range" min="5" max="30" class="flex-1 cursor-pointer" @bind="_wpm" @bind:event="oninput" @bind:after="SaveState" />
+        <span class="text-xs text-gray-500 w-6">30</span>
+        <span class="text-sm font-medium text-gray-700 dark:text-gray-300 w-16">@_wpm WPM</span>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="mb-4 p-2 text-sm bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded">
+        <i class="ti ti-alert-triangle mr-0.5"></i> @_error
+    </div>
+}
+
+<div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+    <h3 class="text-sm font-semibold text-gray-500 mb-3">
+        <i class="ti ti-book mr-1"></i> Morse Code Reference
+    </h3>
+
+    <p class="text-xs text-gray-400 mb-2">Letters</p>
+    <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-9 lg:grid-cols-13 gap-1.5 mb-3">
+        @foreach (MorseCodeCore.MorseEntry entry in GetLetterEntries())
+        {
+            <div class="flex items-center justify-between text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
+                <span class="font-bold text-gray-700 dark:text-gray-300">@entry.Character</span>
+                <span class="font-mono text-gray-500 dark:text-gray-400 tracking-wider ml-1">@entry.Code</span>
+            </div>
+        }
+    </div>
+
+    <p class="text-xs text-gray-400 mb-2">Numbers</p>
+    <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-10 gap-1.5 mb-3">
+        @foreach (MorseCodeCore.MorseEntry entry in GetDigitEntries())
+        {
+            <div class="flex items-center justify-between text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
+                <span class="font-bold text-gray-700 dark:text-gray-300">@entry.Character</span>
+                <span class="font-mono text-gray-500 dark:text-gray-400 tracking-wider ml-1">@entry.Code</span>
+            </div>
+        }
+    </div>
+
+    <p class="text-xs text-gray-400 mb-2">Punctuation</p>
+    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-1.5">
+        @foreach (MorseCodeCore.MorseEntry entry in GetPunctuationEntries())
+        {
+            <div class="flex items-center justify-between text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
+                <span class="font-bold text-gray-700 dark:text-gray-300">@entry.Character</span>
+                <span class="font-mono text-gray-500 dark:text-gray-400 tracking-wider ml-1">@entry.Code</span>
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/encoding/morse" OnRestore="RestoreState" />
+
+@code {
+    private string _plainText = string.Empty;
+    private string _morseText = string.Empty;
+    private string? _error;
+    private int _wpm = 15;
+    private bool _isPlaying;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string PlainText, string MorseText, int Wpm);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/encoding/morse");
+            if (state is not null)
+            {
+                _plainText = state.PlainText;
+                _morseText = state.MorseText;
+                _wpm = state.Wpm;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/encoding/morse", new ToolState(_plainText, _morseText, _wpm));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _plainText = state.PlainText;
+            _morseText = state.MorseText;
+            _wpm = state.Wpm;
+            StateHasChanged();
+        }
+    }
+
+    private async Task EncodeText()
+    {
+        _error = null;
+        (string morseText, string? error) = MorseCodeCore.EncodeText(_plainText);
+        _morseText = morseText;
+        _error = error;
+        if (_error is null)
+        {
+            string label = _plainText.Length > 40 ? _plainText[..40] + "..." : _plainText;
+            await Storage.AddRecentAsync("tools/encoding/morse", $"Encode: {label}", new ToolState(_plainText, _morseText, _wpm));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task DecodeMorse()
+    {
+        _error = null;
+        (string plainText, string? error) = MorseCodeCore.DecodeMorse(_morseText);
+        _plainText = plainText;
+        _error = error;
+        if (_error is null)
+        {
+            string label = _morseText.Length > 40 ? _morseText[..40] + "..." : _morseText;
+            await Storage.AddRecentAsync("tools/encoding/morse", $"Decode: {label}", new ToolState(_plainText, _morseText, _wpm));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private async Task PlayMorse()
+    {
+        if (_isPlaying || string.IsNullOrWhiteSpace(_morseText))
+        {
+            return;
+        }
+
+        _isPlaying = true;
+        StateHasChanged();
+
+        double unitSeconds = 0.9 / _wpm;
+        string safeMorse = _morseText.Replace("\\", "\\\\").Replace("'", "\\'");
+
+        string js = "(function(){"
+            + "var c=new(window.AudioContext||window.webkitAudioContext)();"
+            + "var t=c.currentTime+0.05;"
+            + "var u=" + unitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + ";"
+            + "var m='" + safeMorse + "';"
+            + "for(var i=0;i<m.length;i++){"
+            + "var s=m[i];"
+            + "if(s==='.'){var o=c.createOscillator();var g=c.createGain();"
+            + "o.frequency.value=600;o.type='sine';o.connect(g);g.connect(c.destination);"
+            + "g.gain.setValueAtTime(0.4,t);g.gain.linearRampToValueAtTime(0.0,t+u);"
+            + "o.start(t);o.stop(t+u);t+=2*u;}"
+            + "else if(s==='-'){var o2=c.createOscillator();var g2=c.createGain();"
+            + "o2.frequency.value=600;o2.type='sine';o2.connect(g2);g2.connect(c.destination);"
+            + "g2.gain.setValueAtTime(0.4,t);g2.gain.linearRampToValueAtTime(0.0,t+3*u);"
+            + "o2.start(t);o2.stop(t+3*u);t+=4*u;}"
+            + "else if(s===' '){t+=2*u;}"
+            + "else if(s==='/'){t+=4*u;}"
+            + "}"
+            + "})()";
+
+        await JS.InvokeVoidAsync("eval", js);
+
+        int dotCount = 0;
+        int dashCount = 0;
+        int spaceCount = 0;
+        int slashCount = 0;
+        foreach (char ch in _morseText)
+        {
+            switch (ch)
+            {
+                case '.': dotCount++; break;
+                case '-': dashCount++; break;
+                case ' ': spaceCount++; break;
+                case '/': slashCount++; break;
+            }
+        }
+        double totalSeconds = (dotCount * 2 + dashCount * 4 + spaceCount * 2 + slashCount * 4) * unitSeconds + 0.2;
+        int delayMs = (int)(totalSeconds * 1000);
+
+        await Task.Delay(delayMs);
+        _isPlaying = false;
+        StateHasChanged();
+    }
+
+    private async Task CopyPlainText()
+    {
+        if (!string.IsNullOrEmpty(_plainText))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _plainText);
+        }
+    }
+
+    private async Task CopyMorseText()
+    {
+        if (!string.IsNullOrEmpty(_morseText))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _morseText);
+        }
+    }
+
+    private void Clear()
+    {
+        _plainText = string.Empty;
+        _morseText = string.Empty;
+        _error = null;
+    }
+
+    private static MorseCodeCore.MorseEntry[] GetLetterEntries() => MorseCodeCore.GetLetterEntries();
+
+    private static MorseCodeCore.MorseEntry[] GetDigitEntries() => MorseCodeCore.GetDigitEntries();
+
+    private static MorseCodeCore.MorseEntry[] GetPunctuationEntries() => MorseCodeCore.GetPunctuationEntries();
+}

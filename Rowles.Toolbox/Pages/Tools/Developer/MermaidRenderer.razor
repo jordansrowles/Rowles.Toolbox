@@ -1,0 +1,283 @@
+@page "/tools/dev/mermaid"
+@using Rowles.Toolbox.Core.Developer
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>Mermaid Renderer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Mermaid Renderer" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-chart-dots-3 mr-1"></i> Render Mermaid.js diagrams live</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    @* Left pane: editor *@
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-code mr-1"></i> Mermaid Markup
+            </h3>
+            <textarea class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      rows="18"
+                      placeholder="Enter Mermaid diagram markup..."
+                      @bind="_input"
+                      @bind:event="oninput"
+                      @bind:after="OnInputChanged"></textarea>
+
+            @* Copy Code button *@
+            <div class="flex gap-2 mt-3">
+                <button class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+                        @onclick="CopyCode">
+                    <i class="ti ti-copy mr-1"></i> Copy Code
+                </button>
+                <button class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors cursor-pointer border-none"
+                        @onclick="ClearInput">
+                    <i class="ti ti-trash mr-1"></i> Clear
+                </button>
+            </div>
+        </div>
+
+        @* Preset buttons *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3">
+                <i class="ti ti-template mr-1"></i> Presets
+            </h3>
+            <div class="flex flex-wrap gap-2">
+                @foreach (MermaidRendererCore.DiagramPreset preset in MermaidRendererCore.Presets)
+                {
+                    <button class="px-3 py-1.5 text-xs rounded cursor-pointer border-none bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                            @onclick="() => LoadPreset(preset)">
+                        <i class="ti ti-@preset.Icon mr-0.5"></i> @preset.Label
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Right pane: preview *@
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-sm font-semibold text-gray-500">
+                    <i class="ti ti-eye mr-1"></i> Preview
+                </h3>
+                <div class="flex gap-2">
+                    <button class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled="@string.IsNullOrWhiteSpace(_renderedSvg)"
+                            @onclick="ExportSvg">
+                        <i class="ti ti-download mr-1"></i> Export SVG
+                    </button>
+                </div>
+            </div>
+
+            @if (_isLoading)
+            {
+                <div class="flex items-center justify-center py-16 text-gray-400">
+                    <i class="ti ti-loader-2 animate-spin mr-2"></i> Loading Mermaid...
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="p-3 text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded font-mono whitespace-pre-wrap">
+                    <i class="ti ti-alert-triangle mr-1"></i> @_errorMessage
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(_renderedSvg))
+            {
+                <div class="overflow-auto max-h-[600px] bg-white dark:bg-gray-900 rounded p-2">
+                    @((MarkupString)_renderedSvg)
+                </div>
+            }
+            else
+            {
+                <div class="flex flex-col items-center justify-center py-16 text-gray-400 text-sm">
+                    <i class="ti ti-chart-dots-3 text-3xl mb-2"></i>
+                    <span>Enter Mermaid markup or select a preset to render a diagram</span>
+                </div>
+            }
+        </div>
+
+        @* Clipboard feedback *@
+        @if (_showCopiedFeedback)
+        {
+            <div class="p-2 text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-center">
+                <i class="ti ti-check mr-1"></i> @_copiedLabel
+            </div>
+        }
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/dev/mermaid" OnRestore="RestoreState" />
+
+@code {
+    sealed record ToolState(string Input);
+
+    private string _input = "";
+    private string _renderedSvg = "";
+    private string _errorMessage = "";
+    private bool _isLoading = true;
+    private bool _mermaidReady;
+    private bool _showCopiedFeedback;
+    private string _copiedLabel = "";
+    private System.Threading.Timer? _debounceTimer;
+    private IJSObjectReference? _module;
+    private RecentEntryPanel? _recentPanel;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await EnsureMermaidLoaded();
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/dev/mermaid");
+            if (state is not null)
+            {
+                _input = state.Input;
+                await RenderDiagram();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_input);
+        await Storage.SaveStateAsync("tools/dev/mermaid", state);
+    }
+
+    private void RestoreState(string json)
+    {
+        ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _input = state.Input;
+            _debounceTimer?.Dispose();
+            InvokeAsync(RenderDiagram);
+        }
+    }
+
+    private async Task EnsureMermaidLoaded()
+    {
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mermaid-interop.js");
+            bool isDark = await _module.InvokeAsync<bool>("isDarkMode");
+            string theme = isDark ? "dark" : "default";
+            await _module.InvokeVoidAsync("loadMermaid", theme);
+
+            _mermaidReady = true;
+            _isLoading = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _isLoading = false;
+            _errorMessage = $"Failed to load Mermaid.js: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private void OnInputChanged()
+    {
+        _debounceTimer?.Dispose();
+        _debounceTimer = new System.Threading.Timer(
+            async _ => await InvokeAsync(async () => { await RenderDiagram(); await SaveState(); }),
+            null,
+            TimeSpan.FromMilliseconds(500),
+            System.Threading.Timeout.InfiniteTimeSpan);
+    }
+
+    private async Task RenderDiagram()
+    {
+        if (!_mermaidReady || _module is null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_input))
+        {
+            _renderedSvg = "";
+            _errorMessage = "";
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            string svg = await _module.InvokeAsync<string>("renderDiagram", _input);
+            _renderedSvg = svg;
+            _errorMessage = "";
+        }
+        catch (Exception ex)
+        {
+            _renderedSvg = "";
+            string message = ex.Message;
+            int jsonIdx = message.IndexOf('{');
+            if (jsonIdx >= 0)
+            {
+                _errorMessage = message.Substring(jsonIdx);
+            }
+            else
+            {
+                _errorMessage = message;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadPreset(MermaidRendererCore.DiagramPreset preset)
+    {
+        _input = preset.Code;
+        _debounceTimer?.Dispose();
+        await RenderDiagram();
+        ToolState state = new(_input);
+        await Storage.AddRecentAsync("tools/dev/mermaid", $"Preset: {preset.Label}", state);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        await SaveState();
+    }
+
+    private async Task CopyCode()
+    {
+        if (string.IsNullOrWhiteSpace(_input))
+            return;
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _input);
+        await ShowCopiedFeedback("Copied Mermaid code to clipboard!");
+    }
+
+    private async Task ExportSvg()
+    {
+        if (string.IsNullOrWhiteSpace(_renderedSvg))
+            return;
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _renderedSvg);
+        await ShowCopiedFeedback("Copied SVG to clipboard!");
+    }
+
+    private async Task ShowCopiedFeedback(string label)
+    {
+        _copiedLabel = label;
+        _showCopiedFeedback = true;
+        StateHasChanged();
+
+        await Task.Delay(2000);
+        _showCopiedFeedback = false;
+        StateHasChanged();
+    }
+
+    private async Task ClearInput()
+    {
+        _input = "";
+        _renderedSvg = "";
+        _errorMessage = "";
+        _debounceTimer?.Dispose();
+        await SaveState();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _debounceTimer?.Dispose();
+        if (_module is not null)
+            await _module.DisposeAsync();
+    }
+}

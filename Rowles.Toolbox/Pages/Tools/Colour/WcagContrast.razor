@@ -1,0 +1,257 @@
+@page "/tools/colour/contrast"
+@using Rowles.Toolbox.Core.Colour
+@using System.Text.Json
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>WCAG Contrast Checker - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="WCAG Contrast Checker" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-accessible mr-1"></i> Check colour contrast against WCAG 2.1 guidelines</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-4">
+
+        @* Colour Inputs *@
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            @* Foreground *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-typography mr-1"></i> Foreground</h3>
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-sm font-mono text-gray-400">#</span>
+                    <input type="text" maxlength="6" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           placeholder="000000"
+                           value="@_fgHex"
+                           @oninput="OnFgInput" />
+                </div>
+                <div class="h-12 rounded border border-gray-300 dark:border-gray-600" style="background-color: #@_fgHex;"></div>
+            </div>
+
+            @* Background *@
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-paint mr-1"></i> Background</h3>
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-sm font-mono text-gray-400">#</span>
+                    <input type="text" maxlength="6" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                           placeholder="ffffff"
+                           value="@_bgHex"
+                           @oninput="OnBgInput" />
+                </div>
+                <div class="h-12 rounded border border-gray-300 dark:border-gray-600" style="background-color: #@_bgHex;"></div>
+            </div>
+        </div>
+
+        @* Swap Button *@
+        <div class="flex justify-center">
+            <button class="btn-primary flex items-center gap-2" @onclick="SwapColours">
+                <i class="ti ti-arrows-exchange"></i> Swap Colours
+            </button>
+        </div>
+
+        @* Live Preview *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-6"
+             style="background-color: #@_bgHex;">
+            <p class="text-2xl font-bold mb-2" style="color: #@_fgHex;">
+                The quick brown fox jumps over the lazy dog
+            </p>
+            <p class="text-base mb-2" style="color: #@_fgHex;">
+                This is how normal text looks with these colours. Check that it is easy to read at this size (16px).
+            </p>
+            <p class="text-sm" style="color: #@_fgHex;">
+                Smaller text requires higher contrast ratios for accessibility compliance.
+            </p>
+        </div>
+
+        @* Suggested Fix *@
+        @if (!string.IsNullOrEmpty(_suggestedFgHex))
+        {
+            <div class="border border-yellow-300 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 rounded p-4">
+                <h3 class="text-sm font-semibold text-yellow-700 dark:text-yellow-400 mb-2">
+                    <i class="ti ti-bulb mr-1"></i> Suggested Accessible Foreground
+                </h3>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded border border-gray-300 dark:border-gray-600" style="background-color: #@_suggestedFgHex;"></div>
+                    <div>
+                        <span class="font-mono text-sm">#@_suggestedFgHex</span>
+                        <span class="text-xs text-gray-500 ml-2">(contrast @_suggestedContrastText)</span>
+                    </div>
+                    <button class="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto" @onclick="ApplySuggestion">
+                        <i class="ti ti-check mr-1"></i> Apply
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Sidebar — Results *@
+    <div class="space-y-4">
+        @* Contrast Ratio *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4 text-center">
+            <h3 class="text-sm font-semibold text-gray-500 mb-2"><i class="ti ti-chart-bar mr-1"></i> Contrast Ratio</h3>
+            <p class="text-4xl font-bold @(_contrastRatio >= 4.5 ? "text-green-600 dark:text-green-400" : _contrastRatio >= 3.0 ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400")">
+                @WcagContrastCore.FormatRatio(_contrastRatio)
+            </p>
+        </div>
+
+        @* WCAG Results *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-list-check mr-1"></i> WCAG 2.1 Results</h3>
+            <div class="space-y-3">
+                @foreach ((string level, string size, double threshold) in WcagContrastCore.WcagCriteria)
+                {
+                    bool pass = _contrastRatio >= threshold;
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-sm font-medium">@level</span>
+                            <span class="text-xs text-gray-400 ml-1">@size</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-400">@threshold:1</span>
+                            @if (pass)
+                            {
+                                <span class="badge badge-green"><i class="ti ti-check mr-1"></i>Pass</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-red"><i class="ti ti-x mr-1"></i>Fail</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Luminance Values *@
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-sun mr-1"></i> Relative Luminance</h3>
+            <div class="space-y-2">
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Foreground</span>
+                    <span class="font-mono font-bold">@_fgLuminance.ToString("F4")</span>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Background</span>
+                    <span class="font-mono font-bold">@_bgLuminance.ToString("F4")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/colour/contrast" OnRestore="RestoreState" />
+
+@code {
+    private string _fgHex = "1e293b";
+    private string _bgHex = "ffffff";
+    private double _contrastRatio;
+    private double _fgLuminance;
+    private double _bgLuminance;
+    private string? _suggestedFgHex;
+    private string _suggestedContrastText = string.Empty;
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string FgHex, string BgHex);
+
+    protected override void OnInitialized()
+    {
+        Recalculate();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/colour/contrast");
+            if (state is not null)
+            {
+                _fgHex = state.FgHex;
+                _bgHex = state.BgHex;
+                Recalculate();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/colour/contrast", new ToolState(_fgHex, _bgHex));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _fgHex = state.FgHex;
+            _bgHex = state.BgHex;
+            Recalculate();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnFgInput(ChangeEventArgs e)
+    {
+        string raw = (e.Value?.ToString() ?? string.Empty).TrimStart('#').Trim();
+        if (ColourConverterCore.IsValidHexColour(raw))
+        {
+            _fgHex = ColourConverterCore.NormaliseHex(raw);
+            Recalculate();
+            await SaveState();
+        }
+    }
+
+    private async Task OnBgInput(ChangeEventArgs e)
+    {
+        string raw = (e.Value?.ToString() ?? string.Empty).TrimStart('#').Trim();
+        if (ColourConverterCore.IsValidHexColour(raw))
+        {
+            _bgHex = ColourConverterCore.NormaliseHex(raw);
+            Recalculate();
+            await SaveState();
+        }
+    }
+
+    private async Task SwapColours()
+    {
+        (_fgHex, _bgHex) = (_bgHex, _fgHex);
+        Recalculate();
+        await SaveState();
+        await Storage.AddRecentAsync("tools/colour/contrast", $"Swapped: #{_fgHex} vs #{_bgHex}", new ToolState(_fgHex, _bgHex));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task ApplySuggestion()
+    {
+        if (!string.IsNullOrEmpty(_suggestedFgHex))
+        {
+            _fgHex = _suggestedFgHex;
+            Recalculate();
+            await SaveState();
+            await Storage.AddRecentAsync("tools/colour/contrast", $"Applied suggestion: #{_fgHex}", new ToolState(_fgHex, _bgHex));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+    }
+
+    private void Recalculate()
+    {
+        _fgLuminance = WcagContrastCore.RelativeLuminance(_fgHex);
+        _bgLuminance = WcagContrastCore.RelativeLuminance(_bgHex);
+        _contrastRatio = WcagContrastCore.CalculateContrastRatio(_fgHex, _bgHex);
+
+        if (_contrastRatio < 4.5)
+        {
+            _suggestedFgHex = WcagContrastCore.FindAccessibleColour(_fgHex, _bgHex, 4.5);
+            _suggestedContrastText = _suggestedFgHex is not null
+                ? WcagContrastCore.FormatRatio(WcagContrastCore.CalculateContrastRatio(_suggestedFgHex, _bgHex))
+                : string.Empty;
+        }
+        else
+        {
+            _suggestedFgHex = null;
+            _suggestedContrastText = string.Empty;
+        }
+    }
+}

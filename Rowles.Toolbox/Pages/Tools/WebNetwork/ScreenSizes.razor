@@ -1,0 +1,222 @@
+@page "/tools/web/screen-sizes"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject LocalStorageService Storage
+
+@implements IAsyncDisposable
+
+<PageTitle>Screen Sizes - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Screen Sizes" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-devices mr-1"></i> Common device screen sizes and responsive breakpoints</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    @if (_viewportWidth > 0)
+    {
+        <div class="border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded p-4">
+            <div class="flex items-center gap-3">
+                <i class="ti ti-viewport-wide text-blue-600 dark:text-blue-400 text-xl"></i>
+                <div>
+                    <span class="text-sm font-semibold text-blue-700 dark:text-blue-300">Your Viewport</span>
+                    <span class="ml-2 font-mono text-sm">@_viewportWidth × @_viewportHeight px</span>
+                    <span class="ml-2 text-xs text-blue-500">(@CurrentBreakpoint)</span>
+                </div>
+                <button type="button"
+                        class="ml-auto text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-800 hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors"
+                        @onclick="DetectViewport">
+                    <i class="ti ti-refresh mr-1"></i> Refresh
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <button type="button"
+                class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
+                @onclick="DetectViewport">
+            <i class="ti ti-viewport-wide mr-1"></i> Detect Viewport
+        </button>
+    }
+
+    <div class="flex flex-wrap gap-2 items-center">
+        <input type="text"
+               class="flex-1 min-w-[200px] p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Search by device name…"
+               @bind="_searchTerm"
+               @bind:after="SaveState" />
+        <div class="flex gap-1 text-xs">
+            <button type="button" class="@FilterBtnClass(null)" @onclick="async () => { _categoryFilter = null; await SaveState(); }">All</button>
+            <button type="button" class="@FilterBtnClass("Phone")" @onclick='async () => { _categoryFilter = "Phone"; await SaveState(); }'>
+                <i class="ti ti-device-mobile mr-0.5"></i> Phones
+            </button>
+            <button type="button" class="@FilterBtnClass("Tablet")" @onclick='async () => { _categoryFilter = "Tablet"; await SaveState(); }'>
+                <i class="ti ti-device-tablet mr-0.5"></i> Tablets
+            </button>
+            <button type="button" class="@FilterBtnClass("Laptop")" @onclick='async () => { _categoryFilter = "Laptop"; await SaveState(); }'>
+                <i class="ti ti-device-laptop mr-0.5"></i> Laptops
+            </button>
+            <button type="button" class="@FilterBtnClass("Desktop")" @onclick='async () => { _categoryFilter = "Desktop"; await SaveState(); }'>
+                <i class="ti ti-device-desktop mr-0.5"></i> Desktops
+            </button>
+            <button type="button" class="@FilterBtnClass("Watch")" @onclick='() => _categoryFilter = "Watch"'>
+                <i class="ti ti-device-watch mr-0.5"></i> Watches
+            </button>
+        </div>
+    </div>
+
+    @foreach (IGrouping<string, ScreenSizesCore.DeviceEntry> group in FilteredDevices.GroupBy(d => d.Category))
+    {
+        <div>
+            <h3 class="text-sm font-semibold text-gray-500 mb-2">
+                <i class="ti @ScreenSizesCore.CategoryIcon(group.Key) mr-1"></i> @group.Key
+            </h3>
+            <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 dark:bg-gray-800">
+                        <tr>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500">Device</th>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500">Resolution</th>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500">Aspect Ratio</th>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500">PPI</th>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500">DPR</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                        @foreach (ScreenSizesCore.DeviceEntry device in group)
+                        {
+                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                                <td class="px-3 py-2 font-medium">@device.Name</td>
+                                <td class="px-3 py-2 font-mono text-blue-600 dark:text-blue-400">@device.Width × @device.Height</td>
+                                <td class="px-3 py-2 text-gray-500">@device.AspectRatio</td>
+                                <td class="px-3 py-2 text-gray-500">@device.Ppi</td>
+                                <td class="px-3 py-2 text-gray-500">@device.Dpr</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-ruler mr-1"></i> Tailwind CSS Breakpoints</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                        <th class="px-3 py-2 text-left font-medium text-gray-500">Prefix</th>
+                        <th class="px-3 py-2 text-left font-medium text-gray-500">Min Width</th>
+                        <th class="px-3 py-2 text-left font-medium text-gray-500">CSS</th>
+                        <th class="px-3 py-2 text-left font-medium text-gray-500">Target Devices</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                    @foreach (ScreenSizesCore.BreakpointEntry bp in ScreenSizesCore.Breakpoints)
+                    {
+                        bool isActive = _viewportWidth >= bp.MinWidth;
+                        <tr class="@(isActive ? "bg-green-50 dark:bg-green-900/20" : "") transition-colors">
+                            <td class="px-3 py-2 font-mono font-bold text-purple-600 dark:text-purple-400">@bp.Prefix</td>
+                            <td class="px-3 py-2 font-mono">@bp.MinWidth px</td>
+                            <td class="px-3 py-2 font-mono text-xs text-gray-500">@bp.Css</td>
+                            <td class="px-3 py-2 text-gray-500">@bp.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/screen-sizes" OnRestore="RestoreState" />
+
+@code {
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private RecentEntryPanel? _recentPanel;
+    private string _searchTerm = string.Empty;
+    private string? _categoryFilter;
+    private int _viewportWidth;
+    private int _viewportHeight;
+
+    sealed record ToolState(
+        string SearchTerm,
+        string? CategoryFilter
+    );
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+            await DetectViewport();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/screen-sizes");
+        if (state is not null)
+        {
+            _searchTerm = state.SearchTerm;
+            _categoryFilter = state.CategoryFilter;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_searchTerm, _categoryFilter);
+        await Storage.SaveStateAsync("tools/web/screen-sizes", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _searchTerm = state.SearchTerm;
+                _categoryFilter = state.CategoryFilter;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task DetectViewport()
+    {
+        _viewportWidth = await JS.InvokeAsync<int>("eval", "window.innerWidth");
+        _viewportHeight = await JS.InvokeAsync<int>("eval", "window.innerHeight");
+    }
+
+    private string CurrentBreakpoint => ScreenSizesCore.GetBreakpointName(_viewportWidth);
+
+    private string FilterBtnClass(string? category) =>
+        _categoryFilter == category
+            ? "px-2 py-1 rounded bg-blue-600 text-white"
+            : "px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+
+    private List<ScreenSizesCore.DeviceEntry> FilteredDevices
+    {
+        get
+        {
+            IEnumerable<ScreenSizesCore.DeviceEntry> result = ScreenSizesCore.AllDevices;
+            if (_categoryFilter is not null)
+                result = result.Where(d => d.Category == _categoryFilter);
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                string term = _searchTerm.Trim();
+                result = result.Where(d =>
+                    d.Name.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+            return result.ToList();
+        }
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}

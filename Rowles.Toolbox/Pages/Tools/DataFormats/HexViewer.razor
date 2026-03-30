@@ -1,0 +1,277 @@
+@page "/tools/data/hex-viewer"
+@using System.Globalization
+@using Rowles.Toolbox.Core.DataFormats
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>Hex Viewer - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Hex Viewer" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-binary-tree mr-1"></i> Classic hex dump with offset, hex bytes, and ASCII</span>
+    </Actions>
+</PageHeader>
+
+<div class="flex flex-wrap items-center gap-2 mb-3">
+    <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-500">View:</label>
+        <button class="@(_viewMode == ViewMode.Hex ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick="() => SetViewMode(ViewMode.Hex)">
+            Hex
+        </button>
+        <button class="@(_viewMode == ViewMode.Binary ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600") px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                @onclick="() => SetViewMode(ViewMode.Binary)">
+            Binary
+        </button>
+    </div>
+
+    <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-500">Encoding:</label>
+        <select class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800"
+                @bind="_encoding" @bind:after="OnEncodingChangedAndProcess">
+            <option value="utf8">UTF-8</option>
+            <option value="ascii">ASCII</option>
+            <option value="utf16">UTF-16 LE</option>
+        </select>
+    </div>
+
+    <button class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 text-xs font-medium rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors inline-flex items-center gap-1"
+            @onclick="Clear">
+        <i class="ti ti-trash"></i> Clear
+    </button>
+
+    <label class="bg-green-600 text-white px-3 py-1.5 text-xs font-medium rounded hover:bg-green-700 transition-colors inline-flex items-center gap-1 cursor-pointer">
+        <i class="ti ti-upload"></i> Upload File
+        <InputFile OnChange="OnFileUpload" class="hidden" />
+    </label>
+</div>
+
+<div class="mb-3">
+    <label class="block text-sm font-medium mb-1">Input Text</label>
+    <textarea class="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Type or paste text here, or upload a file..."
+              @bind="_textInput"
+              @bind:event="oninput"
+              @onkeyup="ProcessInput"></textarea>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-2 rounded text-xs mb-3">
+        <i class="ti ti-alert-circle mr-1"></i> @_error
+    </div>
+}
+
+@if (_bytes is not null && _bytes.Length > 0)
+{
+    <div class="text-xs text-gray-400 mb-2">
+        @_bytes.Length byte@(_bytes.Length == 1 ? "" : "s") · @(_bytes.Length * 8) bits · @((_bytes.Length + 15) / 16) row@(((_bytes.Length + 15) / 16) == 1 ? "" : "s")
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+        @* -- Header -- *@
+        <div class="bg-gray-50 dark:bg-gray-800 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 font-mono text-[10px] text-gray-400 flex">
+            <span class="w-20 shrink-0">Offset</span>
+            <span class="flex-1">@(_viewMode == ViewMode.Hex ? "Hex" : "Binary")</span>
+            <span class="w-44 shrink-0 text-right">ASCII</span>
+        </div>
+
+        @* -- Hex Dump Rows -- *@
+        <div class="max-h-[600px] overflow-y-auto">
+            @for (int row = 0; row < (_bytes.Length + 15) / 16; row++)
+            {
+                int offset = row * 16;
+                int bytesInRow = Math.Min(16, _bytes.Length - offset);
+
+                <div class="flex px-3 py-0.5 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 font-mono text-[11px]">
+                    @* Offset *@
+                    <span class="w-20 shrink-0 text-gray-400">@offset.ToString("X8")</span>
+
+                    @* Bytes *@
+                    <span class="flex-1 flex flex-wrap gap-x-0.5">
+                        @for (int i = 0; i < 16; i++)
+                        {
+                            if (i == 8)
+                            {
+                                <span class="w-1"></span>
+                            }
+                            if (i < bytesInRow)
+                            {
+                                byte b = _bytes[offset + i];
+                                string colorClass = GetByteColor(b);
+                                if (_viewMode == ViewMode.Hex)
+                                {
+                                    <span class="@colorClass">@b.ToString("X2")</span>
+                                }
+                                else
+                                {
+                                    <span class="@colorClass text-[9px]">@System.Convert.ToString(b, 2).PadLeft(8, '0')</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="text-transparent">@(_viewMode == ViewMode.Hex ? "  " : "        ")</span>
+                            }
+                        }
+                    </span>
+
+                    @* ASCII *@
+                    <span class="w-44 shrink-0 text-right">
+                        @for (int i = 0; i < bytesInRow; i++)
+                        {
+                            byte b = _bytes[offset + i];
+                            if (b >= 32 && b <= 126)
+                            {
+                                <span class="text-green-700 dark:text-green-400">@((char)b)</span>
+                            }
+                            else
+                            {
+                                <span class="text-gray-300 dark:text-gray-600">.</span>
+                            }
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* -- Legend -- *@
+    <div class="mt-3 flex flex-wrap gap-3 text-[10px]">
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700"></span>
+            <span class="text-gray-500">Printable ASCII (0x20–0x7E)</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700"></span>
+            <span class="text-gray-500">Control chars (0x00–0x1F)</span>
+        </span>
+        <span class="inline-flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700"></span>
+            <span class="text-gray-500">High bytes (0x80–0xFF)</span>
+        </span>
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/data/hex-viewer" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    sealed record ToolState(string Encoding, string HexViewMode);
+
+    private string _textInput = string.Empty;
+    private byte[]? _bytes;
+    private string? _error;
+    private string _encoding = "utf8";
+    private ViewMode _viewMode = ViewMode.Hex;
+
+    private enum ViewMode { Hex, Binary }
+
+    private async Task SetViewMode(ViewMode mode)
+    {
+        _viewMode = mode;
+        await SaveState();
+    }
+
+    private void ProcessInput()
+    {
+        _error = null;
+        if (string.IsNullOrEmpty(_textInput))
+        {
+            _bytes = null;
+            return;
+        }
+
+        try
+        {
+            System.Text.Encoding enc = _encoding switch
+            {
+                "ascii" => System.Text.Encoding.ASCII,
+                "utf16" => System.Text.Encoding.Unicode,
+                _ => System.Text.Encoding.UTF8
+            };
+            _bytes = enc.GetBytes(_textInput);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Encoding error: {ex.Message}";
+            _bytes = null;
+        }
+    }
+
+    private async Task OnEncodingChangedAndProcess()
+    {
+        ProcessInput();
+        await SaveState();
+    }
+
+    private async Task OnFileUpload(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        try
+        {
+            IBrowserFile file = e.File;
+            if (file.Size > 1_048_576) // 1 MB limit
+            {
+                _error = "File too large. Maximum size is 1 MB.";
+                return;
+            }
+
+            using MemoryStream ms = new();
+            await file.OpenReadStream(1_048_576).CopyToAsync(ms);
+            _bytes = ms.ToArray();
+            _textInput = $"[File: {file.Name} ({_bytes.Length} bytes)]";
+
+            await SaveState();
+            string label = $"File: {file.Name} ({_bytes.Length} bytes)";
+            await Storage.AddRecentAsync("tools/data/hex-viewer", label, new ToolState(_encoding, _viewMode.ToString()));
+            if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"File read error: {ex.Message}";
+        }
+    }
+
+    private static string GetByteColor(byte b) => HexViewerCore.GetByteColor(b);
+
+    private void Clear()
+    {
+        _textInput = string.Empty;
+        _bytes = null;
+        _error = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/data/hex-viewer");
+            if (state is not null)
+            {
+                _encoding = state.Encoding;
+                if (Enum.TryParse<ViewMode>(state.HexViewMode, out ViewMode vm))
+                    _viewMode = vm;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/data/hex-viewer", new ToolState(_encoding, _viewMode.ToString()));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+        if (state is not null)
+        {
+            _encoding = state.Encoding;
+            if (Enum.TryParse<ViewMode>(state.HexViewMode, out ViewMode vm))
+                _viewMode = vm;
+            ProcessInput();
+            StateHasChanged();
+        }
+    }
+}

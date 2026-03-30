@@ -1,0 +1,229 @@
+@page "/tools/image/watermark-add"
+@using Rowles.Toolbox.Core.Image
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>Add Watermark - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Add Watermark" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-droplet-half-2 mr-1"></i> Add a text watermark to any image client-side</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Upload Image</h3>
+            <InputFile OnChange="OnFileSelected" accept="image/*"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+        </div>
+
+        @if (_imageDataUrl is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-photo mr-1"></i> Preview</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs text-gray-400 mb-1">Original</p>
+                        <img src="@_imageDataUrl" alt="Original" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                    </div>
+                    @if (_watermarkedDataUrl is not null)
+                    {
+                        <div>
+                            <p class="text-xs text-gray-400 mb-1">Watermarked</p>
+                            <img src="@_watermarkedDataUrl" alt="Watermarked" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-text-size mr-1"></i> Watermark Text</h3>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-xs font-medium">Text</label>
+                    <input type="text"
+                           class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_watermarkText" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Colour (hex)</label>
+                    <input type="text"
+                           class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           @bind="_colour" @bind:after="SaveState" />
+                </div>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-adjustments mr-1"></i> Options</h3>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-xs font-medium">Font size: @(_fontSize)px</label>
+                    <input type="range" min="12" max="120" step="1" class="w-full" @bind="_fontSize" @bind:event="oninput" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Opacity: @_opacity.ToString("F2")</label>
+                    <input type="range" min="0.05" max="1.0" step="0.05" class="w-full" @bind="_opacity" @bind:event="oninput" @bind:after="SaveState" />
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Position</label>
+                    <select class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            @bind="_position" @bind:after="SaveState">
+                        <option value="Center">Center</option>
+                        <option value="Bottom-Right">Bottom-Right</option>
+                        <option value="Bottom-Left">Bottom-Left</option>
+                        <option value="Top-Right">Top-Right</option>
+                        <option value="Top-Left">Top-Left</option>
+                        <option value="Tile">Tile (repeating)</option>
+                    </select>
+                </div>
+                @if (_position == "Tile")
+                {
+                    <div>
+                        <label class="text-xs font-medium">Rotation: @(_rotation)°</label>
+                        <input type="range" min="-90" max="90" step="1" class="w-full" @bind="_rotation" @bind:event="oninput" @bind:after="SaveState" />
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="flex gap-2">
+            <button class="flex-1 bg-blue-600 text-white px-3 py-2 text-xs rounded hover:bg-blue-700 cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    @onclick="ApplyWatermark" disabled="@(_imageDataUrl is null || _isProcessing)">
+                <i class="ti ti-droplet-half-2 mr-0.5"></i> @(_isProcessing ? "Processing…" : "Apply Watermark")
+            </button>
+            @if (_watermarkedDataUrl is not null)
+            {
+                <button class="flex-1 bg-green-600 text-white px-3 py-2 text-xs rounded hover:bg-green-700 cursor-pointer border-none"
+                        @onclick="DownloadResult">
+                    <i class="ti ti-download mr-0.5"></i> Download
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="watermark-add" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private IJSObjectReference? _jsModule;
+    private string? _imageDataUrl;
+    private string? _watermarkedDataUrl;
+    private string _fileName = string.Empty;
+    private bool _isProcessing;
+
+    private string _watermarkText = "© WATERMARK";
+    private int _fontSize = 36;
+    private double _opacity = 0.3;
+    private string _colour = "#ffffff";
+    private string _position = "Center";
+    private int _rotation = -30;
+
+    sealed record ToolState(string WatermarkText, int FontSize, double Opacity, string Colour, string Position, int Rotation);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/Image/WatermarkAdd.razor.js");
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("watermark-add");
+            if (state is not null)
+            {
+                _watermarkText = state.WatermarkText;
+                _fontSize = state.FontSize;
+                _opacity = state.Opacity;
+                _colour = state.Colour;
+                _position = state.Position;
+                _rotation = state.Rotation;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        IBrowserFile file = e.File;
+        long maxSize = 20 * 1024 * 1024;
+        using System.IO.Stream stream = file.OpenReadStream(maxSize);
+        byte[] buffer = new byte[file.Size];
+        int bytesRead = await stream.ReadAsync(buffer);
+        string base64 = Convert.ToBase64String(buffer, 0, bytesRead);
+        _imageDataUrl = $"data:{file.ContentType};base64,{base64}";
+        _fileName = file.Name;
+        _watermarkedDataUrl = null;
+    }
+
+    private async Task ApplyWatermark()
+    {
+        if (_jsModule is null || _imageDataUrl is null) return;
+        _isProcessing = true;
+        StateHasChanged();
+
+        var options = new
+        {
+            text = _watermarkText,
+            fontSize = _fontSize,
+            opacity = _opacity,
+            color = _colour,
+            position = _position,
+            rotation = _rotation
+        };
+
+        _watermarkedDataUrl = await _jsModule.InvokeAsync<string>("applyWatermark", _imageDataUrl, options);
+        _isProcessing = false;
+
+        string label = $"{_watermarkText} ({_position})";
+        ToolState state = new(_watermarkText, _fontSize, _opacity, _colour, _position, _rotation);
+        await Storage.AddRecentAsync("watermark-add", label, state);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_watermarkText, _fontSize, _opacity, _colour, _position, _rotation);
+        await Storage.SaveStateAsync("watermark-add", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _watermarkText = state.WatermarkText;
+                _fontSize = state.FontSize;
+                _opacity = state.Opacity;
+                _colour = state.Colour;
+                _position = state.Position;
+                _rotation = state.Rotation;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task DownloadResult()
+    {
+        if (_jsModule is null || _watermarkedDataUrl is null) return;
+        string outputName = WatermarkAddCore.GetOutputFileName(_fileName);
+        await _jsModule.InvokeVoidAsync("downloadDataUrl", _watermarkedDataUrl, outputName);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+}

@@ -1,0 +1,645 @@
+@page "/tools/web/curl-builder"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+
+<PageTitle>curl Command Builder - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="curl Command Builder" BackUrl="/" BackLabel="Home">
+    <Actions><span class="text-xs text-gray-400"><i class="ti ti-terminal mr-1"></i> Build curl commands visually</span></Actions>
+</PageHeader>
+
+<div class="space-y-4">
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-bookmark mr-1"></i> Presets</h3>
+        <div class="flex flex-wrap gap-2">
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="PresetGetJson">
+                <i class="ti ti-download mr-1"></i> GET JSON API
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="PresetPostJson">
+                <i class="ti ti-upload mr-1"></i> POST JSON
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="PresetFileUpload">
+                <i class="ti ti-file-upload mr-1"></i> File Upload
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="PresetOAuthToken">
+                <i class="ti ti-key mr-1"></i> OAuth Token
+            </button>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-red-300 dark:border-red-600 hover:bg-red-50 dark:hover:bg-red-900 text-red-600 dark:text-red-400"
+                    @onclick="ResetAll">
+                <i class="ti ti-refresh mr-1"></i> Reset
+            </button>
+        </div>
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-link mr-1"></i> URL &amp; Method</h3>
+        <div class="flex gap-2">
+            <select class="p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-semibold w-32"
+                    @bind="_method"
+                    @bind:after="SaveState">
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+                <option value="DELETE">DELETE</option>
+                <option value="HEAD">HEAD</option>
+                <option value="OPTIONS">OPTIONS</option>
+            </select>
+            <input type="text"
+                   class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                   placeholder="https://api.example.com/v1/resource"
+                   @bind="_url"
+                   @bind:after="SaveState" />
+        </div>
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-list mr-1"></i> Headers</h3>
+            <button type="button"
+                    class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                    @onclick="AddHeader">
+                <i class="ti ti-plus mr-1"></i> Add Header
+            </button>
+        </div>
+
+        <div class="mb-3">
+            <span class="text-xs text-gray-400 mb-1 block">Quick add:</span>
+            <div class="flex flex-wrap gap-1">
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddContentTypeJson">
+                    Content-Type: JSON
+                </button>
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddContentTypeForm">
+                    Content-Type: Form
+                </button>
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddContentTypeMultipart">
+                    Content-Type: Multipart
+                </button>
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddContentTypeXml">
+                    Content-Type: XML
+                </button>
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddAcceptJson">
+                    Accept: JSON
+                </button>
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddAuthorization">
+                    Authorization
+                </button>
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddUserAgent">
+                    User-Agent
+                </button>
+                <button type="button" class="text-xs px-2 py-0.5 rounded cursor-pointer border border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400" @onclick="QuickAddOrigin">
+                    Origin
+                </button>
+            </div>
+        </div>
+
+        @if (_headers.Count == 0)
+        {
+            <div class="text-center text-gray-400 text-sm py-4">
+                <i class="ti ti-list text-2xl"></i>
+                <p class="mt-1">No headers added. Use quick add or click Add Header.</p>
+            </div>
+        }
+
+        @foreach (CurlBuilderCore.CurlHeader header in _headers)
+        {
+            <div class="flex gap-2 mb-2 items-center">
+                <input type="text"
+                       class="w-1/3 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                       placeholder="Header-Name"
+                       value="@header.Key"
+                       @oninput="(ChangeEventArgs e) => header.Key = e.Value?.ToString() ?? string.Empty" />
+                <input type="text"
+                       class="flex-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                       placeholder="value"
+                       value="@header.Value"
+                       @oninput="(ChangeEventArgs e) => header.Value = e.Value?.ToString() ?? string.Empty" />
+                <button type="button"
+                        class="text-red-400 hover:text-red-600 text-sm px-1"
+                        @onclick="() => RemoveHeader(header)">
+                    <i class="ti ti-trash"></i>
+                </button>
+            </div>
+        }
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-shield-lock mr-1"></i> Authentication</h3>
+        <div class="mb-3">
+            <select class="p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                    @bind="_authType"
+                    @bind:after="SaveState">
+                <option value="none">None</option>
+                <option value="basic">Basic Auth</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="apikey">API Key</option>
+            </select>
+        </div>
+
+        @if (_authType == "basic")
+        {
+            <div class="flex gap-2">
+                <input type="text"
+                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                       placeholder="Username"
+                       @bind="_basicUser"
+                       @bind:after="SaveState" />
+                <input type="password"
+                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                       placeholder="Password"
+                       @bind="_basicPass"
+                       @bind:after="SaveState" />
+            </div>
+        }
+        else if (_authType == "bearer")
+        {
+            <input type="text"
+                   class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                   placeholder="eyJhbGciOiJIUzI1NiIs..."
+                   @bind="_bearerToken"
+                   @bind:after="SaveState" />
+        }
+        else if (_authType == "apikey")
+        {
+            <div class="flex gap-2">
+                <input type="text"
+                       class="w-1/3 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm"
+                       placeholder="Header name (e.g. X-API-Key)"
+                       @bind="_apiKeyHeader"
+                       @bind:after="SaveState" />
+                <input type="text"
+                       class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono"
+                       placeholder="your-api-key-here"
+                       @bind="_apiKeyValue"
+                       @bind:after="SaveState" />
+            </div>
+        }
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-file-text mr-1"></i> Request Body</h3>
+
+        <div class="flex gap-2 mb-3 items-center flex-wrap">
+            <button type="button"
+                    class="@BodyModeButtonClass(_bodyMode == "raw")"
+                    @onclick="SetBodyModeRaw">
+                Raw
+            </button>
+            <button type="button"
+                    class="@BodyModeButtonClass(_bodyMode == "form")"
+                    @onclick="SetBodyModeForm">
+                Form Data (-F)
+            </button>
+            <span class="text-gray-300 dark:text-gray-600 mx-1">|</span>
+            <span class="text-xs text-gray-400">Content-Type:</span>
+            <select class="p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                    value="@_selectedBodyContentType"
+                    @onchange="HandleBodyContentTypeChange">
+                <option value="">(manual / from headers)</option>
+                <option value="application/json">application/json</option>
+                <option value="application/x-www-form-urlencoded">application/x-www-form-urlencoded</option>
+                <option value="multipart/form-data">multipart/form-data</option>
+                <option value="text/xml">text/xml</option>
+                <option value="text/plain">text/plain</option>
+            </select>
+        </div>
+
+        <textarea class="w-full h-32 p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="@BodyPlaceholder"
+                  @bind="_bodyContent"
+                  @bind:after="SaveState"></textarea>
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-adjustments mr-1"></i> Options &amp; Flags</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagVerbose" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">-v</code> Verbose
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagInsecure" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">-k</code> Skip TLS verify
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagFollowRedirects" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">-L</code> Follow redirects
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagSilent" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">-s</code> Silent
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagHeadOnly" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">-I</code> Head only
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagCompressed" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">compressed</code>
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagHttp2" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">http2</code>
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" @bind="_flagHttp11" @bind:after="SaveState" class="rounded" />
+                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">http1.1</code>
+            </label>
+        </div>
+
+        <div class="mt-3 space-y-2">
+            <div class="flex items-center gap-2">
+                <label class="flex items-center gap-2 text-sm cursor-pointer w-48 flex-shrink-0">
+                    <input type="checkbox" @bind="_flagOutputFile" @bind:after="SaveState" class="rounded" />
+                    <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">-o</code> Output file
+                </label>
+                <input type="text"
+                       class="flex-1 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm font-mono disabled:opacity-40"
+                       placeholder="output.json"
+                       disabled="@(!_flagOutputFile)"
+                       @bind="_outputFilename"
+                       @bind:after="SaveState" />
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="flex items-center gap-2 text-sm cursor-pointer w-48 flex-shrink-0">
+                    <input type="checkbox" @bind="_flagConnectTimeout" @bind:after="SaveState" class="rounded" />
+                    <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">connect-timeout</code>
+                </label>
+                <input type="number"
+                       class="w-24 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm disabled:opacity-40"
+                       min="1" max="300"
+                       disabled="@(!_flagConnectTimeout)"
+                       @bind="_connectTimeoutSeconds"
+                       @bind:after="SaveState" />
+                <span class="text-xs text-gray-400">seconds</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="flex items-center gap-2 text-sm cursor-pointer w-48 flex-shrink-0">
+                    <input type="checkbox" @bind="_flagMaxTime" @bind:after="SaveState" class="rounded" />
+                    <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">max-time</code>
+                </label>
+                <input type="number"
+                       class="w-24 p-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm disabled:opacity-40"
+                       min="1" max="600"
+                       disabled="@(!_flagMaxTime)"
+                       @bind="_maxTimeSeconds"
+                       @bind:after="SaveState" />
+                <span class="text-xs text-gray-400">seconds</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="border border-gray-200 dark:border-gray-700 rounded p-4 mb-4">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 class="text-sm font-semibold text-gray-500"><i class="ti ti-terminal mr-1"></i> Generated Command</h3>
+            <div class="flex items-center gap-2 flex-wrap">
+                <button type="button"
+                        class="@OutputTabClass(_outputMode == "curl")"
+                        @onclick="SetOutputModeCurl">
+                    curl
+                </button>
+                <button type="button"
+                        class="@OutputTabClass(_outputMode == "powershell")"
+                        @onclick="SetOutputModePowerShell">
+                    PowerShell
+                </button>
+                <span class="text-gray-300 dark:text-gray-600">|</span>
+                <button type="button"
+                        class="text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        @onclick="ToggleMultiLine">
+                    <i class="ti ti-line-height mr-1"></i> @(_multiLine ? "Single-line" : "Multi-line")
+                </button>
+                <button type="button"
+                        class="text-xs px-2 py-1 rounded cursor-pointer border border-green-300 dark:border-green-600 hover:bg-green-50 dark:hover:bg-green-900 text-green-700 dark:text-green-400"
+                        @onclick="CopyCommand">
+                    <i class="ti ti-copy mr-1"></i> @(_copied ? "Copied!" : "Copy")
+                </button>
+            </div>
+        </div>
+        <pre class="p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm font-mono whitespace-pre-wrap break-all min-h-[120px] overflow-x-auto select-all">@GeneratedCommand</pre>
+    </div>
+
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/curl-builder" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+
+    private string _url = string.Empty;
+    private string _method = "GET";
+    private readonly List<CurlBuilderCore.CurlHeader> _headers = [];
+    private string _bodyContent = string.Empty;
+    private string _bodyMode = "raw";
+    private string _selectedBodyContentType = string.Empty;
+    private string _authType = "none";
+    private string _basicUser = string.Empty;
+    private string _basicPass = string.Empty;
+    private string _bearerToken = string.Empty;
+    private string _apiKeyHeader = "X-API-Key";
+    private string _apiKeyValue = string.Empty;
+    private bool _flagVerbose;
+    private bool _flagInsecure;
+    private bool _flagFollowRedirects;
+    private bool _flagSilent;
+    private bool _flagHeadOnly;
+    private bool _flagCompressed;
+    private bool _flagHttp2;
+    private bool _flagHttp11;
+    private bool _flagOutputFile;
+    private string _outputFilename = string.Empty;
+    private bool _flagConnectTimeout;
+    private int _connectTimeoutSeconds = 10;
+    private bool _flagMaxTime;
+    private int _maxTimeSeconds = 30;
+    private bool _multiLine = true;
+    private string _outputMode = "curl";
+    private bool _copied;
+
+    sealed record ToolState(
+        string Url, string Method, string BodyContent, string BodyMode,
+        string SelectedBodyContentType, string AuthType, string BasicUser,
+        string BasicPass, string BearerToken, string ApiKeyHeader, string ApiKeyValue,
+        bool FlagVerbose, bool FlagInsecure, bool FlagFollowRedirects, bool FlagSilent,
+        bool FlagHeadOnly, bool FlagCompressed, bool FlagHttp2, bool FlagHttp11,
+        bool FlagOutputFile, string OutputFilename, bool FlagConnectTimeout,
+        int ConnectTimeoutSeconds, bool FlagMaxTime, int MaxTimeSeconds,
+        bool MultiLine, string OutputMode);
+
+    private string BodyPlaceholder=> _bodyMode == "form"
+        ? "key1=value1\nkey2=value2\nfile=@/path/to/file"
+        : "{\"key\": \"value\"}";
+
+    private CurlBuilderCore.CurlOptions BuildOptions() => new(
+        Method: _method,
+        Url: _url,
+        Headers: _headers,
+        BodyContent: _bodyContent,
+        BodyMode: _bodyMode,
+        AuthType: _authType,
+        BasicUser: _basicUser,
+        BasicPass: _basicPass,
+        BearerToken: _bearerToken,
+        ApiKeyHeader: _apiKeyHeader,
+        ApiKeyValue: _apiKeyValue,
+        Verbose: _flagVerbose,
+        Insecure: _flagInsecure,
+        FollowRedirects: _flagFollowRedirects,
+        Silent: _flagSilent,
+        HeadOnly: _flagHeadOnly,
+        Compressed: _flagCompressed,
+        Http2: _flagHttp2,
+        Http11: _flagHttp11,
+        OutputFile: _flagOutputFile,
+        OutputFilename: _outputFilename,
+        ConnectTimeout: _flagConnectTimeout,
+        ConnectTimeoutSeconds: _connectTimeoutSeconds,
+        MaxTime: _flagMaxTime,
+        MaxTimeSeconds: _maxTimeSeconds,
+        MultiLine: _multiLine);
+
+    private string GeneratedCommand => _outputMode == "curl"
+        ? CurlBuilderCore.BuildCurlCommand(BuildOptions())
+        : CurlBuilderCore.BuildPowerShellCommand(BuildOptions());
+
+    private string BodyModeButtonClass(bool active) => active
+        ? "text-xs px-2 py-1 rounded font-medium bg-blue-600 text-white"
+        : "text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300";
+
+    private string OutputTabClass(bool active) => active
+        ? "text-xs px-2 py-1 rounded font-medium bg-blue-600 text-white"
+        : "text-xs px-2 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300";
+
+    private void SetBodyModeRaw() => _bodyMode = "raw";
+    private void SetBodyModeForm() => _bodyMode = "form";
+    private void SetOutputModeCurl() => _outputMode = "curl";
+    private void SetOutputModePowerShell() => _outputMode = "powershell";
+    private void ToggleMultiLine() => _multiLine = !_multiLine;
+
+    private void AddHeader() => _headers.Add(new CurlBuilderCore.CurlHeader());
+
+    private void RemoveHeader(CurlBuilderCore.CurlHeader header) => _headers.Remove(header);
+
+    private void QuickAddHeader(string key, string value)
+    {
+        CurlBuilderCore.CurlHeader? existing = _headers.FirstOrDefault(
+            h => string.Equals(h.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            existing.Value = value;
+        }
+        else
+        {
+            _headers.Add(new CurlBuilderCore.CurlHeader { Key = key, Value = value });
+        }
+    }
+
+    private void QuickAddContentTypeJson() => QuickAddHeader("Content-Type", "application/json");
+    private void QuickAddContentTypeForm() => QuickAddHeader("Content-Type", "application/x-www-form-urlencoded");
+    private void QuickAddContentTypeMultipart() => QuickAddHeader("Content-Type", "multipart/form-data");
+    private void QuickAddContentTypeXml() => QuickAddHeader("Content-Type", "application/xml");
+    private void QuickAddAcceptJson() => QuickAddHeader("Accept", "application/json");
+    private void QuickAddAuthorization() => QuickAddHeader("Authorization", "Bearer ");
+    private void QuickAddUserAgent() => QuickAddHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    private void QuickAddOrigin() => QuickAddHeader("Origin", "https://example.com");
+
+    private void HandleBodyContentTypeChange(ChangeEventArgs e)
+    {
+        _selectedBodyContentType = e.Value?.ToString() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(_selectedBodyContentType))
+        {
+            QuickAddHeader("Content-Type", _selectedBodyContentType);
+        }
+    }
+
+    private void PresetGetJson()
+    {
+        ResetAll();
+        _method = "GET";
+        _url = "https://api.example.com/v1/resource";
+        _headers.Add(new CurlBuilderCore.CurlHeader { Key = "Accept", Value = "application/json" });
+        _headers.Add(new CurlBuilderCore.CurlHeader { Key = "Authorization", Value = "Bearer YOUR_TOKEN" });
+        _flagFollowRedirects = true;
+    }
+
+    private void PresetPostJson()
+    {
+        ResetAll();
+        _method = "POST";
+        _url = "https://api.example.com/v1/resource";
+        _headers.Add(new CurlBuilderCore.CurlHeader { Key = "Content-Type", Value = "application/json" });
+        _headers.Add(new CurlBuilderCore.CurlHeader { Key = "Accept", Value = "application/json" });
+        _bodyContent = "{\n  \"name\": \"example\",\n  \"value\": 42\n}";
+    }
+
+    private void PresetFileUpload()
+    {
+        ResetAll();
+        _method = "POST";
+        _url = "https://api.example.com/v1/upload";
+        _bodyMode = "form";
+        _bodyContent = "file=@/path/to/file.pdf\ndescription=My upload";
+    }
+
+    private void PresetOAuthToken()
+    {
+        ResetAll();
+        _method = "POST";
+        _url = "https://auth.example.com/oauth/token";
+        _headers.Add(new CurlBuilderCore.CurlHeader { Key = "Content-Type", Value = "application/x-www-form-urlencoded" });
+        _bodyContent = "grant_type=client_credentials&client_id=YOUR_CLIENT_ID&client_secret=YOUR_SECRET";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/curl-builder");
+            if (state is not null)
+            {
+                _url = state.Url;
+                _method = state.Method;
+                _bodyContent = state.BodyContent;
+                _bodyMode = state.BodyMode;
+                _selectedBodyContentType = state.SelectedBodyContentType;
+                _authType = state.AuthType;
+                _basicUser = state.BasicUser;
+                _basicPass = state.BasicPass;
+                _bearerToken = state.BearerToken;
+                _apiKeyHeader = state.ApiKeyHeader;
+                _apiKeyValue = state.ApiKeyValue;
+                _flagVerbose = state.FlagVerbose;
+                _flagInsecure = state.FlagInsecure;
+                _flagFollowRedirects = state.FlagFollowRedirects;
+                _flagSilent = state.FlagSilent;
+                _flagHeadOnly = state.FlagHeadOnly;
+                _flagCompressed = state.FlagCompressed;
+                _flagHttp2 = state.FlagHttp2;
+                _flagHttp11 = state.FlagHttp11;
+                _flagOutputFile = state.FlagOutputFile;
+                _outputFilename = state.OutputFilename;
+                _flagConnectTimeout = state.FlagConnectTimeout;
+                _connectTimeoutSeconds = state.ConnectTimeoutSeconds;
+                _flagMaxTime = state.FlagMaxTime;
+                _maxTimeSeconds = state.MaxTimeSeconds;
+                _multiLine = state.MultiLine;
+                _outputMode = state.OutputMode;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/web/curl-builder", new ToolState(
+            _url, _method, _bodyContent, _bodyMode,
+            _selectedBodyContentType, _authType, _basicUser,
+            _basicPass, _bearerToken, _apiKeyHeader, _apiKeyValue,
+            _flagVerbose, _flagInsecure, _flagFollowRedirects, _flagSilent,
+            _flagHeadOnly, _flagCompressed, _flagHttp2, _flagHttp11,
+            _flagOutputFile, _outputFilename, _flagConnectTimeout,
+            _connectTimeoutSeconds, _flagMaxTime, _maxTimeSeconds,
+            _multiLine, _outputMode));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = System.Text.Json.JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _url = state.Url;
+                _method = state.Method;
+                _bodyContent = state.BodyContent;
+                _bodyMode = state.BodyMode;
+                _selectedBodyContentType = state.SelectedBodyContentType;
+                _authType = state.AuthType;
+                _basicUser = state.BasicUser;
+                _basicPass = state.BasicPass;
+                _bearerToken = state.BearerToken;
+                _apiKeyHeader = state.ApiKeyHeader;
+                _apiKeyValue = state.ApiKeyValue;
+                _flagVerbose = state.FlagVerbose;
+                _flagInsecure = state.FlagInsecure;
+                _flagFollowRedirects = state.FlagFollowRedirects;
+                _flagSilent = state.FlagSilent;
+                _flagHeadOnly = state.FlagHeadOnly;
+                _flagCompressed = state.FlagCompressed;
+                _flagHttp2 = state.FlagHttp2;
+                _flagHttp11 = state.FlagHttp11;
+                _flagOutputFile = state.FlagOutputFile;
+                _outputFilename = state.OutputFilename;
+                _flagConnectTimeout = state.FlagConnectTimeout;
+                _connectTimeoutSeconds = state.ConnectTimeoutSeconds;
+                _flagMaxTime = state.FlagMaxTime;
+                _maxTimeSeconds = state.MaxTimeSeconds;
+                _multiLine = state.MultiLine;
+                _outputMode = state.OutputMode;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private void ResetAll()
+    {
+        _url = string.Empty;
+        _method = "GET";
+        _headers.Clear();
+        _bodyContent = string.Empty;
+        _bodyMode = "raw";
+        _selectedBodyContentType = string.Empty;
+        _authType = "none";
+        _basicUser = string.Empty;
+        _basicPass = string.Empty;
+        _bearerToken = string.Empty;
+        _apiKeyHeader = "X-API-Key";
+        _apiKeyValue = string.Empty;
+        _flagVerbose = false;
+        _flagInsecure = false;
+        _flagFollowRedirects = false;
+        _flagSilent = false;
+        _flagHeadOnly = false;
+        _flagCompressed = false;
+        _flagHttp2 = false;
+        _flagHttp11 = false;
+        _flagOutputFile = false;
+        _outputFilename = string.Empty;
+        _flagConnectTimeout = false;
+        _connectTimeoutSeconds = 10;
+        _flagMaxTime = false;
+        _maxTimeSeconds = 30;
+    }
+
+    private async Task CopyCommand()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GeneratedCommand);
+        _copied = true;
+        await Storage.AddRecentAsync("tools/web/curl-builder",
+            $"{_method} {(string.IsNullOrWhiteSpace(_url) ? "(no URL)" : _url)}",
+            new ToolState(_url, _method, _bodyContent, _bodyMode,
+                _selectedBodyContentType, _authType, _basicUser,
+                _basicPass, _bearerToken, _apiKeyHeader, _apiKeyValue,
+                _flagVerbose, _flagInsecure, _flagFollowRedirects, _flagSilent,
+                _flagHeadOnly, _flagCompressed, _flagHttp2, _flagHttp11,
+                _flagOutputFile, _outputFilename, _flagConnectTimeout,
+                _connectTimeoutSeconds, _flagMaxTime, _maxTimeSeconds,
+                _multiLine, _outputMode));
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+        await Task.Delay(1500);
+        _copied = false;
+    }
+}

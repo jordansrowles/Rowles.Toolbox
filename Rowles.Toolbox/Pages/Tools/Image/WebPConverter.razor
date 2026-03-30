@@ -1,0 +1,244 @@
+@page "/tools/image/webp"
+@using System.Text.Json
+@using Rowles.Toolbox.Core.Image
+@inject IJSRuntime JS
+@inject LocalStorageService Storage
+@implements IAsyncDisposable
+
+<PageTitle>WebP Converter - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="WebP Converter" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-transform mr-1"></i> Convert images to/from WebP format</span>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-upload mr-1"></i> Upload Image</h3>
+            <InputFile OnChange="OnFileSelected" accept="image/png,image/jpeg,image/gif,image/bmp,image/webp"
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400" />
+            <p class="text-xs text-gray-400 mt-2">Accepts PNG, JPEG, GIF, BMP, or WebP (for reverse conversion)</p>
+        </div>
+
+        @if (_originalDataUrl is not null)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-photo mr-1"></i> Comparison</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs text-gray-400 mb-1">Original (@_originalFormat, @WebPConverterCore.FormatBytes(_originalSize))</p>
+                        <img src="@_originalDataUrl" alt="Original" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                    </div>
+                    @if (_convertedDataUrl is not null)
+                    {
+                        <div>
+                            <p class="text-xs text-gray-400 mb-1">Converted (@_outputFormatLabel, @WebPConverterCore.FormatBytes(_convertedSize))</p>
+                            <img src="@_convertedDataUrl" alt="Converted" class="max-w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @if (_convertedDataUrl is not null)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-chart-bar mr-1"></i> Size Comparison</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-gray-500">Original</span>
+                            <span class="font-mono">@WebPConverterCore.FormatBytes(_originalSize)</span>
+                        </div>
+                        <div class="w-full bg-gray-200 dark:bg-gray-700 rounded h-3">
+                            <div class="bg-blue-500 h-3 rounded" style="width: 100%"></div>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-gray-500">Converted</span>
+                            <span class="font-mono">@WebPConverterCore.FormatBytes(_convertedSize)</span>
+                        </div>
+                        <div class="w-full bg-gray-200 dark:bg-gray-700 rounded h-3">
+                            <div class="@(_savings >= 0 ? "bg-green-500" : "bg-red-500") h-3 rounded" style="width: @(Math.Min(100, WebPConverterCore.CalculateSizePercentage(_originalSize, _convertedSize)))%"></div>
+                        </div>
+                        <p class="text-sm font-semibold @(_savings >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")">
+                            @if (_savings >= 0)
+                            {
+                                <i class="ti ti-trending-down mr-0.5"></i>
+                                @($"{_savings:F1}% smaller")
+                            }
+                            else
+                            {
+                                <i class="ti ti-trending-up mr-0.5"></i>
+                                @($"{Math.Abs(_savings):F1}% larger")
+                            }
+                        </p>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="space-y-3">
+        <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+            <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-arrows-exchange mr-1"></i> Direction</h3>
+            <div class="flex gap-2">
+                <button class="flex-1 px-3 py-1 text-xs rounded cursor-pointer border-none @(!_reverseMode ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                        @onclick="() => SetModeAsync(false)">
+                    → WebP
+                </button>
+                <button class="flex-1 px-3 py-1 text-xs rounded cursor-pointer border-none @(_reverseMode ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300")"
+                        @onclick="() => SetModeAsync(true)">
+                    WebP → PNG
+                </button>
+            </div>
+        </div>
+
+        @if (!_reverseMode)
+        {
+            <div class="border border-gray-200 dark:border-gray-700 rounded p-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3"><i class="ti ti-adjustments mr-1"></i> Quality</h3>
+                <label class="text-xs font-medium">Quality: @_quality%</label>
+                <input type="range" min="1" max="100" class="w-full" @bind="_quality" @bind:event="oninput" @bind:after="SaveState" />
+                <p class="text-[10px] text-gray-400 mt-1">Lower quality = smaller file size</p>
+            </div>
+        }
+
+        <div class="flex gap-2">
+            <button class="flex-1 bg-blue-600 text-white px-3 py-2 text-xs rounded hover:bg-blue-700 cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    @onclick="ConvertImage" disabled="@(_originalDataUrl is null || _isProcessing)">
+                <i class="ti ti-transform mr-0.5"></i> @(_isProcessing ? "Converting…" : "Convert")
+            </button>
+            @if (_convertedDataUrl is not null)
+            {
+                <button class="flex-1 bg-green-600 text-white px-3 py-2 text-xs rounded hover:bg-green-700 cursor-pointer border-none"
+                        @onclick="DownloadResult">
+                    <i class="ti ti-download mr-0.5"></i> Download
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="webp-converter" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private IJSObjectReference? _jsModule;
+    private string? _originalDataUrl;
+    private string? _convertedDataUrl;
+    private string _fileName = string.Empty;
+    private string _originalFormat = string.Empty;
+    private long _originalSize;
+    private long _convertedSize;
+    private double _savings;
+    private int _quality = 80;
+    private bool _reverseMode;
+    private bool _isProcessing;
+
+    private string _outputFormatLabel => _reverseMode ? "PNG" : "WebP";
+
+    sealed record ToolState(int Quality, bool ReverseMode);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Pages/Tools/Image/WebPConverter.razor.js");
+            ToolState? state = await Storage.LoadStateAsync<ToolState>("webp-converter");
+            if (state is not null)
+            {
+                _quality = state.Quality;
+                _reverseMode = state.ReverseMode;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        IBrowserFile file = e.File;
+        long maxSize = 50 * 1024 * 1024;
+        using System.IO.Stream stream = file.OpenReadStream(maxSize);
+        byte[] buffer = new byte[file.Size];
+        int bytesRead = await stream.ReadAsync(buffer);
+        string base64 = Convert.ToBase64String(buffer, 0, bytesRead);
+        _originalDataUrl = $"data:{file.ContentType};base64,{base64}";
+        _originalSize = file.Size;
+        _fileName = file.Name;
+        _originalFormat = file.ContentType.Split('/').LastOrDefault()?.ToUpperInvariant() ?? "Unknown";
+
+        if (_originalFormat == "WEBP" && !_reverseMode)
+        {
+            _reverseMode = true;
+        }
+
+        _convertedDataUrl = null;
+    }
+
+    private async Task SetModeAsync(bool reverse)
+    {
+        _reverseMode = reverse;
+        _convertedDataUrl = null;
+        await SaveState();
+    }
+
+    private async Task ConvertImage()
+    {
+        if (_jsModule is null || _originalDataUrl is null) return;
+        _isProcessing = true;
+        StateHasChanged();
+
+        string targetFormat = _reverseMode ? "png" : "webp";
+        JsonElement result = await _jsModule.InvokeAsync<JsonElement>("convertImage", _originalDataUrl, targetFormat, _quality);
+
+        _convertedDataUrl = result.GetProperty("dataUrl").GetString();
+        _convertedSize = result.GetProperty("size").GetInt64();
+        _savings = WebPConverterCore.CalculateSavings(_originalSize, _convertedSize);
+        _isProcessing = false;
+
+        string direction = _reverseMode ? "WebP→PNG" : "PNG→WebP";
+        string label = $"{direction} Q{_quality}%";
+        ToolState state = new(_quality, _reverseMode);
+        await Storage.AddRecentAsync("webp-converter", label, state);
+        if (_recentPanel is not null) await _recentPanel.RefreshAsync();
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_quality, _reverseMode);
+        await Storage.SaveStateAsync("webp-converter", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _quality = state.Quality;
+                _reverseMode = state.ReverseMode;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task DownloadResult()
+    {
+        if (_jsModule is null || _convertedDataUrl is null) return;
+        string ext = _reverseMode ? "png" : "webp";
+        string outputName = $"{System.IO.Path.GetFileNameWithoutExtension(_fileName)}.{ext}";
+        await _jsModule.InvokeVoidAsync("downloadDataUrl", _convertedDataUrl, outputName);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            await _jsModule.DisposeAsync();
+        }
+    }
+}

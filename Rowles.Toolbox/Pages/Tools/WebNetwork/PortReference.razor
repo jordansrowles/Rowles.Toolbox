@@ -1,0 +1,146 @@
+@page "/tools/web/port-reference"
+@using Rowles.Toolbox.Core.WebNetwork
+@using System.Text.Json
+@inject LocalStorageService Storage
+
+<PageTitle>Port Reference - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="Port Reference" BackUrl="/tools" BackLabel="Tools">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-plug mr-1"></i> Well-known and common service port numbers</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <div class="flex flex-wrap gap-2 items-center">
+        <input type="text"
+               class="flex-1 min-w-[200px] p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               placeholder="Search by port number, service, or description…"
+               @bind="_searchTerm"
+               @bind:after="SaveState" />
+        <div class="flex gap-1 text-xs">
+            <button type="button" class="@FilterBtnClass(null)" @onclick="() => SetFilter(null)">All</button>
+            <button type="button" class="@FilterBtnClass("TCP")" @onclick='() => SetFilter("TCP")'>TCP</button>
+            <button type="button" class="@FilterBtnClass("UDP")" @onclick='() => SetFilter("UDP")'>UDP</button>
+            <button type="button" class="@FilterBtnClass("TCP/UDP")" @onclick='() => SetFilter("TCP/UDP")'>Both</button>
+        </div>
+    </div>
+
+    <div class="text-xs text-gray-400">
+        Showing @FilteredPorts.Count of @PortReferenceCore.AllPorts.Count ports
+    </div>
+
+    <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                    <th class="px-3 py-2 text-left font-medium text-gray-500 w-20">Port</th>
+                    <th class="px-3 py-2 text-left font-medium text-gray-500 w-24">Protocol</th>
+                    <th class="px-3 py-2 text-left font-medium text-gray-500 w-36">Service</th>
+                    <th class="px-3 py-2 text-left font-medium text-gray-500">Description</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                @foreach (PortReferenceCore.PortEntry port in FilteredPorts)
+                {
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        <td class="px-3 py-2 font-mono font-bold text-blue-600 dark:text-blue-400">@port.Number</td>
+                        <td class="px-3 py-2">
+                            <span class="@PortReferenceCore.ProtocolBadge(port.Protocol) px-1.5 py-0.5 rounded text-xs font-medium">@port.Protocol</span>
+                        </td>
+                        <td class="px-3 py-2 font-medium">@port.Service</td>
+                        <td class="px-3 py-2 text-gray-500 dark:text-gray-400">@port.Description</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (FilteredPorts.Count == 0)
+    {
+        <div class="text-center text-gray-400 text-sm py-8">
+            <i class="ti ti-search-off text-3xl"></i>
+            <p class="mt-2">No ports match your search.</p>
+        </div>
+    }
+</div>
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/port-reference" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _searchTerm = string.Empty;
+    private string? _protocolFilter;
+
+    sealed record ToolState(string SearchTerm, string? ProtocolFilter);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await LoadState();
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/port-reference");
+        if (state is not null)
+        {
+            _searchTerm = state.SearchTerm;
+            _protocolFilter = state.ProtocolFilter;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        await Storage.SaveStateAsync("tools/web/port-reference", new ToolState(_searchTerm, _protocolFilter));
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _searchTerm = state.SearchTerm;
+                _protocolFilter = state.ProtocolFilter;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { }
+    }
+
+    private async Task SetFilter(string? protocol)
+    {
+        _protocolFilter = protocol;
+        await SaveState();
+    }
+
+    private string FilterBtnClass(string? protocol) =>
+        _protocolFilter == protocol
+            ? "px-2 py-1 rounded bg-blue-600 text-white"
+            : "px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+
+    private List<PortReferenceCore.PortEntry> FilteredPorts
+    {
+        get
+        {
+            IEnumerable<PortReferenceCore.PortEntry> result = PortReferenceCore.AllPorts;
+
+            if (_protocolFilter is not null)
+                result = result.Where(p => p.Protocol == _protocolFilter || p.Protocol == "TCP/UDP");
+
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                string term = _searchTerm.Trim();
+                result = result.Where(p =>
+                    p.Number.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.Service.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.Description.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return result.ToList();
+        }
+    }
+}

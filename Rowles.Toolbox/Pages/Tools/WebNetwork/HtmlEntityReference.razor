@@ -1,0 +1,205 @@
+@page "/tools/web/html-entities"
+@using Rowles.Toolbox.Core.WebNetwork
+@inject IJSRuntime Js
+@inject LocalStorageService Storage
+
+<PageTitle>HTML Entity Reference - Rowles.Toolbox</PageTitle>
+
+<PageHeader Title="HTML Entities" BackUrl="/" BackLabel="Home">
+    <Actions>
+        <span class="text-xs text-gray-400"><i class="ti ti-code mr-1"></i> Searchable named HTML entity reference</span>
+    </Actions>
+</PageHeader>
+
+<div class="space-y-4">
+    <input type="text"
+           class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+           placeholder="Search by name, character, description, or code\u2026"
+           @bind="_searchTerm"
+           @bind:after="SaveState" />
+
+    <div class="flex flex-wrap gap-1 text-xs">
+        <button type="button" class="@CategoryBtnClass(null)" @onclick="async () => { _categoryFilter = null; await SaveState(); }">
+            All
+        </button>
+        @foreach (string cat in HtmlEntityReferenceCore.Categories)
+        {
+            <button type="button" class="@CategoryBtnClass(cat)" @onclick="@(() => SetCategory(cat))">
+                <i class="@HtmlEntityReferenceCore.CategoryIcon(cat) mr-0.5"></i> @cat
+            </button>
+        }
+    </div>
+
+    <div class="text-xs text-gray-400">
+        Showing @FilteredEntities.Count of @HtmlEntityReferenceCore.AllEntities.Count entities
+    </div>
+
+    <div class="max-h-[68vh] overflow-y-auto">
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+            @foreach (HtmlEntityReferenceCore.HtmlEntity entity in FilteredEntities)
+            {
+                <div class="border border-gray-200 dark:border-gray-700 rounded p-3 hover:border-blue-400 dark:hover:border-blue-500 transition-colors">
+                    <div class="text-3xl text-center h-10 flex items-center justify-center cursor-pointer hover:text-blue-500 transition-colors"
+                         title="Copy character"
+                         @onclick="() => CopyValue(entity.Character)">
+                        @if (HtmlEntityReferenceCore.IsInvisible(entity))
+                        {
+                            <span class="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-400 font-mono tracking-wider">
+                                @entity.Name.ToUpperInvariant()
+                            </span>
+                        }
+                        else
+                        {
+                            @entity.Character
+                        }
+                    </div>
+
+                    <div class="font-mono text-xs text-center font-semibold text-blue-600 dark:text-blue-400 cursor-pointer hover:underline mt-1"
+                         title="Copy entity name"
+                         @onclick="() => CopyValue(HtmlEntityReferenceCore.FormatName(entity))">
+                        @HtmlEntityReferenceCore.FormatName(entity)
+                    </div>
+
+                    <div class="flex justify-center gap-1.5 text-[10px] font-mono text-gray-400 mt-0.5">
+                        <span class="cursor-pointer hover:text-blue-500 transition-colors"
+                              title="Copy decimal code"
+                              @onclick="() => CopyValue(entity.DecimalCode)">
+                            @entity.DecimalCode
+                        </span>
+                        <span class="text-gray-300 dark:text-gray-600">|</span>
+                        <span class="cursor-pointer hover:text-blue-500 transition-colors"
+                              title="Copy hex code"
+                              @onclick="() => CopyValue(entity.HexCode)">
+                            @entity.HexCode
+                        </span>
+                    </div>
+
+                    <div class="text-[10px] text-gray-500 dark:text-gray-400 text-center leading-tight mt-1">
+                        @entity.Description
+                    </div>
+
+                    <div class="text-center mt-1.5">
+                        <span class="@HtmlEntityReferenceCore.CategoryBadgeClass(entity.Category) text-[9px] px-1.5 py-0.5 rounded-full">
+                            @entity.Category
+                        </span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (FilteredEntities.Count == 0)
+    {
+        <div class="text-center text-gray-400 text-sm py-8">
+            <i class="ti ti-search-off text-3xl"></i>
+            <p class="mt-2">No entities match your search.</p>
+        </div>
+    }
+</div>
+
+@if (_statusMessage is not null)
+{
+    <div class="fixed bottom-4 right-4 bg-green-600 text-white text-xs px-3 py-1.5 rounded shadow-lg z-50">
+        <i class="ti ti-check mr-1"></i> @_statusMessage
+    </div>
+}
+
+<RecentEntryPanel @ref="_recentPanel" ToolKey="tools/web/html-entities" OnRestore="RestoreState" />
+
+@code {
+    private RecentEntryPanel? _recentPanel;
+    private string _searchTerm = string.Empty;
+    private string? _categoryFilter;
+    private string? _statusMessage;
+
+    sealed record ToolState(
+        string SearchTerm,
+        string? CategoryFilter
+    );
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+    }
+
+    private async Task LoadState()
+    {
+        ToolState? state = await Storage.LoadStateAsync<ToolState>("tools/web/html-entities");
+        if (state is not null)
+        {
+            _searchTerm = state.SearchTerm;
+            _categoryFilter = state.CategoryFilter;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveState()
+    {
+        ToolState state = new(_searchTerm, _categoryFilter);
+        await Storage.SaveStateAsync("tools/web/html-entities", state);
+    }
+
+    private async Task RestoreState(string json)
+    {
+        try
+        {
+            ToolState? state = JsonSerializer.Deserialize<ToolState>(json);
+            if (state is not null)
+            {
+                _searchTerm = state.SearchTerm;
+                _categoryFilter = state.CategoryFilter;
+                StateHasChanged();
+                await SaveState();
+            }
+        }
+        catch { /* ignore invalid JSON */ }
+    }
+
+    private async Task SetCategory(string cat)
+    {
+        _categoryFilter = _categoryFilter == cat ? null : cat;
+        await SaveState();
+    }
+
+    private List<HtmlEntityReferenceCore.HtmlEntity> FilteredEntities
+    {
+        get
+        {
+            IEnumerable<HtmlEntityReferenceCore.HtmlEntity> result = HtmlEntityReferenceCore.AllEntities;
+
+            if (_categoryFilter is not null)
+                result = result.Where(e => e.Category == _categoryFilter);
+
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                string term = _searchTerm.Trim();
+                result = result.Where(e =>
+                    e.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    e.Character.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    e.Description.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    e.DecimalCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    e.HexCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    HtmlEntityReferenceCore.FormatName(e).Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return result.ToList();
+        }
+    }
+
+    private string CategoryBtnClass(string? cat) =>
+        _categoryFilter == cat
+            ? "px-2 py-1 rounded bg-blue-600 text-white"
+            : "px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600";
+
+    private async Task CopyValue(string value)
+    {
+        await Js.InvokeVoidAsync("navigator.clipboard.writeText", value);
+        _statusMessage = $"Copied {value}";
+        StateHasChanged();
+        await Task.Delay(1500);
+        _statusMessage = null;
+    }
+}
