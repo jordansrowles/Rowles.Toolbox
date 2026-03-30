@@ -8,6 +8,10 @@ on:
 
 jobs:
   build:
+    if: |
+      github.event_name == 'pull_request' ||
+      startsWith(github.event.head_commit.message, '[build]') ||
+      startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
