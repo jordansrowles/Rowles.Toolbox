@@ -31,9 +31,17 @@ jobs:
       - name: Publish
         run: dotnet publish Rowles.Toolbox/Rowles.Toolbox.csproj -c Release -o output
 
+      - name: Create Cloudflare Pages project (if needed)
+        uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create rowles-toolbox --production-branch=main
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy output/wwwroot --project-name=rowles-toolbox
+          command: pages deploy output/wwwroot --project-name=rowles-toolbox --commit-dirty=true
